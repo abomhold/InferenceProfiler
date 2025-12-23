@@ -1,7 +1,7 @@
 PROJECT_NAME  := inference-profiler
-DOCKER_IMAGE  := inference-profiler
+DOCKER_IMAGE  := $(PROJECT_NAME)
 DOCKER_TAG    := latest
-OUTPUT_DIR    := ./output
+OUTPUT_DIR    := ./profiler-output
 DIST_DIR      := dist
 
 .DELETE_ON_ERROR:
@@ -15,23 +15,16 @@ help: ##@ Shows this help message
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?##@ "} /^[a-zA-Z0-9_-]+:.*?##@ / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-dev-refresh: ##@ Sync dependencies
-	@echo "--- Syncing Dependencies (uv) ---"
-	@uv sync --dev
-	@#echo "--- Formatting Code (ruff) ---"
-	@#uv run ruff format .
-	@#echo "--- Linting Code (ruff) ---"
-	@#uv run ruff check .
-
-build: dev-refresh ##@ Build Python wheel
+build: ##@ Build Python wheel
 	@echo "--- Building Wheel ---"
+	@uv sync --dev
 	@uv build
 	@echo "Build artifacts created in $(DIST_DIR)"
 
 run: ##@ Run profiler locally using uv
 	@echo "--- Running Profiler Locally ---"
 	@mkdir -p $(OUTPUT_DIR)
-	@# Runs the 'inference-profiler' script defined in pyproject.toml
+	@uv sync --dev
 	@uv run inference-profiler -o $(OUTPUT_DIR) -t 1000
 
 docker-build: build ##@ Build Docker image
@@ -62,4 +55,4 @@ clean: ##@ Remove build artifacts, cache, and output
 	@find . -type d -name "*.egg-info" -exec rm -rf {} +
 	@rm -rf inference_profiler.egg-info
 	@echo "--- Removing Docker Image ---"
-	@-docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true
+	@docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) 2>/dev/null || true

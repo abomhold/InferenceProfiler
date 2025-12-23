@@ -25,17 +25,17 @@ def main():
     parser = argparse.ArgumentParser(description="Resource Profiler with CSV/Parquet Export")
     parser.add_argument("-o", "--output", default="./profiler-output", help="Output directory for logs")
     parser.add_argument("-t", "--interval", type=int, default=1000, help="Sampling interval in milliseconds")
+    parser.add_argument("-f", "--format", choices=['parquet', 'csv', 'tsv'], default='parquet',
+                        help="Final export format (default: parquet)")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command to execute and profile")
     args = parser.parse_args()
-
-    # Create output directory immediately
-    os.makedirs(args.output, exist_ok=True)
 
     # --- 2. Initialization ---
     session_uuid = str(uuid.uuid4())
     logger.info("Session UUID: %s", session_uuid)
     logger.info("Output Dir:   %s", args.output)
     logger.info("Interval:     %dms", args.interval)
+    logger.info("Format:       %s", args.format)
 
     collector = CollectorManager()
     exporter = Exporter(args.output, session_uuid)
@@ -45,14 +45,16 @@ def main():
     static_data = collector.get_static_info(session_uuid)
     exporter.save_static(static_data)
 
-    # --- 3. Process Management (Optional) ---
+    # --- 3. Process Management ---
     proc = None
     if args.command:
-        # Handle cases where command is passed after '--'
-        cmd_args = args.command[1:] if args.command[0] == '--' else args.command
+        cmd_args = args.command[1:] if args.command and args.command[0] == '--' else args.command
+        if not cmd_args:
+            logger.error("No command provided after flags.")
+            sys.exit(1)
+
         logger.info("Starting subprocess: %s", ' '.join(cmd_args))
         try:
-            # Start the command non-blocking
             proc = subprocess.Popen(cmd_args)
         except Exception as e:
             logger.critical("Failed to start command: %s", e)
@@ -76,22 +78,19 @@ def main():
         while running:
             loop_start = time.time()
 
-            # A. Collect
+            # A. Collect & Export JSON Snapshot
             metrics = collector.collect_metrics()
-
-            # B. Export Snapshot (JSON)
             exporter.save_snapshot(metrics)
 
-            # C. Check Subprocess Status
+            # B. Check Subprocess Status
             if proc and proc.poll() is not None:
                 logger.info("Subprocess finished with exit code %d", proc.returncode)
                 running = False
                 break
 
-            # D. Sleep Logic (Compensate for collection time)
+            # C. Sleep Logic
             elapsed_sec = time.time() - loop_start
             sleep_sec = (args.interval / 1000.0) - elapsed_sec
-
             if sleep_sec > 0:
                 time.sleep(sleep_sec)
 
@@ -102,7 +101,6 @@ def main():
         # --- 6. Cleanup & Post-Processing ---
         logger.info("Shutting down...")
 
-        # Kill subprocess if it's still alive (and we started it)
         if proc and proc.poll() is None:
             logger.info("Terminating subprocess...")
             proc.terminate()
@@ -111,12 +109,10 @@ def main():
             except subprocess.TimeoutExpired:
                 proc.kill()
 
-        # Close collector resources (e.g. NVML)
         collector.close()
 
-        # Convert JSON snapshots to CSV/Parquet
-        logger.info("Converting session data...")
-        exporter.process_session()
+        logger.info("Converting session data to %s...", args.format.upper())
+        exporter.process_session(export_format=args.format)
         logger.info("Done.")
 
 

@@ -1,6 +1,5 @@
 import os
 import time
-from abc import abstractmethod, ABC
 from typing import Dict, Any
 
 import psutil
@@ -12,6 +11,7 @@ from .mem import MemCollector
 from .net import NetCollector
 from .nvidia import NvidiaCollector
 
+
 class CollectorManager:
     def __init__(self):
         self.collectors = {
@@ -19,8 +19,8 @@ class CollectorManager:
             "mem": MemCollector(),
             "disk": DiskCollector(),
             "net": NetCollector(),
+            "containers": ContainerCollector(),
             "nvidia": NvidiaCollector(),
-            "containers": ContainerCollector()
         }
 
     def collect_metrics(self) -> Dict[str, Any]:
@@ -42,7 +42,7 @@ class CollectorManager:
             "uuid": session_uuid,
             "host": {
                 "hostname": os.uname().nodename,
-                "kernel": f"{os.uname()}",
+                "kernel": " ".join([x for x in os.uname()]),
                 "boot_time": psutil.boot_time(),
             }
         }
@@ -59,4 +59,3 @@ class CollectorManager:
             info["nvidia"] = []
 
         return info
-
