@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PATH="/root/.local/bin:$PATH"
 COPY dist/*.whl /app/dist/
 RUN pipx install /app/dist/*.whl --force
-ENTRYPOINT ["inference-profiler", "-o", "/profiler-output", "-t", "1000"]
+ENTRYPOINT ["inference_profiler", "-o", "/profiler-output", "-t", "1000"]
 
 # Default command
 # CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]

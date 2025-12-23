@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-inference-profiler = "inference_profiler.main:main"
+inference_profiler = "inference_profiler.main:main"
 
 [build-system]
 requires = ["hatchling"]

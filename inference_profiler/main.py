@@ -25,7 +25,7 @@ def main():
     parser = argparse.ArgumentParser(description="Resource Profiler with CSV/Parquet Export")
     parser.add_argument("-o", "--output", default="./profiler-output", help="Output directory for logs")
     parser.add_argument("-t", "--interval", type=int, default=1000, help="Sampling interval in milliseconds")
-    parser.add_argument("-f", "--format", choices=['parquet', 'csv', 'tsv'], default='parquet',
+    parser.add_argument("-f", "--format", choices=['parquet', 'csv', 'tsv'], default='csv',
                         help="Final export format (default: parquet)")
     parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command to execute and profile")
     args = parser.parse_args()

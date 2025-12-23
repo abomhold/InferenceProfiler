@@ -1,7 +1,7 @@
 PROJECT_NAME  := inference-profiler
 DOCKER_IMAGE  := $(PROJECT_NAME)
 DOCKER_TAG    := latest
-OUTPUT_DIR    := ./profiler-output
+OUTPUT_DIR    := ./output
 DIST_DIR      := dist
 
 .DELETE_ON_ERROR:
@@ -17,14 +17,14 @@ help: ##@ Shows this help message
 
 build: ##@ Build Python wheel
 	@echo "--- Building Wheel ---"
-	@uv sync --dev
+	@uv sync
 	@uv build
 	@echo "Build artifacts created in $(DIST_DIR)"
 
 run: ##@ Run profiler locally using uv
 	@echo "--- Running Profiler Locally ---"
 	@mkdir -p $(OUTPUT_DIR)
-	@uv sync --dev
+	@uv sync
 	@uv run inference-profiler -o $(OUTPUT_DIR) -t 1000
 
 docker-build: build ##@ Build Docker image

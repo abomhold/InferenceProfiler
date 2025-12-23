@@ -1,16 +1,59 @@
-import psutil
+import re
+import time
+
+from inference_profiler.collectors.base import BaseColletor
 
 
-class DiskCollector:
+class DiskCollector(BaseColletor):
+    """Collects disk I/O metrics at VM level using standard Unix files."""
+
+    # Sector size is standard 512 bytes for /proc/diskstats
+    SECTOR_SIZE = 512
+
     @staticmethod
     def collect():
-        disk_io = psutil.disk_io_counters()
-        if not disk_io:
-            return {}
+        stats, t_read = DiskCollector._get_disk_io()
 
         return {
-            "read_bytes": disk_io.read_bytes,
-            "write_bytes": disk_io.write_bytes,
-            "read_count": disk_io.read_count,
-            "write_count": disk_io.write_count
+            "read_bytes": stats['read_bytes'],
+            "tv_read_bytes": t_read,
+
+            "write_bytes": stats['write_bytes'],
+            "tv_write_bytes": t_read,
+
+            "read_count": stats['read_count'],
+            "tv_read_count": t_read,
+
+            "write_count": stats['write_count'],
+            "tv_write_count": t_read
         }
+
+    @staticmethod
+    def _get_disk_io():
+        metrics = {'read_count': 0, 'write_count': 0, 'read_bytes': 0, 'write_bytes': 0}
+
+        # Regex to match physical devices (sda, vda, nvme0n1, mmcblk0)
+        # Excludes partitions (sda1), loopbacks (loop0), and ram (ram0)
+        # 1. sd/hd/vd + letters (standard disks)
+        # 2. nvme/mmc patterns (modern flash storage)
+        # 3. xvd + letters (Xen disks)
+        disk_pattern = re.compile(r'^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
+
+        timestamp = time.time()
+        try:
+            with open('/proc/diskstats', 'r') as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) < 14:
+                        continue
+                    dev_name = parts[2]
+                    if disk_pattern.match(dev_name):
+                        metrics['read_count'] += int(parts[3])
+                        metrics['read_bytes'] += int(parts[5]) * DiskCollector.SECTOR_SIZE
+                        metrics['write_count'] += int(parts[7])
+                        metrics['write_bytes'] += int(parts[9]) * DiskCollector.SECTOR_SIZE
+
+        except Exception:
+            pass
+
+        return metrics, timestamp
