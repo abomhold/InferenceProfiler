@@ -1,0 +1,15 @@
+[project]
+name = "inference-profilier"
+version = "0.1.0"
+description = "System resource profiler with export to CSV/Parquet"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "psutil>=5.9.0",
+    "pynvml>=11.5.0", # For NVIDIA GPU metrics (lazy import)
+    "pandas>=2.0.0", # For CSV/Parquet export
+    "pyarrow>=14.0.0", # For Parquet backend
+]
+
+[project.scripts]
+profiler = "src.main:main"
