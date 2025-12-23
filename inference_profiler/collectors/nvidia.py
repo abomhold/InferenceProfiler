@@ -9,8 +9,6 @@ logger = logging.getLogger(__name__)
 
 try:
     import pynvml
-
-    # Using nvidia-ml-py which is the modern replacement for pynvml
     HAS_NVML = True
 except ImportError:
     HAS_NVML = False

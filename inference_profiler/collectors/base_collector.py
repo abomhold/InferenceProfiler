@@ -7,9 +7,8 @@ from typing import Dict, Any
 class BaseCollector(ABC):
     JIFFIES_PER_SECOND = 100
 
-    @staticmethod
     @abstractmethod
-    def collect() -> Dict[str, Any]:
+    def collect(self) -> Dict[str, Any]:
         raise NotImplementedError
 
     @staticmethod
