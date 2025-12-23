@@ -3,8 +3,6 @@ from typing import Dict, Any, List
 
 import psutil
 
-from .base_collector import BaseCollector
-
 logger = logging.getLogger(__name__)
 
 try:
@@ -14,7 +12,7 @@ except ImportError:
     HAS_NVML = False
 
 
-class NvidiaCollector(BaseCollector):
+class NvidiaCollector:
     def __init__(self):
         self.available = False
         if HAS_NVML:
@@ -110,7 +108,8 @@ class NvidiaCollector(BaseCollector):
 
         return info
 
-    def _get_proc_name(self, pid: int) -> str:
+    @staticmethod
+    def _get_proc_name(pid: int) -> str:
         try:
             return psutil.Process(pid).name()
         except Exception:

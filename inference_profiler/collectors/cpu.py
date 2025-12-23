@@ -5,16 +5,18 @@ import psutil
 
 from .base_collector import BaseCollector
 
+JIFFIES_PER_SECOND = 100
+
 
 class CpuCollector(BaseCollector):
     @staticmethod
     def collect():
         times = psutil.cpu_times()
         return {
-            "user": times.user * BaseCollector.JIFFIES_PER_SECOND,
-            "system": times.system * BaseCollector.JIFFIES_PER_SECOND,
-            "idle": times.idle * BaseCollector.JIFFIES_PER_SECOND,
-            "iowait": getattr(times, 'iowait', 0) * BaseCollector.JIFFIES_PER_SECOND,
+            "user": times.user * JIFFIES_PER_SECOND,
+            "system": times.system * JIFFIES_PER_SECOND,
+            "idle": times.idle * JIFFIES_PER_SECOND,
+            "iowait": getattr(times, 'iowait', 0) * JIFFIES_PER_SECOND,
             "load_avg": psutil.getloadavg()[0]
         }
 

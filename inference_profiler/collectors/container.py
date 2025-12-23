@@ -1,10 +1,9 @@
 import os
 
-from .base_collector import BaseCollector
-
 CGROUP_DIR = '/sys/fs/cgroup'
 
-class ContainerCollector(BaseCollector):
+
+class ContainerCollector:
     @staticmethod
     def collect():
         if not os.path.exists(CGROUP_DIR):

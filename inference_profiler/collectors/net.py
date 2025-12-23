@@ -1,9 +1,7 @@
 import psutil
 
-from .base_collector import BaseCollector
 
-
-class NetCollector(BaseCollector):
+class NetCollector:
     @staticmethod
     def collect():
         net_io = psutil.net_io_counters()

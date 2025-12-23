@@ -1,17 +1,16 @@
 import psutil
 
-from .base_collector import BaseCollector
+JIFFIES_PER_SECOND = 100
 
-class MemCollector(BaseCollector):
+
+class MemCollector:
     @staticmethod
     def collect():
         mem = psutil.virtual_memory()
         return {
-            "total": mem.total * BaseCollector.JIFFIES_PER_SECOND,
-            "free": mem.free * BaseCollector.JIFFIES_PER_SECOND,
-            "used": mem.used * BaseCollector.JIFFIES_PER_SECOND,
-            "cached": getattr(mem, 'cached', 0) * BaseCollector.JIFFIES_PER_SECOND,
-            "buffers": getattr(mem, 'buffers', 0) * BaseCollector.JIFFIES_PER_SECOND
+            "total": mem.total * JIFFIES_PER_SECOND,
+            "free": mem.free * JIFFIES_PER_SECOND,
+            "used": mem.used * JIFFIES_PER_SECOND,
+            "cached": getattr(mem, 'cached', 0) * JIFFIES_PER_SECOND,
+            "buffers": getattr(mem, 'buffers', 0) * JIFFIES_PER_SECOND
         }
-
-
