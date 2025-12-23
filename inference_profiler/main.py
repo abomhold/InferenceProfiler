@@ -7,8 +7,8 @@ import sys
 import os
 import logging
 
-from inference_profiler.collectors.collector_manager import CollectorManager
-from inference_profiler.exporter import Exporter
+from .collectors.collector_manager import CollectorManager
+from .exporter import Exporter
 
 logger = logging.getLogger(__name__)
 

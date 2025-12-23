@@ -1,6 +1,6 @@
 import glob
 import os
-from inference_profiler.collectors.base import BaseColletor
+from .base import BaseColletor
 
 
 class ProcCollector(BaseColletor):

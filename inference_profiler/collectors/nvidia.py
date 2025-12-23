@@ -2,7 +2,7 @@ import logging
 import warnings
 from typing import Dict, Any, List
 
-from inference_profiler.collectors.base import BaseColletor
+from .base import BaseColletor
 
 # Suppress FutureWarning from pynvml about the new nvidia-ml-py package
 warnings.filterwarnings("ignore", category=FutureWarning, module="pynvml")

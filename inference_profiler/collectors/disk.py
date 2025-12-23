@@ -1,7 +1,7 @@
 import re
 import time
 
-from inference_profiler.collectors.base import BaseColletor
+from .base import BaseColletor
 
 
 class DiskCollector(BaseColletor):
