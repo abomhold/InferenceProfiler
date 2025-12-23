@@ -17,6 +17,7 @@ build/
 
 # Project-specific output
 output/
+profiler-output/
 
 # OS
 .DS_Store
