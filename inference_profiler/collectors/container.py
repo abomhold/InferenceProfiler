@@ -25,6 +25,7 @@ class ContainerCollector(BaseColletor):
         cpu_path = os.path.join(ContainerCollector.CGROUP_DIR, "cpuacct", "cpuacct.usage")
         mem_path = os.path.join(ContainerCollector.CGROUP_DIR, "memory", "memory.usage_in_bytes")
         cpu_usage, t_cpu = BaseColletor._read_int(cpu_path)
+
         mem_usage, t_mem = BaseColletor._read_int(mem_path)
 
         return {

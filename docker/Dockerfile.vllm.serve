@@ -15,10 +15,4 @@ RUN pipx install /app/dist/*.whl --force
 RUN pipx install vllm
 RUN pipx inject vllm torch-c-dlpack-ext
 ENTRYPOINT ["inference_profiler", "-o", "/profiler-output", "-t", "1000"]
-CMD ["/root/.local/share/pipx/venvs/vllm/bin/python", "-c", \
-     "from vllm import LLM; \
-      llm = LLM(model='/app/model/', \
-                gpu_memory_utilization=0.7, \
-                max_model_len=2048, \
-                dtype='bfloat16'); \
-      print(llm.generate('Explain the difference between TCP and UDP.')[0].outputs[0].text)"]
+CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]

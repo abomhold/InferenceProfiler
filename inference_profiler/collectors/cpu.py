@@ -12,8 +12,6 @@ class CpuCollector(BaseColletor):
         stat_metrics, t_stat = CpuCollector._get_proc_stat()
         load_avg, t_load = CpuCollector._get_load_avg()
         cpu_mhz, t_freq = CpuCollector._get_cpu_freq()
-
-        # Apply simple base scaling (Raw Value * 100)
         metrics = {
             "vCpuTimeUserMode": stat_metrics['user'] * BaseColletor.JIFFIES_PER_SECOND,
             "tvCpuTimeUserMode": t_stat,

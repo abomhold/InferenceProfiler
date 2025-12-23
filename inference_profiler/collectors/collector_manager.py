@@ -1,7 +1,9 @@
+import logging
 import os
 import time
 from typing import Dict, Any
 
+from .base import BaseColletor
 from .container import ContainerCollector
 from .cpu import CpuCollector
 from .disk import DiskCollector
@@ -10,6 +12,7 @@ from .net import NetCollector
 from .nvidia import NvidiaCollector
 from .proc import ProcCollector
 
+logger = logging.getLogger(__name__)
 
 class CollectorManager:
     def __init__(self):
@@ -26,13 +29,13 @@ class CollectorManager:
     def collect_metrics(self) -> Dict[str, Any]:
         """Aggregates dynamic metrics from all collectors."""
         data = {
-            "timestamp": time.time(),
+            "timestamp": BaseColletor.get_timestamp(),
         }
         for key, collector in self.collectors.items():
             try:
                 data[key] = collector.collect()
             except Exception as e:
-                # Prevent one collector from crashing the loop
+                logger.error(e)
                 data[key] = {}
         return data
 

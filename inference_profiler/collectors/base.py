@@ -1,9 +1,15 @@
+import logging
 import time
 from abc import abstractmethod, ABC
 
 
 class BaseColletor(ABC):
+    logger = logging.getLogger(__name__)
     JIFFIES_PER_SECOND = 100
+
+    @staticmethod
+    def get_timestamp():
+        return time.time()
 
     @staticmethod
     @abstractmethod
