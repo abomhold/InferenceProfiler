@@ -1,5 +1,5 @@
 [project]
-name = "inference-profilier"
+name = "inference-profiler"
 version = "0.1.0"
 description = "System resource profiler with export to CSV/Parquet"
 readme = "README.md"
@@ -13,3 +13,6 @@ dependencies = [
 
 [project.scripts]
 profiler = "src.main:main"
+
+[tool]
+uv.package=true
