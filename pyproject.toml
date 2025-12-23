@@ -6,13 +6,17 @@ readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "psutil>=5.9.0",
-    "pynvml>=11.5.0", # For NVIDIA GPU metrics (lazy import)
-    "pandas>=2.0.0", # For CSV/Parquet export
-    "pyarrow>=14.0.0", # For Parquet backend
+    "pynvml>=11.5.0",
+    "pandas>=2.0.0",
+    "pyarrow>=14.0.0",
 ]
 
 [project.scripts]
-profiler = "src.main:main"
+inference-profiler = "inference_profiler.main:main"
 
-[tool]
-uv.package=true
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["inference_profiler"]

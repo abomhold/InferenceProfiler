@@ -1,9 +1,9 @@
 import psutil
-from .base import BaseCollector
-
+from .base_collector import BaseCollector
 
 class DiskCollector(BaseCollector):
-    def collect(self):
+    @staticmethod
+    def collect():
         disk_io = psutil.disk_io_counters()
         if not disk_io:
             return {}

@@ -1,19 +1,19 @@
 import os
 import time
-import psutil
+from abc import abstractmethod, ABC
 from typing import Dict, Any
 
-from .collectors.cpu import CpuCollector
-from .collectors.mem import MemCollector
-from .collectors.disk import DiskCollector
-from .collectors.net import NetCollector
-from .collectors.nvidia import NvidiaCollector
-from .collectors.container import ContainerCollector
+import psutil
 
+from .container import ContainerCollector
+from .cpu import CpuCollector
+from .disk import DiskCollector
+from .mem import MemCollector
+from .net import NetCollector
+from .nvidia import NvidiaCollector
 
-class Collector:
+class CollectorManager:
     def __init__(self):
-        # Initialize all sub-collectors
         self.collectors = {
             "cpu": CpuCollector(),
             "mem": MemCollector(),
@@ -22,6 +22,15 @@ class Collector:
             "nvidia": NvidiaCollector(),
             "containers": ContainerCollector()
         }
+
+    def collect_metrics(self) -> Dict[str, Any]:
+        """Aggregates dynamic metrics from all collectors."""
+        data = {
+            "timestamp": time.time_ns(),
+        }
+        for key, collector in self.collectors.items():
+            data[key] = collector.collect()
+        return data
 
     def close(self):
         for c in self.collectors.values():
@@ -33,13 +42,11 @@ class Collector:
             "uuid": session_uuid,
             "host": {
                 "hostname": os.uname().nodename,
-                "kernel": f"{os.uname().sysname} {os.uname().release}",
+                "kernel": f"{os.uname()}",
                 "boot_time": psutil.boot_time(),
             }
         }
 
-        # Merge static info from sub-collectors
-        # We manually map them to keep the output JSON structure clean
         cpu_static = self.collectors["cpu"].get_static_info()
         info["host"].update(cpu_static)
 
@@ -53,15 +60,3 @@ class Collector:
 
         return info
 
-    def collect_metrics(self) -> Dict[str, Any]:
-        """Aggregates dynamic metrics from all collectors."""
-        data = {
-            "timestamp": time.time_ns(),
-        }
-
-        # Iterate through collectors and populate the data dict
-        # keys in self.collectors match keys in output json
-        for key, collector in self.collectors.items():
-            data[key] = collector.collect()
-
-        return data

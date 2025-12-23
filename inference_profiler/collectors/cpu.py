@@ -1,30 +1,32 @@
-import psutil
 import glob
 import os
-from .base import BaseCollector
+
+import psutil
+
+from .base_collector import BaseCollector
 
 
 class CpuCollector(BaseCollector):
-    def __init__(self, correction_factor=100.0):
-        self.correction = correction_factor
-
-    def collect(self):
+    @staticmethod
+    def collect():
         times = psutil.cpu_times()
         return {
-            "user": times.user * self.correction,
-            "system": times.system * self.correction,
-            "idle": times.idle * self.correction,
-            "iowait": getattr(times, 'iowait', 0) * self.correction,
+            "user": times.user * BaseCollector.JIFFIES_PER_SECOND,
+            "system": times.system * BaseCollector.JIFFIES_PER_SECOND,
+            "idle": times.idle * BaseCollector.JIFFIES_PER_SECOND,
+            "iowait": getattr(times, 'iowait', 0) * BaseCollector.JIFFIES_PER_SECOND,
             "load_avg": psutil.getloadavg()[0]
         }
 
-    def get_static_info(self):
+    @staticmethod
+    def get_static_info():
         return {
             "num_processors": psutil.cpu_count(),
-            "cpu_cache": self._get_cpu_cache()
+            "cpu_cache": CpuCollector._get_cpu_cache()
         }
 
-    def _get_cpu_cache(self):
+    @staticmethod
+    def _get_cpu_cache():
         cache_map = {}
         for index_dir in glob.glob('/sys/devices/system/cpu/cpu*/cache/index*'):
             try:
@@ -45,8 +47,7 @@ class CpuCollector(BaseCollector):
                     multiplier = 1024 * 1024
 
                 val = int(size_str.rstrip('KM')) * multiplier
-                # Simplified: overwriting key to mimic Go logic for total cache per level
                 cache_map[key] = val
-            except:
+            except Exception:
                 continue
         return cache_map

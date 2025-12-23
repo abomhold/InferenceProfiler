@@ -2,7 +2,7 @@ name: Build and Release Profiler
 
 on:
   push:
-    tags: [ "v*" ]  # Triggers only on tags like v0.1.0
+    branches: [ main ]
 
 jobs:
   build:
@@ -25,7 +25,7 @@ jobs:
         python-version: "3.12"
 
     - name: Install dependencies
-      run: uv sync --dev
+      run: uv sync
 
     - name: Build Wheel
       run: uv build
