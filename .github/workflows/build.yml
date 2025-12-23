@@ -1,49 +1,70 @@
-name: Build and Release Profiler
+name: Build and Publish Wheel
 
 on:
   push:
-    branches: [ "main" ]
-    tags: [ "v*" ]  # Trigger on version tags (e.g., v0.1.0)
-  pull_request:
-    branches: [ "main" ]
+    branches:
+      - main
+    tags:
+      - 'v*'
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    # Permissions are required to create releases and upload assets
-    permissions:
-      contents: write
 
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.12"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "latest"
 
-    - name: Install dependencies
-      run: uv sync --dev
+      - name: Build wheel
+        run: uv build --wheel
 
-    - name: Build Wheel
-      run: uv build --wheel
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheel
+          path: dist/
+          retention-days: 1
 
-    # Still helpful to keep artifacts for debugging non-release builds
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: profiler-dist
-        path: dist/
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
 
-    # This step only runs when you push a tag (e.g., v0.1.0)
-    - name: Create GitHub Release
-      if: startsWith(github.ref, 'refs/tags/')
-      uses: softprops/action-gh-release@v2
-      with:
-        files: dist/*.whl  # Uploads the built wheel
-        generate_release_notes: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download wheel artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: wheel
+          path: dist/
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: dist/*.whl
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag as latest
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git tag -d latest || true
+          git tag -a latest -m "Latest release"
+          git push origin latest -f
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
