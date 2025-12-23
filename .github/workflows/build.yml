@@ -31,7 +31,7 @@ jobs:
       run: uv sync --dev
 
     - name: Build Wheel
-      run: uv build
+      run: uv build --wheel
 
     # Still helpful to keep artifacts for debugging non-release builds
     - name: Upload Artifact
