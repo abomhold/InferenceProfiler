@@ -1,10 +1,8 @@
 import os
-import time
-
-from .base import BaseColletor
+from .base import BaseCollector
 
 
-class ContainerCollector(BaseColletor):
+class ContainerCollector(BaseCollector):
     CGROUP_DIR = '/sys/fs/cgroup'
 
     @staticmethod
@@ -24,9 +22,9 @@ class ContainerCollector(BaseColletor):
     def _collect_v1():
         cpu_path = os.path.join(ContainerCollector.CGROUP_DIR, "cpuacct", "cpuacct.usage")
         mem_path = os.path.join(ContainerCollector.CGROUP_DIR, "memory", "memory.usage_in_bytes")
-        cpu_usage, t_cpu = BaseColletor._read_int(cpu_path)
 
-        mem_usage, t_mem = BaseColletor._read_int(mem_path)
+        cpu_usage, t_cpu = BaseCollector._read_int(cpu_path)
+        mem_usage, t_mem = BaseCollector._read_int(mem_path)
 
         return {
             "cgroup_version": 1,
@@ -40,22 +38,16 @@ class ContainerCollector(BaseColletor):
     def _collect_v2():
         cpu_path = os.path.join(ContainerCollector.CGROUP_DIR, "cpu.stat")
         mem_path = os.path.join(ContainerCollector.CGROUP_DIR, "memory.current")
-        mem_usage, t_mem = BaseColletor._read_int(mem_path)
 
-        cpu_usage_ns, t_cpu = 0, time.time()
-        try:
-            with open(cpu_path, 'r') as f:
-                t_cpu = time.time()
-                for line in f:
-                    if line.startswith("usage_usec"):
-                        cpu_usage_ns = int(line.split()[1]) * 1000
-                        break
-        except Exception:
-            pass
+        mem_usage, t_mem = BaseCollector._read_int(mem_path)
+
+        # Parse cpu.stat key-values
+        cpu_stats, t_cpu = BaseCollector._parse_proc_kv(cpu_path, separator=' ')
+        cpu_usage_micros = int(cpu_stats.get('usage_usec', 0))
 
         return {
             "cgroup_version": 2,
-            "cpu_usage_ns": cpu_usage_ns,
+            "cpu_usage_ns": cpu_usage_micros * 1000,
             "tv_cpu_usage_ns": t_cpu,
             "memory_used_bytes": mem_usage,
             "tv_memory_used_bytes": t_mem

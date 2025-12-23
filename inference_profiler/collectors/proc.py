@@ -1,43 +1,52 @@
 import glob
 import os
-from .base import BaseColletor
+
+from .base import BaseCollector
 
 
-class ProcCollector(BaseColletor):
+class ProcCollector(BaseCollector):
     @staticmethod
     def collect():
         process_list = []
         for pid_path in glob.glob('/proc/[0-9]*'):
             try:
                 pid = int(os.path.basename(pid_path))
-                stat_data = BaseColletor._read_file(os.path.join(pid_path, 'stat'))
+                stat_data, t_stat_data = BaseCollector._probe_file(os.path.join(pid_path, 'stat'))
+                cmdline, t_cmdline = BaseCollector._probe_file(os.path.join(pid_path, 'cmdline'))
+                status_data, t_status_data = BaseCollector._parse_proc_kv(os.path.join(pid_path, 'status'))
+
                 if not stat_data: continue
-
                 rparen_index = stat_data.rfind(')')
+
                 if rparen_index == -1: continue
-
                 stat_parts = stat_data[rparen_index + 2:].split()
+
                 if len(stat_parts) < 40: continue
-
-                cmdline = BaseColletor._read_file(os.path.join(pid_path, 'cmdline')).replace('\x00', ' ').strip()
-                status_data = BaseColletor._read_status(os.path.join(pid_path, 'status'))
-
-                name = status_data.get('Name', stat_data[stat_data.find('(') + 1:rparen_index])
 
                 process_list.append({
                     "pId": pid,
-                    "pCmdline": cmdline,
-                    "pName": name,
+                    "pCmdline": cmdline.replace('\x00', ' ').strip(),
+                    "pName": status_data.get('Name', stat_data[stat_data.find('(') + 1:rparen_index]),
                     "pNumThreads": int(stat_parts[17]),
-                    "pCpuTimeUserMode": int(stat_parts[11]) * BaseColletor.JIFFIES_PER_SECOND,
-                    "pCpuTimeKernelMode": int(stat_parts[12]) * BaseColletor.JIFFIES_PER_SECOND,
-                    "pChildrenUserMode": int(stat_parts[13]) * BaseColletor.JIFFIES_PER_SECOND,
-                    "pChildrenKernelMode": int(stat_parts[14]) * BaseColletor.JIFFIES_PER_SECOND,
-                    "pVoluntaryContextSwitches": status_data.get('voluntary_ctxt_switches', 0),
-                    "pInvoluntaryContextSwitches": status_data.get('nonvoluntary_ctxt_switches', 0),
-                    "pBlockIODelays": int(stat_parts[39]) * BaseColletor.JIFFIES_PER_SECOND,
-                    "pVirtualMemoryBytes": int(stat_parts[20])
+                    "tpNumThreads": t_stat_data,
+                    "pCpuTimeUserMode": int(stat_parts[11]) * BaseCollector.JIFFIES_PER_SECOND,
+                    "tpCpuTimeUserMode": t_stat_data,
+                    "pCpuTimeKernelMode": int(stat_parts[12]) * BaseCollector.JIFFIES_PER_SECOND,
+                    "tpCpuTimeKernelMode": t_stat_data,
+                    "pChildrenUserMode": int(stat_parts[13]) * BaseCollector.JIFFIES_PER_SECOND,
+                    "tpChildrenUserMode": t_stat_data,
+                    "pChildrenKernelMode": int(stat_parts[14]) * BaseCollector.JIFFIES_PER_SECOND,
+                    "tpChildrenKernelMode": t_stat_data,
+                    "pVoluntaryContextSwitches": int(status_data.get('voluntary_ctxt_switches', 0)),
+                    "tpVoluntaryContextSwitches": t_status_data,
+                    "pInvoluntaryContextSwitches": int(status_data.get('nonvoluntary_ctxt_switches', 0)),
+                    "tpInvoluntaryContextSwitches": t_status_data,
+                    "pBlockIODelays": int(stat_parts[39]) * BaseCollector.JIFFIES_PER_SECOND,
+                    "tpBlockIODelays": t_stat_data,
+                    "pVirtualMemoryBytes": int(stat_parts[20]),
+                    "tpVirtualMemoryBytes": t_stat_data,
                 })
             except Exception:
+                BaseCollector.logger.exception("Failed to collect proc data")
                 continue
         return process_list

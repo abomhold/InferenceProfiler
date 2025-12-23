@@ -1,9 +1,8 @@
 import logging
 import os
-import time
 from typing import Dict, Any
 
-from .base import BaseColletor
+from .base import BaseCollector
 from .container import ContainerCollector
 from .cpu import CpuCollector
 from .disk import DiskCollector
@@ -14,22 +13,23 @@ from .proc import ProcCollector
 
 logger = logging.getLogger(__name__)
 
+
 class CollectorManager:
     def __init__(self):
         self.collectors = {
-            "cpu": CpuCollector(),
-            "mem": MemCollector(),
-            "disk": DiskCollector(),
-            "net": NetCollector(),
-            "containers": ContainerCollector(),
+            "cpu": CpuCollector,
+            "disk": DiskCollector,
+            "mem": MemCollector,
+            "net": NetCollector,
+            "containers": ContainerCollector,
+            "processes": ProcCollector,
             "nvidia": NvidiaCollector(),
-            "processes": ProcCollector(),
         }
 
     def collect_metrics(self) -> Dict[str, Any]:
         """Aggregates dynamic metrics from all collectors."""
         data = {
-            "timestamp": BaseColletor.get_timestamp(),
+            "timestamp": BaseCollector.get_timestamp(),
         }
         for key, collector in self.collectors.items():
             try:
@@ -45,7 +45,6 @@ class CollectorManager:
 
     def get_static_info(self, session_uuid: str) -> Dict[str, Any]:
         """Aggregates static info from all collectors."""
-        # Calculate boot time without psutil
         try:
             with open('/proc/stat', 'r') as f:
                 for line in f:

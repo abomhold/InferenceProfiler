@@ -1,13 +1,8 @@
 import re
-import time
-
-from .base import BaseColletor
+from .base import BaseCollector
 
 
-class DiskCollector(BaseColletor):
-    """Collects disk I/O metrics at VM level using standard Unix files."""
-
-    # Sector size is standard 512 bytes for /proc/diskstats
+class DiskCollector(BaseCollector):
     SECTOR_SIZE = 512
 
     @staticmethod
@@ -17,13 +12,10 @@ class DiskCollector(BaseColletor):
         return {
             "read_bytes": stats['read_bytes'],
             "tv_read_bytes": t_read,
-
             "write_bytes": stats['write_bytes'],
             "tv_write_bytes": t_read,
-
             "read_count": stats['read_count'],
             "tv_read_count": t_read,
-
             "write_count": stats['write_count'],
             "tv_write_count": t_read
         }
@@ -39,21 +31,21 @@ class DiskCollector(BaseColletor):
         # 3. xvd + letters (Xen disks)
         disk_pattern = re.compile(r'^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$')
 
-        timestamp = time.time()
-        try:
-            with open('/proc/diskstats', 'r') as f:
-                for line in f:
-                    parts = line.split()
-                    if len(parts) < 14:
-                        continue
-                    dev_name = parts[2]
-                    if disk_pattern.match(dev_name):
-                        metrics['read_count'] += int(parts[3])
-                        metrics['read_bytes'] += int(parts[5]) * DiskCollector.SECTOR_SIZE
-                        metrics['write_count'] += int(parts[7])
-                        metrics['write_bytes'] += int(parts[9]) * DiskCollector.SECTOR_SIZE
+        lines, timestamp = BaseCollector._get_file_lines('/proc/diskstats')
 
-        except Exception:
-            pass
+        for line in lines:
+            parts = line.split()
+            if len(parts) < 14:
+                continue
+
+            dev_name = parts[2]
+            if disk_pattern.match(dev_name):
+                try:
+                    metrics['read_count'] += int(parts[3])
+                    metrics['read_bytes'] += int(parts[5]) * DiskCollector.SECTOR_SIZE
+                    metrics['write_count'] += int(parts[7])
+                    metrics['write_bytes'] += int(parts[9]) * DiskCollector.SECTOR_SIZE
+                except (ValueError, IndexError):
+                    continue
 
         return metrics, timestamp

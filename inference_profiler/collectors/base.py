@@ -1,62 +1,97 @@
 import logging
 import time
 from abc import abstractmethod, ABC
+from typing import Tuple, Any
 
 
-class BaseColletor(ABC):
+class BaseCollector(ABC):
     logger = logging.getLogger(__name__)
     JIFFIES_PER_SECOND = 100
 
+    @staticmethod
+    @abstractmethod
+    def collect() -> dict[str, Any]:
+        raise NotImplementedError
+
+    @staticmethod
+    def get_static_info() -> dict[str, Any]:
+        return {}
+
+    @staticmethod
+    def cleanup():
+        pass
+
+    # --- Shared Helper Methods ---
     @staticmethod
     def get_timestamp():
         return time.time()
 
     @staticmethod
-    @abstractmethod
-    def collect():
-        """Collect metrics. Must be implemented by subclasses."""
-        raise NotImplementedError
-
-    @staticmethod
-    def get_static_info():
-        """Return static hardware info (optional override)."""
-        return {}
-
-    @staticmethod
-    def cleanup():
-        """Cleanup resources (optional override)."""
-        pass
-
-    # --- Shared Helper Methods ---
-    @staticmethod
-    def _read_file(path, default=""):
-        """Reads a file and returns (value, timestamp)."""
-        timestamp = time.time()
+    def _probe_file(file, default=None):
+        """
+        Reads a file safely.
+        Returns: (content_string, timestamp)
+        """
+        timestamp = BaseCollector.get_timestamp()
         try:
-            with open(path, 'r') as f:
-                return f.read()
-        except (IOError, OSError):
+            with open(file, 'r') as f:
+                content = f.read().strip()
+                return content, timestamp
+        except Exception:
+            BaseCollector.logger.debug(f"Failed to read file: {file}")
             return default, timestamp
 
     @staticmethod
-    def _read_int(path):
-        """Reads a single integer from a file and returns (value, timestamp)."""
-        timestamp = time.time()
-        try:
-            with open(path, 'r') as f:
-                content = f.read().strip()
-                return int(content) if content else 0, timestamp
-        except Exception:
-            return 0, timestamp
-
-    @staticmethod
-    def probe(func, default=0):
+    def _probe_func(func, default=0):
         """
-        Safely executes a callable and returns (result, timestamp).
-        Captures the timestamp immediately before execution.
+        Executes a function safely.
+        Returns: (result, timestamp)
         """
-        timestamp = time.time()
+        timestamp = BaseCollector.get_timestamp()
         try:
             return func(), timestamp
         except Exception:
+            BaseCollector.logger.exception(f"Failed to call func: {func}")
             return default, timestamp
+
+    @staticmethod
+    def _read_int(file, default=0):
+        """
+        Reads a file and converts content to int.
+        Returns: (int, timestamp)
+        """
+        content, timestamp = BaseCollector._probe_file(file)
+        try:
+            return int(content) if content else default, timestamp
+        except (ValueError, TypeError):
+            BaseCollector.logger.warning(f"Failed to parse int: {content}")
+            return default, timestamp
+
+    @staticmethod
+    def _get_file_lines(file):
+        """
+        Reads a file safely and returns a list of lines.
+        Returns: (lines_list, timestamp)
+        """
+        content, timestamp = BaseCollector._probe_file(file)
+        if content:
+            return content.splitlines(), timestamp
+        return [], timestamp
+
+    @staticmethod
+    def _parse_proc_kv(file, separator=':'):
+        """
+        Parses a Key-Value file (like /proc/meminfo or /proc/cpuinfo).
+        Returns: (dict, timestamp)
+        """
+        lines, timestamp = BaseCollector._get_file_lines(file)
+        data = {}
+        for line in lines:
+            if separator in line:
+                try:
+                    key, val = line.split(separator, 1)
+                    data[key.strip()] = val.strip()
+                except ValueError:
+                    BaseCollector.logger.warning(f"Failed to parse key-value pair: {line}")
+                    continue
+        return data, timestamp

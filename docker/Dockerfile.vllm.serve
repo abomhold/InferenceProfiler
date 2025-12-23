@@ -14,5 +14,5 @@ RUN pipx install /app/dist/*.whl --force
 
 RUN pipx install vllm
 RUN pipx inject vllm torch-c-dlpack-ext
-ENTRYPOINT ["inference_profiler", "-o", "/profiler-output", "-t", "1000"]
+ENTRYPOINT ["InferenceProfiler", "-o", "/profiler-output", "-t", "1000"]
 CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]
