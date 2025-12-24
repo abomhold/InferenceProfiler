@@ -16,7 +16,6 @@ class VllmCollector(BaseCollector):
     _PROMETHEUS_REGEX = re.compile(r"^([a-zA-Z0-9_:]+)(?:\{(.+)\})?\s+([0-9\.eE\+\-]+|nan|inf|NaN|Inf)$")
 
     # Labels to completely ignore to reduce noise
-    # UPDATED: Added 'handler' and 'method' to the ignore list
     IGNORED_LABELS = {'model_name', 'model', 'engine_id', 'engine', 'handler', 'method'}
 
     # Renaming map for cleaner JSON output
@@ -144,7 +143,7 @@ class VllmCollector(BaseCollector):
             is_bucket = name.endswith('_bucket')
             is_sum = name.endswith('_sum')
             is_count = name.endswith('_count')
-            is_info = name.endswith('_info')  # Detect Info metrics
+            is_info = name.endswith('_info')
 
             base_lookup = name
             suffix = ""
@@ -165,10 +164,9 @@ class VllmCollector(BaseCollector):
 
             if is_info and labels:
                 for k, v in labels.items():
-                    # e.g., config_cache_block_size: 16
                     info_key = f"{clean_base}_{k}"
                     data[info_key] = VllmCollector._try_parse_number(v)
-                continue  # Skip adding the main metric (which is usually just 1.0)
+                continue
 
             # Handle Histograms (Buckets)
             if is_bucket and 'le' in labels:

@@ -1,6 +1,5 @@
 import glob
 import os
-import time
 
 from .base import BaseCollector
 
@@ -13,6 +12,7 @@ class CpuCollector(BaseCollector):
         cpu_mhz, t_freq = CpuCollector._get_cpu_freq()
 
         metrics = {
+            # CPU time metrics (in centiseconds, 1 jiffy = 1/100 sec)
             "vCpuTimeUserMode": stat_metrics['user'] * BaseCollector.JIFFIES_PER_SECOND,
             "tvCpuTimeUserMode": t_stat,
             "vCpuTimeKernelMode": stat_metrics['system'] * BaseCollector.JIFFIES_PER_SECOND,
@@ -29,32 +29,46 @@ class CpuCollector(BaseCollector):
             "tvCpuNice": t_stat,
             "vCpuSteal": stat_metrics['steal'] * BaseCollector.JIFFIES_PER_SECOND,
             "tvCpuSteal": t_stat,
+            # Total CPU time (user + kernel) in centiseconds
+            "vCpuTime": (stat_metrics['user'] + stat_metrics['system']) * BaseCollector.JIFFIES_PER_SECOND,
+            "tvCpuTime": t_stat,
+            # Context switches
             "vCpuContextSwitches": stat_metrics['ctxt'],
             "tvCpuContextSwitches": t_stat,
+            # Load average and frequency
             "vLoadAvg": load_avg,
+            "tvLoadAvg": t_load,
             "vCpuMhz": cpu_mhz,
+            "tvCpuMhz": t_freq,
         }
         return metrics
 
     @staticmethod
     def _get_proc_stat():
-        metrics = {'user': 0, 'nice': 0, 'system': 0, 'idle': 0, 'iowait': 0, 'irq': 0, 'softirq': 0, 'steal': 0,
-                   'ctxt': 0}
+        metrics = {
+            'user': 0, 'nice': 0, 'system': 0, 'idle': 0,
+            'iowait': 0, 'irq': 0, 'softirq': 0, 'steal': 0, 'ctxt': 0
+        }
         lines, timestamp = BaseCollector._get_file_lines('/proc/stat')
 
         for line in lines:
             parts = line.split()
-            if not parts: continue
+            if not parts:
+                continue
 
             if parts[0] == 'cpu':
                 metrics['user'] = int(parts[1])
                 metrics['nice'] = int(parts[2])
                 metrics['system'] = int(parts[3])
                 metrics['idle'] = int(parts[4])
-                if len(parts) > 5: metrics['iowait'] = int(parts[5])
-                if len(parts) > 6: metrics['irq'] = int(parts[6])
-                if len(parts) > 7: metrics['softirq'] = int(parts[7])
-                if len(parts) > 8: metrics['steal'] = int(parts[8])
+                if len(parts) > 5:
+                    metrics['iowait'] = int(parts[5])
+                if len(parts) > 6:
+                    metrics['irq'] = int(parts[6])
+                if len(parts) > 7:
+                    metrics['softirq'] = int(parts[7])
+                if len(parts) > 8:
+                    metrics['steal'] = int(parts[8])
             elif parts[0] == 'ctxt':
                 metrics['ctxt'] = int(parts[1])
 
@@ -100,10 +114,10 @@ class CpuCollector(BaseCollector):
     @staticmethod
     def get_static_info():
         return {
-            "num_processors": os.cpu_count() or 0,
-            "cpu_type": CpuCollector._get_cpu_type(),
-            "cpu_cache": CpuCollector._get_cpu_cache(),
-            "kernel_info": CpuCollector._get_kernel_info(),
+            "vNumProcessors": os.cpu_count() or 0,
+            "vCpuType": CpuCollector._get_cpu_type(),
+            "vCpuCache": CpuCollector._get_cpu_cache(),
+            "vKernelInfo": CpuCollector._get_kernel_info(),
         }
 
     @staticmethod
@@ -156,7 +170,8 @@ class CpuCollector(BaseCollector):
             except ValueError:
                 continue
 
-            if key not in cache_map: cache_map[key] = {}
+            if key not in cache_map:
+                cache_map[key] = {}
             # Deduplicate based on shared cpu map
             if shared_cpu_map not in cache_map[key]:
                 cache_map[key][shared_cpu_map] = size_bytes

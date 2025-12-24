@@ -24,7 +24,13 @@ class BaseCollector(ABC):
     # --- Shared Helper Methods ---
     @staticmethod
     def get_timestamp():
-        return int(time.time() * 1000) #convert to ms
+        """Returns current time in milliseconds since epoch."""
+        return int(time.time() * 1000)
+
+    @staticmethod
+    def get_epoch_second():
+        """Returns current time in seconds since epoch (for currentTime field)."""
+        return int(time.time())
 
     @staticmethod
     def _probe_file(file, default=None):

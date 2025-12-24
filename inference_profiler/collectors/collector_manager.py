@@ -16,17 +16,25 @@ logger = logging.getLogger(__name__)
 
 
 class CollectorManager:
-    def __init__(self):
+    def __init__(self, collect_processes: bool = False):
+        """
+        Initialize collector manager.
+
+        Args:
+            collect_processes: Whether to collect per-process metrics (can be expensive)
+        """
         self.collectors = {
             "cpu": CpuCollector,
             "disk": DiskCollector,
             "mem": MemCollector,
             "net": NetCollector,
             "containers": ContainerCollector,
-            # "processes": ProcCollector,
-            "nvidia": NvidiaCollector,
+            "nvidia": NvidiaCollector(),
             "vllm": VllmCollector(),
         }
+
+        if collect_processes:
+            self.collectors["processes"] = ProcCollector
 
     def collect_metrics(self) -> Dict[str, Any]:
         """Aggregates dynamic metrics from all collectors."""
@@ -37,7 +45,7 @@ class CollectorManager:
             try:
                 data[key] = collector.collect()
             except Exception as e:
-                logger.error(e)
+                logger.error(f"Error collecting {key} metrics: {e}")
                 data[key] = {}
         return data
 
@@ -56,8 +64,12 @@ class CollectorManager:
         except Exception:
             boot_time = 0
 
+        # Get VM ID from various sources
+        vm_id = self._get_vm_id()
+
         info = {
             "uuid": session_uuid,
+            "vId": vm_id,
             "host": {
                 "hostname": os.uname().nodename,
                 "kernel": " ".join([x for x in os.uname()]),
@@ -73,10 +85,16 @@ class CollectorManager:
             pass
 
         try:
+            mem_static = self.collectors["mem"].get_static_info()
+            info["host"].update(mem_static)
+        except Exception:
+            pass
+
+        try:
             nvidia_static = self.collectors["nvidia"].get_static_info()
             if nvidia_static:
-                info["nvidia_driver"] = nvidia_static.get("driver_version")
-                info["cuda_version"] = nvidia_static.get("cuda_version")
+                info["gDriverVersion"] = nvidia_static.get("gDriverVersion")
+                info["gCudaVersion"] = nvidia_static.get("gCudaVersion")
                 info["nvidia"] = nvidia_static.get("gpus", [])
             else:
                 info["nvidia"] = []
@@ -84,3 +102,28 @@ class CollectorManager:
             info["nvidia"] = []
 
         return info
+
+    def _get_vm_id(self) -> str:
+        """Attempt to get VM/instance ID from various sources."""
+        # Try cloud provider metadata
+        vm_id = "unavailable"
+
+        # DMI product UUID
+        try:
+            with open('/sys/class/dmi/id/product_uuid', 'r') as f:
+                vm_id = f.read().strip()
+                if vm_id and vm_id != "None":
+                    return vm_id
+        except Exception:
+            pass
+
+        # Machine ID as fallback
+        try:
+            with open('/etc/machine-id', 'r') as f:
+                vm_id = f.read().strip()
+                if vm_id:
+                    return vm_id
+        except Exception:
+            pass
+
+        return vm_id

@@ -9,7 +9,6 @@ class MemCollector(BaseCollector):
         mem_info, t_mem_read = MemCollector._get_meminfo()
         pgfault, pgmajfault, t_vmstat_read = MemCollector._get_page_faults()
 
-        #todo: don't collect total everytime
         total = mem_info.get('MemTotal', 0)
         free_raw = mem_info.get('MemFree', 0)
         buffers = mem_info.get('Buffers', 0)
@@ -27,6 +26,7 @@ class MemCollector(BaseCollector):
             percent = ((total - available) / total) * 100
 
         metrics = {
+            # Memory sizes in bytes (converted from kB)
             "vMemoryTotal": total,
             "tvMemoryTotal": t_mem_read,
             "vMemoryFree": available,
@@ -37,11 +37,21 @@ class MemCollector(BaseCollector):
             "tvMemoryBuffers": t_mem_read,
             "vMemoryCached": cached,
             "tvMemoryCached": t_mem_read,
+            # Memory percentage
             "vMemoryPercent": percent,
+            "tvMemoryPercent": t_mem_read,
+            # Page faults
             "vPgFault": pgfault,
             "tvPgFault": t_vmstat_read,
             "vMajorPageFault": pgmajfault,
             "tvMajorPageFault": t_vmstat_read,
+            # Swap metrics
+            "vSwapTotal": mem_info.get('SwapTotal', 0),
+            "tvSwapTotal": t_mem_read,
+            "vSwapFree": mem_info.get('SwapFree', 0),
+            "tvSwapFree": t_mem_read,
+            "vSwapUsed": mem_info.get('SwapTotal', 0) - mem_info.get('SwapFree', 0),
+            "tvSwapUsed": t_mem_read,
         }
 
         return metrics
@@ -52,6 +62,7 @@ class MemCollector(BaseCollector):
         processed = {}
         for k, v in raw_info.items():
             try:
+                # Values in /proc/meminfo are in kB, convert to bytes
                 processed[k] = int(v.replace(' kB', '')) * 1024
             except ValueError:
                 continue
@@ -69,8 +80,10 @@ class MemCollector(BaseCollector):
         pgfault_match = re.search(r'pgfault\s+(\d+)', content)
         pgmajfault_match = re.search(r'pgmajfault\s+(\d+)', content)
 
-        if pgfault_match: pgfault = int(pgfault_match.group(1))
-        if pgmajfault_match: pgmajfault = int(pgmajfault_match.group(1))
+        if pgfault_match:
+            pgfault = int(pgfault_match.group(1))
+        if pgmajfault_match:
+            pgmajfault = int(pgmajfault_match.group(1))
 
         return pgfault, pgmajfault, timestamp
 
@@ -78,5 +91,6 @@ class MemCollector(BaseCollector):
     def get_static_info():
         mem_info, _ = MemCollector._get_meminfo()
         return {
-            "memory_total_bytes": mem_info.get('MemTotal', 0),
+            "vMemoryTotalBytes": mem_info.get('MemTotal', 0),
+            "vSwapTotalBytes": mem_info.get('SwapTotal', 0),
         }
