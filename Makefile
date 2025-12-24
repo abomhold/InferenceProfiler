@@ -27,7 +27,7 @@ run: ##@ Run profiler locally using uv
 	@echo "--- Running Profiler Locally ---"
 	@mkdir -p $(OUTPUT_DIR)
 	@uv sync
-	@uv run inference-profiler -o $(OUTPUT_DIR) -t 1000
+	@uv run InferenceProfiler -o $(OUTPUT_DIR) -t 1000
 
 docker-build: build ##@ Build Docker image
 	@echo "--- Building Docker Image ---"

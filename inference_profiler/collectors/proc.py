@@ -1,4 +1,5 @@
 import glob
+import json
 import os
 
 from .base import BaseCollector
@@ -49,4 +50,4 @@ class ProcCollector(BaseCollector):
             except Exception:
                 BaseCollector.logger.exception("Failed to collect proc data")
                 continue
-        return process_list
+        return [json.dumps(x).replace('"','\\"') for x in process_list]

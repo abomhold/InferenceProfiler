@@ -1,7 +1,7 @@
 import logging
 import time
 from abc import abstractmethod, ABC
-from typing import Tuple, Any
+from typing import Any
 
 
 class BaseCollector(ABC):
@@ -24,7 +24,7 @@ class BaseCollector(ABC):
     # --- Shared Helper Methods ---
     @staticmethod
     def get_timestamp():
-        return time.time()
+        return int(time.time() * 1000) #convert to ms
 
     @staticmethod
     def _probe_file(file, default=None):

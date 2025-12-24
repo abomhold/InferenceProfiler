@@ -1,5 +1,6 @@
 import warnings
 from typing import Dict, Any, List
+
 from .base import BaseCollector
 
 logger = BaseCollector.logger
@@ -44,7 +45,7 @@ class NvidiaCollector(BaseCollector):
 
                 # --- Process Collection ---
                 # Combined compute + graphics processes
-                processes = []
+                process_strings = []  # Changed to list of strings
                 active_procs = []
 
                 try:
@@ -75,11 +76,9 @@ class NvidiaCollector(BaseCollector):
                         pass  # Fallback to unknown if permission denied or pid gone
 
                     mem_used = (p.usedGpuMemory or 0) // 1024 // 1024
-                    processes.append({
-                        "pid": p.pid,
-                        "name": proc_name,
-                        "memory_used_mb": mem_used
-                    })
+
+                    # FORMATTING CHANGE: Convert to string representation
+                    process_strings.append(f"{p.pid}: {proc_name} ({mem_used} MB)")
 
                 # --- Metrics Collection ---
                 # We use _probe_func helper from BaseCollector to capture (value, timestamp)
@@ -112,11 +111,10 @@ class NvidiaCollector(BaseCollector):
                     lambda: pynvml.nvmlDeviceGetFanSpeed(handle))
 
                 power_draw_val, t_pwr = BaseCollector._probe_func(
-                    lambda: pynvml.nvmlDeviceGetPowerUsage(
-                        handle) // 1000) # Convert to watts
+                    lambda: pynvml.nvmlDeviceGetPowerUsage(handle) // 1000)  # Convert to watts
 
                 power_limit_val, t_pwr_lim = BaseCollector._probe_func(
-                    lambda: pynvml.nvmlDeviceGetEnforcedPowerLimit(handle) // 1000) # Convert to watts
+                    lambda: pynvml.nvmlDeviceGetEnforcedPowerLimit(handle) // 1000)  # Convert to watts
 
                 clock_gr, t_clk_gr = BaseCollector._probe_func(
                     lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS))
@@ -171,8 +169,8 @@ class NvidiaCollector(BaseCollector):
                     "t_pcie_rx_kbps": t_pcie_rx,
                     "perf_state": perf_state,
                     "t_perf_state": t_perf,
-                    "process_count": len(processes),
-                    "processes": processes
+                    "process_count": len(process_strings),
+                    "processes": process_strings  # Now a list of strings
                 })
 
         except Exception as e:

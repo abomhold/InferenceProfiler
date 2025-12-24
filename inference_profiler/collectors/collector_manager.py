@@ -23,7 +23,7 @@ class CollectorManager:
             "mem": MemCollector,
             "net": NetCollector,
             "containers": ContainerCollector,
-            "processes": ProcCollector,
+            # "processes": ProcCollector,
             "nvidia": NvidiaCollector,
             "vllm": VllmCollector(),
         }
