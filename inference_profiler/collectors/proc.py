@@ -50,4 +50,4 @@ class ProcCollector(BaseCollector):
             except Exception:
                 BaseCollector.logger.exception("Failed to collect proc data")
                 continue
-        return [json.dumps(x).replace('"','\\"') for x in process_list]
+        return [json.dumps(x).replace('"','\"') for x in process_list]

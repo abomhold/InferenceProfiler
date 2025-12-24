@@ -1,8 +1,7 @@
-import logging
 import os
 import re
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Dict, Any, List, Tuple, Union
 
 from .base import BaseCollector
@@ -17,7 +16,8 @@ class VllmCollector(BaseCollector):
     _PROMETHEUS_REGEX = re.compile(r"^([a-zA-Z0-9_:]+)(?:\{(.+)\})?\s+([0-9\.eE\+\-]+|nan|inf|NaN|Inf)$")
 
     # Labels to completely ignore to reduce noise
-    IGNORED_LABELS = {'model_name', 'model', 'engine_id', 'engine'}
+    # UPDATED: Added 'handler' and 'method' to the ignore list
+    IGNORED_LABELS = {'model_name', 'model', 'engine_id', 'engine', 'handler', 'method'}
 
     # Renaming map for cleaner JSON output
     METRIC_ALIASES = {
@@ -26,7 +26,7 @@ class VllmCollector(BaseCollector):
         "num_requests_waiting": "system_requests_waiting",
         "engine_sleep_state": "system_engine_sleep_state",
         "num_preemptions": "system_preemptions_total",
-        "cache_config_info": "config_cache",  # <--- Added Alias
+        "cache_config_info": "config_cache",
 
         # --- Cache ---
         "kv_cache_usage_perc": "cache_kv_usage_percent",
@@ -70,11 +70,7 @@ class VllmCollector(BaseCollector):
                 body = response.read().decode('utf-8')
 
             parsed_data = VllmCollector._parse_prometheus(body)
-
-            # 1. Update metrics with parsed data
             metrics.update(parsed_data)
-
-            # 2. Add a SINGLE timestamp for this entire scrape event
             if metrics:
                 metrics['timestamp'] = scrape_time
 
@@ -163,14 +159,10 @@ class VllmCollector(BaseCollector):
                 base_lookup = name[:-6]
                 suffix = "_count"
             elif is_info:
-                # _info metrics often end in _info, we want to strip that for the base
-                # but keep it in mind for special handling
                 pass
 
             clean_base = VllmCollector._get_clean_name(base_lookup)
 
-            # SPECIAL HANDLING: Info Metrics (e.g. cache_config_info)
-            # Instead of a giant key, we explode the labels into separate metrics
             if is_info and labels:
                 for k, v in labels.items():
                     # e.g., config_cache_block_size: 16

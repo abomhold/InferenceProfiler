@@ -8,16 +8,15 @@ class DiskCollector(BaseCollector):
     @staticmethod
     def collect():
         stats, t_read = DiskCollector._get_disk_io()
-
         return {
-            "read_bytes": stats['read_bytes'],
-            "tv_read_bytes": t_read,
-            "write_bytes": stats['write_bytes'],
-            "tv_write_bytes": t_read,
-            "read_count": stats['read_count'],
-            "tv_read_count": t_read,
-            "write_count": stats['write_count'],
-            "tv_write_count": t_read
+            "vDiskReadBytes": stats['read_bytes'],
+            "tvDiskReadBytes": t_read,
+            "vDiskWriteBytes": stats['write_bytes'],
+            "tvDiskWriteBytes": t_read,
+            "vDiskReadCount": stats['read_count'],
+            "tvDiskReadCount": t_read,
+            "vDiskWriteCount": stats['write_count'],
+            "tvDiskWriteCount": t_read
         }
 
     @staticmethod
