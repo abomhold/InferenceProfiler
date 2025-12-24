@@ -49,7 +49,7 @@ test-vllm: ##@ Test the vllm server (requires container running)
 	@echo "--- Testing vllm Server ---"
 	@curl http://localhost:8000/v1/chat/completions \
 		 -H "Content-Type: application/json" \
-		 -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
+		 -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 1024}'
 
 clean: ##@ Remove build artifacts, cache, and output
 	@echo "--- Cleaning Artifacts ---"

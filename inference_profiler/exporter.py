@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 class Exporter:
     def __init__(self, output_dir, session_uuid):
         self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
         self.session_uuid = session_uuid
         self.snapshot_files = []
 

@@ -10,6 +10,7 @@ from .mem import MemCollector
 from .net import NetCollector
 from .nvidia import NvidiaCollector
 from .proc import ProcCollector
+from .vllm import VllmCollector
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,8 @@ class CollectorManager:
             "net": NetCollector,
             "containers": ContainerCollector,
             "processes": ProcCollector,
-            "nvidia": NvidiaCollector(),
+            "nvidia": NvidiaCollector,
+            "vllm": VllmCollector(),
         }
 
     def collect_metrics(self) -> Dict[str, Any]:
