@@ -1,4 +1,5 @@
-// inference-profiler collects system resource metrics and exports to JSON/CSV/Parquet.
+// Package InferenceProfiler
+// profiler collects system resource metrics and exports to JSON/CSV/Parquet.
 //
 // Usage:
 //
@@ -14,29 +15,24 @@
 //
 // If a command is provided after --, the profiler runs until that command exits.
 // Otherwise, it runs until interrupted (Ctrl+C).
-package main
+package InferenceProfiler
 
 import (
-	"crypto/rand"
+	"InferenceProfiler/collectors"
+	"InferenceProfiler/utils"
+
+	//"crypto/rand"
 	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
-)
 
-// newUUID generates a random UUID v4.
-func newUUID() string {
-	var b [16]byte
-	rand.Read(b[:])
-	b[6] = (b[6] & 0x0f) | 0x40 // version 4
-	b[8] = (b[8] & 0x3f) | 0x80 // variant
-	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
-		b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
-}
+	//"fmt"
+	"github.com/google/uuid"
+)
 
 func main() {
 	// Flags
@@ -47,7 +43,10 @@ func main() {
 	flag.Parse()
 
 	// UUID for session
-	sessionUUID := newUUID()
+	sessionUUID, err := uuid.NewUUID()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	log.Printf("Session UUID: %s", sessionUUID)
 	log.Printf("Output Dir:   %s", *outputDir)
@@ -55,10 +54,10 @@ func main() {
 	log.Printf("Format:       %s", *format)
 
 	// Initialize
-	mgr := collector.NewManager(*processes)
+	mgr := collectors.NewManager(*processes)
 	defer mgr.Close()
 
-	exp := exporter.New(*outputDir, sessionUUID)
+	exp := utils.New(*outputDir, sessionUUID)
 
 	// Save static info
 	log.Println("Capturing static hardware info...")
@@ -115,7 +114,7 @@ func main() {
 	// Cleanup
 	log.Println("Shutting down...")
 
-	if proc != nil && proc.Process != nil {
+	if proc != nil && proc.Process != nil && proc.ProcessState == nil {
 		proc.Process.Signal(syscall.SIGTERM)
 		done := make(chan error, 1)
 		go func() { done <- proc.Wait() }()

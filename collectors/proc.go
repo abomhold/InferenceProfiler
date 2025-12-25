@@ -1,42 +1,11 @@
-package src
+package collectors
 
 import (
-	"InferenceProfiler/src"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/inference-profiler/utils"
 )
-
-// ProcessMetrics contains per-process measurements.
-type ProcessMetrics struct {
-	// Identification
-	PID     int    `json:"pId"`
-	Name    string `json:"pName"`
-	Cmdline string `json:"pCmdline"`
-
-	// Threading
-	NumThreads exporter.Timed[int64] `json:"pNumThreads"`
-
-	// CPU time (centiseconds)
-	CPUUserMode        exporter.Timed[int64] `json:"pCpuTimeUserMode"`
-	CPUKernelMode      exporter.Timed[int64] `json:"pCpuTimeKernelMode"`
-	ChildrenUserMode   exporter.Timed[int64] `json:"pChildrenUserMode"`
-	ChildrenKernelMode exporter.Timed[int64] `json:"pChildrenKernelMode"`
-
-	// Context switches
-	VoluntaryCtxSwitches    exporter.Timed[int64] `json:"pVoluntaryContextSwitches"`
-	NonvoluntaryCtxSwitches exporter.Timed[int64] `json:"pNonvoluntaryContextSwitches"`
-
-	// I/O delays (centiseconds)
-	BlockIODelays exporter.Timed[int64] `json:"pBlockIODelays"`
-
-	// Memory (bytes)
-	VirtualMemory   exporter.Timed[int64] `json:"pVirtualMemoryBytes"`
-	ResidentSetSize exporter.Timed[int64] `json:"pResidentSetSize"`
-}
 
 // ProcessCollection contains all process metrics plus summary.
 type ProcessCollection struct {
@@ -44,9 +13,14 @@ type ProcessCollection struct {
 	Processes    []ProcessMetrics `json:"processes"`
 }
 
-// CollectProcesses gathers metrics for all running processes.
+// ProcessCollector gathers per-process metrics.
+type ProcessCollector struct {
+	BaseCollector
+}
+
+// Collect gathers metrics for all running processes.
 // This can be expensive on systems with many processes.
-func CollectProcesses() ProcessCollection {
+func (c *ProcessCollector) Collect() ProcessCollection {
 	pattern := "/proc/[0-9]*"
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -62,7 +36,7 @@ func CollectProcesses() ProcessCollection {
 			continue
 		}
 
-		proc := collectProcess(pidPath, pid, pageSize)
+		proc := c.collectProcess(pidPath, pid, pageSize)
 		if proc != nil {
 			processes = append(processes, *proc)
 		}
@@ -75,9 +49,9 @@ func CollectProcesses() ProcessCollection {
 }
 
 // collectProcess gathers metrics for a single process.
-func collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
+func (c *ProcessCollector) collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
 	// Read /proc/[pid]/stat
-	statData, statTS := utils.readFile(filepath.Join(pidPath, "stat"))
+	statData, statTS := c.ReadFile(filepath.Join(pidPath, "stat"))
 	if statData == "" {
 		return nil
 	}
@@ -114,7 +88,7 @@ func collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
 	blkioDelay, _ := strconv.ParseInt(fields[39], 10, 64)
 
 	// Read /proc/[pid]/status for context switches
-	status, statusTS := utils.parseKV(filepath.Join(pidPath, "status"), ':')
+	status, statusTS := c.ParseKV(filepath.Join(pidPath, "status"), ':')
 	volCtx, _ := strconv.ParseInt(status["voluntary_ctxt_switches"], 10, 64)
 	nvolCtx, _ := strconv.ParseInt(status["nonvoluntary_ctxt_switches"], 10, 64)
 
@@ -124,7 +98,7 @@ func collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
 	}
 
 	// Read /proc/[pid]/statm for RSS
-	statmData, statmTS := utils.readFile(filepath.Join(pidPath, "statm"))
+	statmData, statmTS := c.ReadFile(filepath.Join(pidPath, "statm"))
 	var rssPages int64
 	if statmData != "" {
 		statmFields := strings.Fields(statmData)
@@ -134,7 +108,7 @@ func collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
 	}
 
 	// Read /proc/[pid]/cmdline
-	cmdline, _ := utils.readFile(filepath.Join(pidPath, "cmdline"))
+	cmdline, _ := c.ReadFile(filepath.Join(pidPath, "cmdline"))
 	cmdline = strings.ReplaceAll(cmdline, "\x00", " ")
 	cmdline = strings.TrimSpace(cmdline)
 
@@ -142,15 +116,15 @@ func collectProcess(pidPath string, pid int, pageSize int64) *ProcessMetrics {
 		PID:                     pid,
 		Name:                    name,
 		Cmdline:                 cmdline,
-		NumThreads:              exporter.TimedAt(numThreads, statTS),
-		CPUUserMode:             exporter.TimedAt(utime*src.jiffiesPerSec, statTS),
-		CPUKernelMode:           exporter.TimedAt(stime*src.jiffiesPerSec, statTS),
-		ChildrenUserMode:        exporter.TimedAt(cutime*src.jiffiesPerSec, statTS),
-		ChildrenKernelMode:      exporter.TimedAt(cstime*src.jiffiesPerSec, statTS),
-		VoluntaryCtxSwitches:    exporter.TimedAt(volCtx, statusTS),
-		NonvoluntaryCtxSwitches: exporter.TimedAt(nvolCtx, statusTS),
-		BlockIODelays:           exporter.TimedAt(blkioDelay*src.jiffiesPerSec, statTS),
-		VirtualMemory:           exporter.TimedAt(vsize, statTS),
-		ResidentSetSize:         exporter.TimedAt(rssPages*pageSize, statmTS),
+		NumThreads:              TimedAt(numThreads, statTS),
+		CPUUserMode:             TimedAt(utime*jiffiesPerSec, statTS),
+		CPUKernelMode:           TimedAt(stime*jiffiesPerSec, statTS),
+		ChildrenUserMode:        TimedAt(cutime*jiffiesPerSec, statTS),
+		ChildrenKernelMode:      TimedAt(cstime*jiffiesPerSec, statTS),
+		VoluntaryCtxSwitches:    TimedAt(volCtx, statusTS),
+		NonvoluntaryCtxSwitches: TimedAt(nvolCtx, statusTS),
+		BlockIODelays:           TimedAt(blkioDelay*jiffiesPerSec, statTS),
+		VirtualMemory:           TimedAt(vsize, statTS),
+		ResidentSetSize:         TimedAt(rssPages*pageSize, statmTS),
 	}
 }

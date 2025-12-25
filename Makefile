@@ -1,42 +1,66 @@
-# Makefile for inference-profiler (Go)
+PROJECT_NAME  := container-profiler
+SRC_DIR       := src
+BIN_DIR       := bin
+OUTPUT_DIR    := ./output
+BINARY_NAME   := profiler
+GO_BINARY     := $(BIN_DIR)/$(BINARY_NAME)
+GO_MAIN       := $(SRC_DIR)/main.go
+DOCKER_IMAGE  := $(PROJECT_NAME)
+DOCKER_TAG    := latest
+DOCKER_FILE   := Dockerfile
 
-PROJECT_NAME := inference-profiler
-BINARY       := profiler
-OUTPUT_DIR   := ./output
-TESTDATA_DIR := ./testdata
+.DELETE_ON_ERROR:
+.PHONY: all help profiler-build profiler-clean profiler-run  docker-build docker-run docker-clean clean
+all: help
 
-.PHONY: all build test clean run testdata help
+help: ##@ Shows this help message
+	@echo 'Usage: make [target]'
+	@echo ''
+	@echo 'Targets:'
+	@awk 'BEGIN {FS = ":.*?##@ "} /^[a-zA-Z0-9_-]+:.*?##@ / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-all: build
+go-refresh: ##@ install/manage modules, format source code, inspect code
+	@echo "--- Tidying Go Modules ---"
+	@go mod tidy
+	@echo "--- Formatting Code ---"
+	@go fmt ./...
+	@echo "--- Vetting Code ---"
+	@go vet ./...
 
-help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
+profiler-build: go-refresh ##@ Compile Go binary locally
+	@echo "--- Building Binary ---"
+	@mkdir -p $(BIN_DIR)
+	@go build -o $(GO_BINARY) $(GO_MAIN)
+	@echo "Binary created at $(GO_BINARY)"
 
-build: ## Build the profiler binary
-	@echo "Building $(BINARY)..."
-	go build -o $(BINARY) .
-
-test: testdata ## Run tests
-	go test -v ./...
-
-testdata: ## Generate test data files
-	@./scripts/generate_testdata.sh $(TESTDATA_DIR)
-
-run: build ## Run profiler locally
+profiler-run: profiler-build ##@ Build and run the profiler locally
+	@echo "--- Running Profiler ---"
 	@mkdir -p $(OUTPUT_DIR)
-	./$(BINARY) -o $(OUTPUT_DIR) -t 1000
+	@./$(GO_BINARY) -o $(OUTPUT_DIR)
 
-clean: ## Remove build artifacts
-	rm -rf $(BINARY) $(OUTPUT_DIR) $(TESTDATA_DIR)
-	go clean
+docker-build: ##@ Build Docker image
+	@echo "--- Building Docker Image ($(DOCKER_FILE)) ---"
+	@docker build --progress=plain \
+  				  -f $(DOCKER_FILE) \
+  				  -t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+  				  .
 
-fmt: ## Format code
-	go fmt ./...
+docker-run: docker-build ##@ Run container
+	@echo "--- Running Docker Container ---"
+	@mkdir -p $(OUTPUT_DIR)
+	@docker run --rm \
+		-p "8000:8000" \
+		-v $(shell pwd)/$(OUTPUT_DIR):/profiler-output \
+		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
-lint: ## Run linter
-	@command -v golangci-lint >/dev/null 2>&1 || { echo "golangci-lint not installed"; exit 1; }
-	golangci-lint run
+test-vllm: ##@ Send test request to local vllm server
+	@echo "--- Testing vllm Server ---"
+	@curl http://localhost:8000/v1/chat/completions \
+         -H "Content-Type: application/json" \
+         -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
 
-deps: ## Download dependencies
-	go mod download
-	go mod tidy
+clean: ## Removes all artifacts and docker images
+	@echo "--- Cleaning Artifacts ---"
+	@rm -rf $(BIN_DIR) $(OUTPUT_DIR)
+	@echo "--- Removing Docker Image ---"
+	@docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true

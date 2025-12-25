@@ -1,4 +1,4 @@
-package src
+package collectors
 
 import (
 	"io"
@@ -11,44 +11,9 @@ import (
 	"time"
 )
 
-// VLLMMetrics contains vLLM inference engine measurements.
-// Parsed from Prometheus text format at /metrics endpoint.
-type VLLMMetrics struct {
-	Timestamp int64 `json:"timestamp,omitempty"`
-
-	// System state
-	RequestsRunning  float64 `json:"system_requests_running,omitempty"`
-	RequestsWaiting  float64 `json:"system_requests_waiting,omitempty"`
-	EngineSleepState float64 `json:"system_engine_sleep_state,omitempty"`
-	PreemptionsTotal float64 `json:"system_preemptions_total,omitempty"`
-
-	// Cache utilization
-	KVCacheUsagePercent    float64 `json:"cache_kv_usage_percent,omitempty"`
-	PrefixCacheHits        float64 `json:"cache_prefix_hits,omitempty"`
-	PrefixCacheQueries     float64 `json:"cache_prefix_queries,omitempty"`
-	MultimodalCacheHits    float64 `json:"cache_multimodal_hits,omitempty"`
-	MultimodalCacheQueries float64 `json:"cache_multimodal_queries,omitempty"`
-
-	// Throughput counters
-	RequestsFinished  float64 `json:"requests_finished_total,omitempty"`
-	RequestsCorrupted float64 `json:"requests_corrupted_total,omitempty"`
-	PromptTokens      float64 `json:"tokens_prompt_total,omitempty"`
-	GenerationTokens  float64 `json:"tokens_generation_total,omitempty"`
-
-	// Latency sums (for computing averages with counts)
-	LatencyTTFTSum       float64 `json:"latency_ttft_s_sum,omitempty"`
-	LatencyE2ESum        float64 `json:"latency_e2e_s_sum,omitempty"`
-	LatencyQueueSum      float64 `json:"latency_queue_s_sum,omitempty"`
-	LatencyInferenceSum  float64 `json:"latency_inference_s_sum,omitempty"`
-	LatencyPrefillSum    float64 `json:"latency_prefill_s_sum,omitempty"`
-	LatencyDecodeSum     float64 `json:"latency_decode_s_sum,omitempty"`
-	LatencyInterTokenSum float64 `json:"latency_inter_token_s_sum,omitempty"`
-
-	// Histograms stored as bucket->cumulative_count
-	Histograms map[string]map[string]float64 `json:"histograms,omitempty"`
-
-	// Config info (extracted from *_info metrics)
-	Config map[string]interface{} `json:"config,omitempty"`
+// VLLMCollector gathers vLLM metrics.
+type VLLMCollector struct {
+	BaseCollector
 }
 
 // vLLM metric name aliases for cleaner JSON output.
@@ -84,8 +49,8 @@ var ignoredLabels = map[string]bool{
 // Prometheus line regex: metric{labels} value
 var promLineRE = regexp.MustCompile(`^([a-zA-Z0-9_:]+)(?:\{(.+)\})?\s+([0-9\.eE\+\-]+|nan|inf|NaN|Inf)$`)
 
-// CollectVLLM scrapes metrics from vLLM's Prometheus endpoint.
-func CollectVLLM() VLLMMetrics {
+// Collect scrapes metrics from vLLM's Prometheus endpoint.
+func (c *VLLMCollector) Collect() VLLMMetrics {
 	url := os.Getenv("VLLM_METRICS_URL")
 	if url == "" {
 		url = "http://localhost:8000/metrics"
@@ -106,15 +71,22 @@ func CollectVLLM() VLLMMetrics {
 		return m
 	}
 
-	m = parsePrometheus(string(body))
+	m = c.parsePrometheus(string(body))
 	if len(m.Histograms) > 0 || m.RequestsRunning > 0 || m.RequestsWaiting > 0 {
 		m.Timestamp = ts
 	}
 	return m
 }
 
+type bucketEntry struct {
+	le    float64
+	count float64
+}
+
+const posInf = 1e308
+
 // parsePrometheus parses Prometheus text format into VLLMMetrics.
-func parsePrometheus(text string) VLLMMetrics {
+func (c *VLLMCollector) parsePrometheus(text string) VLLMMetrics {
 	m := VLLMMetrics{
 		Histograms: make(map[string]map[string]float64),
 		Config:     make(map[string]interface{}),
@@ -135,10 +107,10 @@ func parsePrometheus(text string) VLLMMetrics {
 		}
 
 		name, labelStr, valStr := match[1], match[2], match[3]
-		val := parsePromValue(valStr)
+		val := c.parsePromValue(valStr)
 
 		// Parse and filter labels
-		labels := parseLabels(labelStr)
+		labels := c.parseLabels(labelStr)
 
 		// Strip vllm: prefix and handle suffixes
 		name = strings.TrimPrefix(name, "vllm:")
@@ -165,7 +137,7 @@ func parsePrometheus(text string) VLLMMetrics {
 		// Handle _info metrics -> extract to config
 		if isInfo && len(labels) > 0 {
 			for k, v := range labels {
-				m.Config[cleanName+"_"+k] = tryParseNumber(v)
+				m.Config[cleanName+"_"+k] = c.tryParseNumber(v)
 			}
 			continue
 		}
@@ -179,9 +151,9 @@ func parsePrometheus(text string) VLLMMetrics {
 			delete(labels, "le")
 
 			// Build histogram key
-			histoKey := buildKey(cleanName, labels)
+			histoKey := c.buildKey(cleanName, labels)
 			histoBuckets[histoKey] = append(histoBuckets[histoKey], bucketEntry{
-				le:    parseLe(le),
+				le:    c.parseLe(le),
 				count: val,
 			})
 			continue
@@ -189,7 +161,7 @@ func parsePrometheus(text string) VLLMMetrics {
 
 		// Handle _sum and _count
 		if isSum {
-			assignSum(&m, cleanName, val)
+			c.assignSum(&m, cleanName, val)
 			continue
 		}
 
@@ -199,7 +171,7 @@ func parsePrometheus(text string) VLLMMetrics {
 		}
 
 		// Handle standard metrics
-		assignMetric(&m, cleanName, val, labels)
+		c.assignMetric(&m, cleanName, val)
 	}
 
 	// Convert histogram buckets to sorted maps
@@ -222,14 +194,7 @@ func parsePrometheus(text string) VLLMMetrics {
 	return m
 }
 
-type bucketEntry struct {
-	le    float64
-	count float64
-}
-
-const posInf = 1e308
-
-func parsePromValue(s string) float64 {
+func (c *VLLMCollector) parsePromValue(s string) float64 {
 	s = strings.ToLower(s)
 	if s == "nan" {
 		return 0
@@ -244,7 +209,7 @@ func parsePromValue(s string) float64 {
 	return v
 }
 
-func parseLe(s string) float64 {
+func (c *VLLMCollector) parseLe(s string) float64 {
 	s = strings.ToLower(s)
 	if s == "+inf" || s == "inf" {
 		return posInf
@@ -253,7 +218,7 @@ func parseLe(s string) float64 {
 	return v
 }
 
-func parseLabels(s string) map[string]string {
+func (c *VLLMCollector) parseLabels(s string) map[string]string {
 	m := make(map[string]string)
 	if s == "" {
 		return m
@@ -274,7 +239,7 @@ func parseLabels(s string) map[string]string {
 	return m
 }
 
-func buildKey(base string, labels map[string]string) string {
+func (c *VLLMCollector) buildKey(base string, labels map[string]string) string {
 	if len(labels) == 0 {
 		return base
 	}
@@ -287,7 +252,7 @@ func buildKey(base string, labels map[string]string) string {
 	return base + "_" + strings.Join(parts, "_")
 }
 
-func tryParseNumber(s string) interface{} {
+func (c *VLLMCollector) tryParseNumber(s string) interface{} {
 	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
 		return i
 	}
@@ -297,7 +262,7 @@ func tryParseNumber(s string) interface{} {
 	return s
 }
 
-func assignSum(m *VLLMMetrics, name string, val float64) {
+func (c *VLLMCollector) assignSum(m *VLLMMetrics, name string, val float64) {
 	switch name {
 	case "latency_ttft_s":
 		m.LatencyTTFTSum = val
@@ -310,13 +275,13 @@ func assignSum(m *VLLMMetrics, name string, val float64) {
 	case "latency_prefill_s":
 		m.LatencyPrefillSum = val
 	case "latency_decode_s":
-		m.LatencyDecodeSum = vald
+		m.LatencyDecodeSum = val
 	case "latency_inter_token_s":
 		m.LatencyInterTokenSum = val
 	}
 }
 
-func assignMetric(m *VLLMMetrics, name string, val float64, labels map[string]string) {
+func (c *VLLMCollector) assignMetric(m *VLLMMetrics, name string, val float64) {
 	switch name {
 	case "system_requests_running":
 		m.RequestsRunning = val
