@@ -7,6 +7,7 @@ requires-python = ">=3.9"
 dependencies = [
     "nvidia-ml-py>=11.5.0",
     "pandas>=2.0.0",
+    "prometheus-client>=0.23.1",
     "pyarrow>=14.0.0",
 ]
 

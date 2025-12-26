@@ -54,28 +54,22 @@ class ProcCollector(BaseCollector):
                     "pId": pid,
                     "pName": status_data.get('Name', stat_data[stat_data.find('(') + 1:rparen_index]),
                     "pCmdline": cmdline.replace('\x00', ' ').strip() if cmdline else "",
-                    # Thread count
                     "pNumThreads": int(stat_parts[17]),
                     "tpNumThreads": t_stat_data,
-                    # CPU time metrics (in centiseconds)
                     "pCpuTimeUserMode": int(stat_parts[11]) * BaseCollector.JIFFIES_PER_SECOND,
                     "tpCpuTimeUserMode": t_stat_data,
                     "pCpuTimeKernelMode": int(stat_parts[12]) * BaseCollector.JIFFIES_PER_SECOND,
                     "tpCpuTimeKernelMode": t_stat_data,
-                    # Children CPU time
                     "pChildrenUserMode": int(stat_parts[13]) * BaseCollector.JIFFIES_PER_SECOND,
                     "tpChildrenUserMode": t_stat_data,
                     "pChildrenKernelMode": int(stat_parts[14]) * BaseCollector.JIFFIES_PER_SECOND,
                     "tpChildrenKernelMode": t_stat_data,
-                    # Context switches
                     "pVoluntaryContextSwitches": int(status_data.get('voluntary_ctxt_switches', 0)),
                     "tpVoluntaryContextSwitches": t_status_data,
                     "pNonvoluntaryContextSwitches": int(status_data.get('nonvoluntary_ctxt_switches', 0)),
                     "tpNonvoluntaryContextSwitches": t_status_data,
-                    # Block I/O delays
                     "pBlockIODelays": int(stat_parts[39]) * BaseCollector.JIFFIES_PER_SECOND,
                     "tpBlockIODelays": t_stat_data,
-                    # Memory metrics
                     "pVirtualMemoryBytes": int(stat_parts[20]),
                     "tpVirtualMemoryBytes": t_stat_data,
                     "pResidentSetSize": rss_bytes,
@@ -87,5 +81,5 @@ class ProcCollector(BaseCollector):
 
         return {
             "pNumProcesses": process_count,
-            "processes": [json.dumps(x).replace('"', '\\"') for x in process_list]
+            "processes": [json.dumps(x).replace('"', '\"') for x in process_list]
         }

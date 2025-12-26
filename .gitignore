@@ -30,3 +30,4 @@ Thumbs.db
 # Ruff
 .ruff_cache/
 /local_model/
+/infra/.terraform/

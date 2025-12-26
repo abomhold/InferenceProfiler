@@ -19,39 +19,48 @@ class CollectorManager:
     def __init__(self, collect_processes: bool = False):
         """
         Initialize collector manager.
-
-        Args:
-            collect_processes: Whether to collect per-process metrics (can be expensive)
         """
+        # Note: Standardizing to instances for all collectors
+        # to ensure .collect() and .cleanup() work consistently.
         self.collectors = {
-            "cpu": CpuCollector,
-            "disk": DiskCollector,
-            "mem": MemCollector,
-            "net": NetCollector,
-            "containers": ContainerCollector,
+            "cpu": CpuCollector(),
+            "disk": DiskCollector(),
+            "mem": MemCollector(),
+            "net": NetCollector(),
+            "container": ContainerCollector(),
             "nvidia": NvidiaCollector(),
             "vllm": VllmCollector(),
         }
 
         if collect_processes:
-            self.collectors["processes"] = ProcCollector
+            self.collectors["processes"] = ProcCollector()
 
     def collect_metrics(self) -> Dict[str, Any]:
-        """Aggregates dynamic metrics from all collectors."""
+        """Aggregates metrics from all collectors into a flat dictionary."""
         data = {
             "timestamp": BaseCollector.get_timestamp(),
         }
+
         for key, collector in self.collectors.items():
             try:
-                data[key] = collector.collect()
+                metrics = collector.collect()
+                if isinstance(metrics, dict):
+                    # This merges the metrics into the top-level 'data' dict
+                    data.update(metrics)
+                else:
+                    # Fallback if a collector returns a non-dict value
+                    data[key] = metrics
             except Exception as e:
                 logger.error(f"Error collecting {key} metrics: {e}")
-                data[key] = {}
+
         return data
 
     def close(self):
         for c in self.collectors.values():
-            c.cleanup()
+            try:
+                c.cleanup()
+            except AttributeError:
+                pass
 
     def get_static_info(self, session_uuid: str) -> Dict[str, Any]:
         """Aggregates static info from all collectors."""
@@ -64,51 +73,38 @@ class CollectorManager:
         except Exception:
             boot_time = 0
 
-        # Get VM ID from various sources
         vm_id = self._get_vm_id()
 
         info = {
             "uuid": session_uuid,
             "vId": vm_id,
-            "host": {
-                "hostname": os.uname().nodename,
-                "kernel": " ".join([x for x in os.uname()]),
-                "boot_time": boot_time,
-            }
+            "hostname": os.uname().nodename,
+            "kernel": " ".join([x for x in os.uname()]),
+            "boot_time": boot_time,
         }
 
-        # Safe static collection
-        try:
-            cpu_static = self.collectors["cpu"].get_static_info()
-            info["host"].update(cpu_static)
-        except Exception:
-            pass
-
-        try:
-            mem_static = self.collectors["mem"].get_static_info()
-            info["host"].update(mem_static)
-        except Exception:
-            pass
+        # Flattens static info into the main dict instead of nesting in "host"
+        for key in ["cpu", "mem"]:
+            try:
+                static_data = self.collectors[key].get_static_info()
+                if static_data:
+                    info.update(static_data)
+            except Exception:
+                pass
 
         try:
             nvidia_static = self.collectors["nvidia"].get_static_info()
             if nvidia_static:
                 info["gDriverVersion"] = nvidia_static.get("gDriverVersion")
                 info["gCudaVersion"] = nvidia_static.get("gCudaVersion")
-                info["nvidia"] = nvidia_static.get("gpus", [])
-            else:
-                info["nvidia"] = []
+                info["nvidia_gpus"] = nvidia_static.get("gpus", [])
         except Exception:
-            info["nvidia"] = []
+            pass
 
         return info
 
     def _get_vm_id(self) -> str:
         """Attempt to get VM/instance ID from various sources."""
-        # Try cloud provider metadata
-        vm_id = "unavailable"
-
-        # DMI product UUID
         try:
             with open('/sys/class/dmi/id/product_uuid', 'r') as f:
                 vm_id = f.read().strip()
@@ -117,7 +113,6 @@ class CollectorManager:
         except Exception:
             pass
 
-        # Machine ID as fallback
         try:
             with open('/etc/machine-id', 'r') as f:
                 vm_id = f.read().strip()
@@ -126,4 +121,4 @@ class CollectorManager:
         except Exception:
             pass
 
-        return vm_id
+        return "unavailable"

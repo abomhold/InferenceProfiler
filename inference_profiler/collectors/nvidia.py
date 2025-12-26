@@ -10,9 +10,10 @@ warnings.filterwarnings("ignore", category=FutureWarning, module="pynvml")
 
 try:
     import pynvml
-
+    pynvml.nvmlInit()
+    pynvml.nvmlShutdown()
     NVML_AVAILABLE = True
-except ImportError:
+except Exception as e:
     NVML_AVAILABLE = False
     pynvml = None
 
@@ -35,7 +36,8 @@ class NvidiaCollector(BaseCollector):
                 cls._initialized = True
                 logger.info("NVIDIA NVML initialized successfully.")
             except pynvml.NVMLError as e:
-                logger.error(f"Failed to initialize NVIDIA NVML: {e}")
+                cls._initialized = False
+                logger.warning(f"Failed to initialize NVIDIA NVML: {e}")
 
     @staticmethod
     def collect() -> List[Dict[str, Any]]:
