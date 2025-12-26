@@ -1,18 +1,17 @@
 [project]
-name = "inference-profiler"
+name = "InferenceProfiler"
 version = "0.1.0"
 description = "System resource profiler with export to CSV/Parquet"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
-    "psutil>=5.9.0",
-    "pynvml>=11.5.0",
+    "nvidia-ml-py>=11.5.0",
     "pandas>=2.0.0",
     "pyarrow>=14.0.0",
 ]
 
 [project.scripts]
-inference-profiler = "inference_profiler.main:main"
+InferenceProfiler = "inference_profiler.main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -20,3 +19,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["inference_profiler"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/inference_profiler",
+    "/README.md",
+    "/pyproject.toml",
+]

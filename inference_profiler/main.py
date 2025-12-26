@@ -1,14 +1,13 @@
 import argparse
-import uuid
-import time
+import logging
 import signal
 import subprocess
 import sys
-import os
-import logging
+import time
+import uuid
 
-from inference_profiler.collectors.collector_manager import CollectorManager
-from inference_profiler.exporter import Exporter
+from .collectors.collector_manager import CollectorManager
+from .exporter import Exporter
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +22,18 @@ def main():
 
     # --- 1. Argument Parsing ---
     parser = argparse.ArgumentParser(description="Resource Profiler with CSV/Parquet Export")
-    parser.add_argument("-o", "--output", default="./profiler-output", help="Output directory for logs")
-    parser.add_argument("-t", "--interval", type=int, default=1000, help="Sampling interval in milliseconds")
-    parser.add_argument("-f", "--format", choices=['parquet', 'csv', 'tsv'], default='parquet',
-                        help="Final export format (default: parquet)")
-    parser.add_argument("command", nargs=argparse.REMAINDER, help="Optional command to execute and profile")
+    parser.add_argument(
+        "-o",
+        "--output",
+        default="./profiler-output",
+        help="Output directory for logs"
+    )
+    parser.add_argument("-t", "--interval", default=1000,
+                        type=int, help="Sampling interval in milliseconds")
+    parser.add_argument("-f", "--format", default='parquet',
+                        choices=['parquet', 'csv', 'tsv'], help="Final export format (default: parquet)")
+    parser.add_argument("command",
+                        nargs=argparse.REMAINDER, help="Optional command to execute and profile")
     args = parser.parse_args()
 
     # --- 2. Initialization ---

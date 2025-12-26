@@ -1,14 +1,15 @@
-import os
 import json
 import logging
+import os
+
 import pandas as pd
 
 logger = logging.getLogger(__name__)
 
+
 class Exporter:
     def __init__(self, output_dir, session_uuid):
         self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
         self.session_uuid = session_uuid
         self.snapshot_files = []
 
@@ -33,6 +34,14 @@ class Exporter:
             if isinstance(value, dict):
                 for sub_key, sub_value in value.items():
                     flat[f"{key}_{sub_key}"] = sub_value
+            elif isinstance(value, list):
+                if key == "processes":
+                    flat["processes"] = []
+                    for i, item in enumerate(value):
+                        flat["processes"] += item
+                else:
+                    for i, item in enumerate(value):
+                        flat[f"{key}_{i}"] = item
             else:
                 flat[key] = value
         return flat
@@ -73,12 +82,13 @@ class Exporter:
         elif export_format == 'parquet':
             target = f"{base_path}.parquet"
             try:
+                # Convert object columns containing JSON strings back to native types if engine supports it,
+                # otherwise keep as strings.
                 df.to_parquet(target, index=False)
                 logger.info("Exported Parquet: %s", target)
             except ImportError:
                 fallback = f"{base_path}.csv"
                 logger.error("PyArrow/FastParquet not installed. Falling back to CSV.")
                 df.to_csv(fallback, index=False)
-                logger.info("Exported CSV: %s", fallback)
             except Exception as e:
                 logger.error("Parquet export failed: %s", e)

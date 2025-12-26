@@ -18,6 +18,7 @@ build/
 # Project-specific output
 output/
 profiler-output/
+local_model/
 
 # OS
 .DS_Store
@@ -28,3 +29,4 @@ Thumbs.db
 
 # Ruff
 .ruff_cache/
+/local_model/
