@@ -10,7 +10,6 @@ logger = logging.getLogger(__name__)
 class Exporter:
     def __init__(self, output_dir, session_uuid):
         self.output_dir = output_dir
-        os.makedirs(self.output_dir, exist_ok=True)
         self.session_uuid = session_uuid
         self.snapshot_files = []
 
@@ -36,8 +35,13 @@ class Exporter:
                 for sub_key, sub_value in value.items():
                     flat[f"{key}_{sub_key}"] = sub_value
             elif isinstance(value, list):
-                for i, item in enumerate(value):
-                    flat[f"{key}_{i}"] = item
+                if key == "processes":
+                    flat["processes"] = []
+                    for i, item in enumerate(value):
+                        flat["processes"] += item
+                else:
+                    for i, item in enumerate(value):
+                        flat[f"{key}_{i}"] = item
             else:
                 flat[key] = value
         return flat

@@ -3,6 +3,8 @@ DOCKER_IMAGE  := $(PROJECT_NAME)
 DOCKER_TAG    := latest
 OUTPUT_DIR    := ./output
 DIST_DIR      := dist
+MODEL         := meta-llama/Llama-3.2-1B-Instruct
+MODEL_PATH    := ./local_model
 
 .DELETE_ON_ERROR:
 .PHONY: all help dev-refresh format lint build run docker-build docker-run test-vllm clean
@@ -25,7 +27,7 @@ run: ##@ Run profiler locally using uv
 	@echo "--- Running Profiler Locally ---"
 	@mkdir -p $(OUTPUT_DIR)
 	@uv sync
-	@uv run inference-profiler -o $(OUTPUT_DIR) -t 1000
+	@uv run InferenceProfiler -o $(OUTPUT_DIR) -t 1000
 
 docker-build: build ##@ Build Docker image
 	@echo "--- Building Docker Image ---"
@@ -39,14 +41,15 @@ docker-run: ##@ Run container with GPU support and volume mount
 	@docker run --rm \
 	   -p "8000:8000" \
 	   -v $(shell pwd)/$(OUTPUT_DIR):/profiler-output \
+	   -v $(MODEL_PATH):/app/model \
+	   --gpus all \
 	   $(DOCKER_IMAGE):$(DOCKER_TAG)
-#	   --gpus all \
 
 test-vllm: ##@ Test the vllm server (requires container running)
 	@echo "--- Testing vllm Server ---"
 	@curl http://localhost:8000/v1/chat/completions \
 		 -H "Content-Type: application/json" \
-		 -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
+		 -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 1024}'
 
 clean: ##@ Remove build artifacts, cache, and output
 	@echo "--- Cleaning Artifacts ---"
