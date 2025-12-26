@@ -1,4 +1,4 @@
-PROJECT_NAME  := container-profiler
+ PROJECT_NAME  := container-profiler
 SRC_DIR       := src
 BIN_DIR       := bin
 OUTPUT_DIR    := ./output
@@ -19,28 +19,26 @@ help: ##@ Shows this help message
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?##@ "} /^[a-zA-Z0-9_-]+:.*?##@ / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-go-refresh: ##@ install/manage modules, format source code, inspect code
-	@echo "--- Tidying Go Modules ---"
-	@go mod tidy
-	@echo "--- Formatting Code ---"
-	@go fmt ./...
-	@echo "--- Vetting Code ---"
-	@go vet ./...
+refresh: ##@ install/manage modules, format source code, inspect code
+	@echo "--- Refreshing Source Code ---"
+	go mod tidy
+	go fmt ./...
+	go vet ./...
 
-profiler-build: go-refresh ##@ Compile Go binary locally
-	@echo "--- Building Binary ---"
-	@mkdir -p $(BIN_DIR)
-	@go build -o $(GO_BINARY) $(GO_MAIN)
-	@echo "Binary created at $(GO_BINARY)"
+build: refresh ##@ Compile Go binary locally
+	@echo "--- Building Binary at $(GO_BINARY) ---"
+	mkdir -p $(BIN_DIR)
+	go build -o $(GO_BINARY) $(GO_MAIN)
+	chmod +x $(GO_BINARY)
 
-profiler-run: profiler-build ##@ Build and run the profiler locally
+run: build ##@ Build and run the profiler locally
 	@echo "--- Running Profiler ---"
-	@mkdir -p $(OUTPUT_DIR)
-	@./$(GO_BINARY) -o $(OUTPUT_DIR)
+	mkdir -p $(OUTPUT_DIR)
+	./$(GO_BINARY) -o $(OUTPUT_DIR)
 
 docker-build: ##@ Build Docker image
 	@echo "--- Building Docker Image ($(DOCKER_FILE)) ---"
-	@docker build --progress=plain \
+	docker build --progress=plain \
   				  -f $(DOCKER_FILE) \
   				  -t $(DOCKER_IMAGE):$(DOCKER_TAG) \
   				  .
