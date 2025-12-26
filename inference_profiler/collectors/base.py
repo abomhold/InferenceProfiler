@@ -44,7 +44,7 @@ class BaseColletor(ABC):
             return 0, timestamp
 
     @staticmethod
-    def probe(func, default=0):
+    def _probe(func, default=0):
         """
         Safely executes a callable and returns (result, timestamp).
         Captures the timestamp immediately before execution.

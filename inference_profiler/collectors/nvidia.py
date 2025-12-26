@@ -55,37 +55,37 @@ class NvidiaCollector(BaseColletor):
 
                 # 2. Collect metrics using the safe probe helper
                 # utilization returns an object, so we wrap extraction in lambdas
-                util_gpu, _ = self.probe(lambda: pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
-                util_mem, _ = self.probe(lambda: pynvml.nvmlDeviceGetUtilizationRates(handle).memory)
+                util_gpu, _ = self._probe(lambda: pynvml.nvmlDeviceGetUtilizationRates(handle).gpu)
+                util_mem, _ = self._probe(lambda: pynvml.nvmlDeviceGetUtilizationRates(handle).memory)
 
                 # Memory Info
-                mem_total, _ = self.probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).total // 1024 // 1024)
-                mem_used, _ = self.probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).used // 1024 // 1024)
-                mem_free, _ = self.probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).free // 1024 // 1024)
+                mem_total, _ = self._probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).total // 1024 // 1024)
+                mem_used, _ = self._probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).used // 1024 // 1024)
+                mem_free, _ = self._probe(lambda: pynvml.nvmlDeviceGetMemoryInfo(handle).free // 1024 // 1024)
 
                 # BAR1 Memory
-                bar1_used, _ = self.probe(lambda: pynvml.nvmlDeviceGetBAR1MemoryInfo(handle).bar1Used // 1024 // 1024)
-                bar1_free, _ = self.probe(lambda: pynvml.nvmlDeviceGetBAR1MemoryInfo(handle).bar1Free // 1024 // 1024)
+                bar1_used, _ = self._probe(lambda: pynvml.nvmlDeviceGetBAR1MemoryInfo(handle).bar1Used // 1024 // 1024)
+                bar1_free, _ = self._probe(lambda: pynvml.nvmlDeviceGetBAR1MemoryInfo(handle).bar1Free // 1024 // 1024)
 
                 # Physical sensors
-                temp, _ = self.probe(lambda: pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU))
-                fan_speed, _ = self.probe(lambda: pynvml.nvmlDeviceGetFanSpeed(handle))
-                power_draw, _ = self.probe(lambda: pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0)
-                power_limit, _ = self.probe(lambda: pynvml.nvmlDeviceGetEnforcedPowerLimit(handle) / 1000.0)
+                temp, _ = self._probe(lambda: pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU))
+                fan_speed, _ = self._probe(lambda: pynvml.nvmlDeviceGetFanSpeed(handle))
+                power_draw, _ = self._probe(lambda: pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0)
+                power_limit, _ = self._probe(lambda: pynvml.nvmlDeviceGetEnforcedPowerLimit(handle) / 1000.0)
 
                 # Clocks
-                clock_gr, _ = self.probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS))
-                clock_sm, _ = self.probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_SM))
-                clock_mem, _ = self.probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_MEM))
+                clock_gr, _ = self._probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_GRAPHICS))
+                clock_sm, _ = self._probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_SM))
+                clock_mem, _ = self._probe(lambda: pynvml.nvmlDeviceGetClockInfo(handle, pynvml.NVML_CLOCK_MEM))
 
                 # PCIe
-                pcie_tx, _ = self.probe(
+                pcie_tx, _ = self._probe(
                     lambda: pynvml.nvmlDeviceGetPcieThroughput(handle, pynvml.NVML_PCIE_UTIL_TX_BYTES))
-                pcie_rx, _ = self.probe(
+                pcie_rx, _ = self._probe(
                     lambda: pynvml.nvmlDeviceGetPcieThroughput(handle, pynvml.NVML_PCIE_UTIL_RX_BYTES))
 
                 # State
-                perf_state, _ = self.probe(lambda: f"P{pynvml.nvmlDeviceGetPerformanceState(handle)}", default="P?")
+                perf_state, _ = self._probe(lambda: f"P{pynvml.nvmlDeviceGetPerformanceState(handle)}", default="P?")
 
                 # 3. Build dictionary
                 gpu_metrics.append({
@@ -130,7 +130,7 @@ class NvidiaCollector(BaseColletor):
                 mem = pynvml.nvmlDeviceGetMemoryInfo(handle)
 
                 # Safe bus ID retrieval
-                bus_id, _ = self.probe(lambda: pynvml.nvmlDeviceGetPciInfo(handle).busId, default="unknown")
+                bus_id, _ = self._probe(lambda: pynvml.nvmlDeviceGetPciInfo(handle).busId, default="unknown")
                 if isinstance(bus_id, bytes):
                     bus_id = bus_id.decode('utf-8', errors='ignore')
 
