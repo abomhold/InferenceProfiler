@@ -21,7 +21,7 @@ jobs:
         with:
           # Mount the current directory and run the build script
           entrypoint: /bin/sh
-          args: -c "apk add --no-cache build-base git && go build -C ./src -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ."
+          args: -c "apk add --no-cache build-base git && && go mod init && go build -C ./src -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ."
         env:
           CGO_ENABLED: 1
 
