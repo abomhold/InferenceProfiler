@@ -10,7 +10,7 @@ DOCKER_TAG    := latest
 DOCKER_FILE   := Dockerfile
 
 .DELETE_ON_ERROR:
-.PHONY: all help profiler-build profiler-clean profiler-run  docker-build docker-run docker-clean clean
+.PHONY: all help build clean run docker-build docker-run docker-clean refresh
 all: help
 
 help: ##@ Shows this help message
@@ -19,7 +19,7 @@ help: ##@ Shows this help message
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?##@ "} /^[a-zA-Z0-9_-]+:.*?##@ / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-refresh: ##@ install/manage modules, format source code, inspect code
+refresh: ##@ Install/manage modules, format source code, inspect code
 	@echo "--- Refreshing Source Code ---"
 	go mod tidy
 	go fmt ./...
@@ -39,26 +39,26 @@ run: build ##@ Build and run the profiler locally
 docker-build: ##@ Build Docker image
 	@echo "--- Building Docker Image ($(DOCKER_FILE)) ---"
 	docker build --progress=plain \
-  				  -f $(DOCKER_FILE) \
-  				  -t $(DOCKER_IMAGE):$(DOCKER_TAG) \
-  				  .
+		-f $(DOCKER_FILE) \
+		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+		.
 
 docker-run: docker-build ##@ Run container
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
-	@docker run --rm \
+	docker run --rm \
 		-p "8000:8000" \
 		-v $(OUTPUT_DIR):/profiler-output \
 		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 test-vllm: ##@ Send test request to local vllm server
 	@echo "--- Testing vllm Server ---"
-	@curl http://localhost:8000/v1/chat/completions \
-         -H "Content-Type: application/json" \
-         -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
+	curl http://localhost:8000/v1/chat/completions \
+		-H "Content-Type: application/json" \
+		-d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
 
-clean: ## Removes all artifacts and docker images
+clean: ##@ Remove all artifacts and docker images
 	@echo "--- Cleaning Artifacts ---"
-	@rm -rf $(BIN_DIR) $(OUTPUT_DIR)
+	rm -rf $(BIN_DIR) $(OUTPUT_DIR)
 	@echo "--- Removing Docker Image ---"
-	@docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
+	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true

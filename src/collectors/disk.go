@@ -1,10 +1,10 @@
 package collectors
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -13,14 +13,12 @@ const (
 	DiskRegex  = `^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$`
 )
 
-// --- Static Metrics ---
-
-func CollectDiskStatic() StaticMetrics {
-	results := make(StaticMetrics)
+// CollectDiskStatic populates static disk information
+func CollectDiskStatic(m *StaticMetrics) {
 	diskPattern := regexp.MustCompile(DiskRegex)
 	entries, _ := os.ReadDir("/sys/class/block/")
+	var disks []DiskStatic
 
-	idx := 0
 	for _, entry := range entries {
 		devName := entry.Name()
 		if !diskPattern.MatchString(devName) {
@@ -33,21 +31,23 @@ func CollectDiskStatic() StaticMetrics {
 		vendor, _ := ProbeFile(filepath.Join(basePath, "device/vendor"))
 		sizeSectors, _ := ProbeFileInt(filepath.Join(basePath, "size"))
 
-		prefix := "vDisk" + strconv.Itoa(idx)
-		results[prefix+"Name"] = devName
-		results[prefix+"Model"] = strings.TrimSpace(model)
-		results[prefix+"Vendor"] = strings.TrimSpace(vendor)
-		results[prefix+"SizeBytes"] = sizeSectors * SectorSize
-
-		idx++
+		disks = append(disks, DiskStatic{
+			Name:      devName,
+			Model:     strings.TrimSpace(model),
+			Vendor:    strings.TrimSpace(vendor),
+			SizeBytes: sizeSectors * SectorSize,
+		})
 	}
 
-	return results
+	if len(disks) > 0 {
+		if data, err := json.Marshal(disks); err == nil {
+			m.DisksJSON = string(data)
+		}
+	}
 }
 
-// --- Dynamic Metrics ---
-
-func CollectDiskDynamic() DynamicMetrics {
+// CollectDiskDynamic populates dynamic disk metrics
+func CollectDiskDynamic(m *DynamicMetrics) {
 	lines, ts := ProbeFileLines("/proc/diskstats")
 	diskPattern := regexp.MustCompile(DiskRegex)
 
@@ -79,19 +79,30 @@ func CollectDiskDynamic() DynamicMetrics {
 		weightedIOTimeMs += parseInt64(fields[13])
 	}
 
-	return DynamicMetrics{
-		"vDiskSectorReads":      NewMetricWithTime(sectorReads, ts),
-		"vDiskSectorWrites":     NewMetricWithTime(sectorWrites, ts),
-		"vDiskReadBytes":        NewMetricWithTime(sectorReads*SectorSize, ts),
-		"vDiskWriteBytes":       NewMetricWithTime(sectorWrites*SectorSize, ts),
-		"vDiskSuccessfulReads":  NewMetricWithTime(readCount, ts),
-		"vDiskSuccessfulWrites": NewMetricWithTime(writeCount, ts),
-		"vDiskMergedReads":      NewMetricWithTime(mergedReads, ts),
-		"vDiskMergedWrites":     NewMetricWithTime(mergedWrites, ts),
-		"vDiskReadTime":         NewMetricWithTime(readTimeMs, ts),
-		"vDiskWriteTime":        NewMetricWithTime(writeTimeMs, ts),
-		"vDiskIOInProgress":     NewMetricWithTime(ioInProgress, ts),
-		"vDiskIOTime":           NewMetricWithTime(ioTimeMs, ts),
-		"vDiskWeightedIOTime":   NewMetricWithTime(weightedIOTimeMs, ts),
-	}
+	m.DiskSectorReads = sectorReads
+	m.DiskSectorReadsT = ts
+	m.DiskSectorWrites = sectorWrites
+	m.DiskSectorWritesT = ts
+	m.DiskReadBytes = sectorReads * SectorSize
+	m.DiskReadBytesT = ts
+	m.DiskWriteBytes = sectorWrites * SectorSize
+	m.DiskWriteBytesT = ts
+	m.DiskSuccessfulReads = readCount
+	m.DiskSuccessfulReadsT = ts
+	m.DiskSuccessfulWrites = writeCount
+	m.DiskSuccessfulWritesT = ts
+	m.DiskMergedReads = mergedReads
+	m.DiskMergedReadsT = ts
+	m.DiskMergedWrites = mergedWrites
+	m.DiskMergedWritesT = ts
+	m.DiskReadTime = readTimeMs
+	m.DiskReadTimeT = ts
+	m.DiskWriteTime = writeTimeMs
+	m.DiskWriteTimeT = ts
+	m.DiskIOInProgress = ioInProgress
+	m.DiskIOInProgressT = ts
+	m.DiskIOTime = ioTimeMs
+	m.DiskIOTimeT = ts
+	m.DiskWeightedIOTime = weightedIOTimeMs
+	m.DiskWeightedIOTimeT = ts
 }

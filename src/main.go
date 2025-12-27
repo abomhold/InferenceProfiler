@@ -5,10 +5,12 @@ import (
 	"InferenceProfiler/src/utils"
 
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,13 +21,32 @@ func main() {
 	log.SetFlags(log.LstdFlags)
 	log.SetPrefix("")
 
-	// Arguments
+	// Output options
 	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
 	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
-	format := flag.String("f", "parquet", "Final export format (parquet, csv, tsv)")
-	collectProcs := flag.Bool("p", false, "Collect per-process metrics")
+	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
+	flatten := flag.Bool("flatten", true, "Flatten nested data (GPUs, processes) to columns; false keeps JSON strings")
+
+	// Collector toggles (all enabled by default except processes)
+	noCPU := flag.Bool("no-cpu", false, "Disable CPU metrics collection")
+	noMemory := flag.Bool("no-memory", false, "Disable memory metrics collection")
+	noDisk := flag.Bool("no-disk", false, "Disable disk metrics collection")
+	noNetwork := flag.Bool("no-network", false, "Disable network metrics collection")
+	noContainer := flag.Bool("no-container", false, "Disable container/cgroup metrics collection")
+	collectProcs := flag.Bool("no-procs", false, "Disable per-process metrics collection")
+	noNvidia := flag.Bool("no-nvidia", false, "Disable NVIDIA GPU metrics collection")
+	noGPUProcs := flag.Bool("no-gpu-procs", false, "Disable GPU process enumeration (still collect GPU metrics)")
+	noVLLM := flag.Bool("no-vllm", false, "Disable vLLM metrics collection")
+
 	flag.Parse()
 	args := flag.Args()
+
+	// Validate format
+	validFormats := map[string]bool{"jsonl": true, "parquet": true, "csv": true, "tsv": true}
+	if !validFormats[*format] {
+		fmt.Fprintf(os.Stderr, "Invalid format: %s. Use: jsonl, parquet, csv, tsv\n", *format)
+		os.Exit(1)
+	}
 
 	sessionUUID := uuid.New()
 
@@ -33,11 +54,58 @@ func main() {
 	log.Printf("Output Dir:   %s", *outputDir)
 	log.Printf("Interval:     %dms", *interval)
 	log.Printf("Format:       %s", *format)
+	log.Printf("Flatten:      %v", *flatten)
+
+	// Build collector config
+	cfg := collectors.CollectorConfig{
+		CPU:         !*noCPU,
+		Memory:      !*noMemory,
+		Disk:        !*noDisk,
+		Network:     !*noNetwork,
+		Container:   !*noContainer,
+		Nvidia:      !*noNvidia,
+		NvidiaProcs: !*noGPUProcs,
+		VLLM:        !*noVLLM,
+		Processes:   *collectProcs,
+	}
+
+	// Log disabled collectors
+	var disabled []string
+	if *noCPU {
+		disabled = append(disabled, "cpu")
+	}
+	if *noMemory {
+		disabled = append(disabled, "memory")
+	}
+	if *noDisk {
+		disabled = append(disabled, "disk")
+	}
+	if *noNetwork {
+		disabled = append(disabled, "network")
+	}
+	if *noContainer {
+		disabled = append(disabled, "container")
+	}
+	if *noNvidia {
+		disabled = append(disabled, "nvidia")
+	}
+	if *noGPUProcs && !*noNvidia {
+		disabled = append(disabled, "gpu-procs")
+	}
+	if *noVLLM {
+		disabled = append(disabled, "vllm")
+	}
+	if len(disabled) > 0 {
+		log.Printf("Disabled:     %s", strings.Join(disabled, ", "))
+	}
+	if *collectProcs {
+		log.Printf("Processes:    enabled")
+	}
 
 	// Initialize
-	collector := collectors.NewCollectorManager(*collectProcs)
+	collector := collectors.NewCollectorManager(cfg)
 	defer collector.Close()
-	exp, err := utils.NewExporter(*outputDir, sessionUUID)
+	exp, err := utils.NewExporter(*outputDir, sessionUUID, *flatten)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
