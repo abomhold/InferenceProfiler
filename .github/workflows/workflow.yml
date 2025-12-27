@@ -1,4 +1,3 @@
-#file: noinspection UndefinedParamsPresent
 name: Build & Release Static Binary
 
 on:
@@ -21,7 +20,12 @@ jobs:
         uses: docker://golang:alpine
         with:
           entrypoint: /bin/sh
-          args: -c "apk add --no-cache build-base git && go mod init InferenceProfiler && go build -C ./src -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ."
+          # Changes:
+          # 1. Removed 'go mod init' (it causes failure if go.mod exists).
+          # 2. Changed build command: Instead of changing directory (-C src),
+          #    we run from root and point to ./src.
+          #    This ensures the output (-o container-profiler) lands in the root.
+          args: -c "apk add --no-cache build-base git && go build -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ./src"
         env:
           CGO_ENABLED: 1
 
@@ -29,7 +33,7 @@ jobs:
         run: |
           # Use 'file' on the host to verify the binary artifact
           if ! file container-profiler | grep -q "statically linked"; then
-            echo "Error: Binary is not statically linked"
+            echo "Error: Binary is not statically linked or not found"
             exit 1
           fi
 
