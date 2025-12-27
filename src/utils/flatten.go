@@ -2,6 +2,7 @@ package utils
 
 import (
 	"InferenceProfiler/src/collectors"
+	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -50,6 +51,53 @@ func FlattenMetrics(m *collectors.DynamicMetrics) map[string]interface{} {
 	}
 
 	return flat
+}
+
+// ToJSONMode converts DynamicMetrics to a map with nested data as JSON strings
+// GPUs are serialized as nvidiaGpusJson, processes as processesJson
+func ToJSONMode(m *collectors.DynamicMetrics) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	// Copy all scalar fields using reflection
+	v := reflect.ValueOf(m).Elem()
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		value := v.Field(i)
+
+		// Skip slices - we handle them specially below
+		if field.Name == "NvidiaGPUs" || field.Name == "Processes" {
+			continue
+		}
+
+		jsonTag := field.Tag.Get("json")
+		if jsonTag == "" || jsonTag == "-" {
+			continue
+		}
+		jsonName := strings.Split(jsonTag, ",")[0]
+
+		// For scalar types, just copy the value
+		result[jsonName] = value.Interface()
+	}
+
+	// Serialize GPUs as JSON string
+	result["nvidiaGpuCount"] = len(m.NvidiaGPUs)
+	if len(m.NvidiaGPUs) > 0 {
+		if data, err := json.Marshal(m.NvidiaGPUs); err == nil {
+			result["nvidiaGpusJson"] = string(data)
+		}
+	}
+
+	// Serialize processes as JSON string
+	result["processCount"] = len(m.Processes)
+	if len(m.Processes) > 0 {
+		if data, err := json.Marshal(m.Processes); err == nil {
+			result["processesJson"] = string(data)
+		}
+	}
+
+	return result
 }
 
 // flattenGPU adds GPU metrics to the flat map with nvidia{index}FieldName format

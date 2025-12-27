@@ -11,12 +11,13 @@ import (
 
 // NvidiaCollector handles NVIDIA GPU metrics collection
 type NvidiaCollector struct {
-	initialized bool
+	initialized  bool
+	collectProcs bool
 }
 
 // NewNvidiaCollector creates a new NVIDIA collector
-func NewNvidiaCollector() *NvidiaCollector {
-	return &NvidiaCollector{}
+func NewNvidiaCollector(collectProcs bool) *NvidiaCollector {
+	return &NvidiaCollector{collectProcs: collectProcs}
 }
 
 // Init initializes the NVML library
@@ -195,13 +196,15 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) Nv
 		gpu.PerfStateT = ts
 	}
 
-	// Running processes - serialize to JSON
-	procs, ts := n.getRunningProcesses(device)
-	gpu.ProcessCount = int64(len(procs))
-	gpu.ProcessCountT = ts
-	if len(procs) > 0 {
-		if data, err := json.Marshal(procs); err == nil {
-			gpu.ProcessesJSON = string(data)
+	// Running processes - only if enabled
+	if n.collectProcs {
+		procs, ts := n.getRunningProcesses(device)
+		gpu.ProcessCount = int64(len(procs))
+		gpu.ProcessCountT = ts
+		if len(procs) > 0 {
+			if data, err := json.Marshal(procs); err == nil {
+				gpu.ProcessesJSON = string(data)
+			}
 		}
 	}
 

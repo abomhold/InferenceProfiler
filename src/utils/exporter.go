@@ -2,6 +2,7 @@ package utils
 
 import (
 	"InferenceProfiler/src/collectors"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -17,15 +18,20 @@ import (
 type Exporter struct {
 	outputDir     string
 	sessionUUID   uuid.UUID
+	flatten       bool
 	snapshotFiles []string
 }
 
 // NewExporter creates a new exporter
-func NewExporter(outputDir string, sessionUUID uuid.UUID) (*Exporter, error) {
+func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool) (*Exporter, error) {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
-	return &Exporter{outputDir: outputDir, sessionUUID: sessionUUID}, nil
+	return &Exporter{
+		outputDir:   outputDir,
+		sessionUUID: sessionUUID,
+		flatten:     flatten,
+	}, nil
 }
 
 // SaveStatic saves static system information as JSON
@@ -57,9 +63,15 @@ func (e *Exporter) SaveSnapshot(metrics *collectors.DynamicMetrics) error {
 	}
 	defer file.Close()
 
-	// Flatten before saving so snapshots have consistent format
-	flat := FlattenMetrics(metrics)
-	if err := json.NewEncoder(file).Encode(flat); err != nil {
+	// Use flatten mode or JSON mode based on config
+	var data interface{}
+	if e.flatten {
+		data = FlattenMetrics(metrics)
+	} else {
+		data = ToJSONMode(metrics)
+	}
+
+	if err := json.NewEncoder(file).Encode(data); err != nil {
 		return fmt.Errorf("failed to encode metrics: %w", err)
 	}
 	e.snapshotFiles = append(e.snapshotFiles, path)
@@ -76,7 +88,7 @@ func (e *Exporter) ProcessSession(format string) error {
 	log.Printf("Aggregating %d snapshots...", len(e.snapshotFiles))
 	sort.Strings(e.snapshotFiles)
 
-	// Load all flattened records
+	// Load all records
 	var allRecords []map[string]interface{}
 	for _, filePath := range e.snapshotFiles {
 		file, err := os.Open(filePath)
@@ -106,12 +118,16 @@ func (e *Exporter) ProcessSession(format string) error {
 		return e.exportJSONL(basePath+".jsonl", allRecords)
 	case "parquet":
 		return e.exportParquet(basePath+".parquet", allRecords)
+	case "csv":
+		return e.exportDelimited(basePath+".csv", allRecords, ',')
+	case "tsv":
+		return e.exportDelimited(basePath+".tsv", allRecords, '\t')
 	default:
-		return fmt.Errorf("unsupported format: %s (use 'jsonl' or 'parquet')", format)
+		return fmt.Errorf("unsupported format: %s (use 'jsonl', 'parquet', 'csv', or 'tsv')", format)
 	}
 }
 
-// exportJSONL writes flattened records as JSON Lines
+// exportJSONL writes records as JSON Lines
 func (e *Exporter) exportJSONL(path string, records []map[string]interface{}) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -128,6 +144,96 @@ func (e *Exporter) exportJSONL(path string, records []map[string]interface{}) er
 
 	log.Printf("Exported JSONL: %s (%d records)", path, len(records))
 	return nil
+}
+
+// exportDelimited writes records as CSV or TSV
+func (e *Exporter) exportDelimited(path string, records []map[string]interface{}, delimiter rune) error {
+	if len(records) == 0 {
+		return nil
+	}
+
+	// Build column list from all records (union of all keys)
+	keySet := make(map[string]bool)
+	for _, record := range records {
+		for k := range record {
+			keySet[k] = true
+		}
+	}
+
+	// Sort keys for deterministic column order
+	var keys []string
+	for k := range keySet {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create file: %w", err)
+	}
+	defer file.Close()
+
+	writer := csv.NewWriter(file)
+	writer.Comma = delimiter
+
+	// Write header
+	if err := writer.Write(keys); err != nil {
+		return fmt.Errorf("failed to write header: %w", err)
+	}
+
+	// Write rows
+	for _, record := range records {
+		row := make([]string, len(keys))
+		for i, key := range keys {
+			if val, exists := record[key]; exists && val != nil {
+				row[i] = formatValue(val)
+			}
+		}
+		if err := writer.Write(row); err != nil {
+			return fmt.Errorf("failed to write row: %w", err)
+		}
+	}
+
+	writer.Flush()
+	if err := writer.Error(); err != nil {
+		return fmt.Errorf("csv writer error: %w", err)
+	}
+
+	formatName := "CSV"
+	if delimiter == '\t' {
+		formatName = "TSV"
+	}
+	log.Printf("Exported %s: %s (%d records, %d columns)", formatName, path, len(records), len(keys))
+	return nil
+}
+
+// formatValue converts a value to string for CSV/TSV output
+func formatValue(val interface{}) string {
+	switch v := val.(type) {
+	case string:
+		return v
+	case float64:
+		// Check if it's actually an integer
+		if v == float64(int64(v)) {
+			return fmt.Sprintf("%d", int64(v))
+		}
+		return fmt.Sprintf("%g", v)
+	case int64:
+		return fmt.Sprintf("%d", v)
+	case int:
+		return fmt.Sprintf("%d", v)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		// For complex types (arrays, objects), serialize to JSON
+		if data, err := json.Marshal(v); err == nil {
+			return string(data)
+		}
+		return fmt.Sprintf("%v", v)
+	}
 }
 
 // exportParquet writes records to Parquet with dynamic schema

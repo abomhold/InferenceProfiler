@@ -6,23 +6,37 @@ import (
 	"github.com/google/uuid"
 )
 
+// CollectorConfig controls which collectors are enabled
+type CollectorConfig struct {
+	CPU         bool
+	Memory      bool
+	Disk        bool
+	Network     bool
+	Container   bool
+	Nvidia      bool
+	NvidiaProcs bool // Collect GPU processes (requires Nvidia=true)
+	VLLM        bool
+	Processes   bool
+}
+
 // CollectorManager aggregates all collectors
 type CollectorManager struct {
-	nvidia       *NvidiaCollector
-	collectProcs bool
+	cfg    CollectorConfig
+	nvidia *NvidiaCollector
 }
 
 // NewCollectorManager creates a new collector manager
-func NewCollectorManager(collectProcesses bool) *CollectorManager {
-	nvidia := NewNvidiaCollector()
-	if err := nvidia.Init(); err != nil {
-		log.Printf("NVIDIA collector initialization failed: %v", err)
+func NewCollectorManager(cfg CollectorConfig) *CollectorManager {
+	cm := &CollectorManager{cfg: cfg}
+
+	if cfg.Nvidia {
+		cm.nvidia = NewNvidiaCollector(cfg.NvidiaProcs)
+		if err := cm.nvidia.Init(); err != nil {
+			log.Printf("NVIDIA collector initialization failed: %v", err)
+		}
 	}
 
-	return &CollectorManager{
-		nvidia:       nvidia,
-		collectProcs: collectProcesses,
-	}
+	return cm
 }
 
 // CollectMetrics collects all dynamic metrics
@@ -32,22 +46,36 @@ func (cm *CollectorManager) CollectMetrics() *DynamicMetrics {
 	}
 
 	// VM-level metrics
-	CollectCPUDynamic(m)
-	CollectMemoryDynamic(m)
-	CollectDiskDynamic(m)
-	CollectNetworkDynamic(m)
+	if cm.cfg.CPU {
+		CollectCPUDynamic(m)
+	}
+	if cm.cfg.Memory {
+		CollectMemoryDynamic(m)
+	}
+	if cm.cfg.Disk {
+		CollectDiskDynamic(m)
+	}
+	if cm.cfg.Network {
+		CollectNetworkDynamic(m)
+	}
 
 	// Container metrics
-	CollectContainerDynamic(m)
+	if cm.cfg.Container {
+		CollectContainerDynamic(m)
+	}
 
 	// NVIDIA GPU metrics
-	cm.nvidia.CollectDynamic(m)
+	if cm.cfg.Nvidia && cm.nvidia != nil {
+		cm.nvidia.CollectDynamic(m)
+	}
 
 	// vLLM metrics
-	CollectVLLMDynamic(m)
+	if cm.cfg.VLLM {
+		CollectVLLMDynamic(m)
+	}
 
 	// Process metrics
-	if cm.collectProcs {
+	if cm.cfg.Processes {
 		CollectProcessesDynamic(m)
 	}
 
@@ -61,22 +89,34 @@ func (cm *CollectorManager) GetStaticInfo(sessionUUID uuid.UUID) *StaticMetrics 
 	}
 
 	// CPU static info (includes kernel info, boot time, VM ID, hostname)
-	CollectCPUStatic(m)
+	if cm.cfg.CPU {
+		CollectCPUStatic(m)
+	}
 
 	// Memory static info
-	CollectMemoryStatic(m)
+	if cm.cfg.Memory {
+		CollectMemoryStatic(m)
+	}
 
 	// Disk static info
-	CollectDiskStatic(m)
+	if cm.cfg.Disk {
+		CollectDiskStatic(m)
+	}
 
 	// Network static info
-	CollectNetworkStatic(m)
+	if cm.cfg.Network {
+		CollectNetworkStatic(m)
+	}
 
 	// Container static info
-	CollectContainerStatic(m)
+	if cm.cfg.Container {
+		CollectContainerStatic(m)
+	}
 
 	// NVIDIA static info
-	cm.nvidia.CollectStatic(m)
+	if cm.cfg.Nvidia && cm.nvidia != nil {
+		cm.nvidia.CollectStatic(m)
+	}
 
 	return m
 }
