@@ -1,44 +1,30 @@
-name: Build & Release Static Binary
+name: Build & Release
 
 on:
   push:
-    branches:
-      - master
+    branches: [master]
 
 permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build Static Linux Binary
+  build:
     runs-on: ubuntu-latest
+    container:
+      image: golang:alpine
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Install deps
+        run: apk add --no-cache build-base git
 
-      - name: Build in Alpine Container
-        uses: docker://golang:alpine
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
+        env:
+          CGO_ENABLED: 1
+
+      - uses: softprops/action-gh-release@v2
         with:
-          entrypoint: /bin/sh
-          # TEST MODE: We just echo "hello world" into the output file
-          # to verify the pipeline logic works without compiling.
-          args: -c "echo 'hello world' > container-profiler"
-
-      - name: Verify Static Build
-        run: |
-          # For testing, we just check if the file exists and has content
-          if [ ! -f container-profiler ]; then
-            echo "Error: Output file was not created"
-            exit 1
-          fi
-          echo "File created successfully:"
-          cat container-profiler
-
-      - name: Update Nightly Release
-        uses: softprops/action-gh-release@v2
-        with:
-          name: Nightly Build
           tag_name: nightly
           files: container-profiler
           prerelease: true
-          make_latest: true
