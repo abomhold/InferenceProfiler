@@ -52,7 +52,7 @@ All collectors are enabled by default except process-level metrics.
 ### Example Usage
 
 ```bash
-# Minimal: just CPU/memory, TSV output, no flattening
+# Minimal: just CPU/memory, TSV aggregate, no flattening
 ./profiler -no-disk -no-network -no-container -no-procs -no-nvidia -no-vllm -f tsv -no-flatten
 
 # Full GPU monitoring without process overhead

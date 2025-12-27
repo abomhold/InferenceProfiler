@@ -1,4 +1,4 @@
-package output
+package aggregate
 
 import (
 	"InferenceProfiler/src/collectors"

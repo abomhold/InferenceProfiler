@@ -1,8 +1,8 @@
 package main
 
 import (
+	"InferenceProfiler/src/aggregate"
 	"InferenceProfiler/src/collectors"
-	"InferenceProfiler/src/output"
 
 	"flag"
 	"fmt"
@@ -22,7 +22,7 @@ func main() {
 	log.SetPrefix("")
 
 	// Output options
-	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
+	outputDir := flag.String("o", "./profiler-aggregate", "Output directory for logs")
 	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
 	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
 	noFlatten := flag.Bool("no-flatten", false, "Disable flattening nested data (GPUs, processes) to columns; false keeps JSON strings")
@@ -107,7 +107,7 @@ func main() {
 	// Initialize
 	collector := collectors.NewCollectorManager(cfg)
 	defer collector.Close()
-	exp, err := output.NewExporter(*outputDir, sessionUUID, !*noFlatten)
+	exp, err := aggregate.NewExporter(*outputDir, sessionUUID, !*noFlatten)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}

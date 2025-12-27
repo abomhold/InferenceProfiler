@@ -1,4 +1,4 @@
-package output
+package aggregate
 
 import (
 	"InferenceProfiler/src/collectors"
@@ -25,7 +25,7 @@ type Exporter struct {
 // NewExporter creates a new exporter
 func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool) (*Exporter, error) {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory: %w", err)
+		return nil, fmt.Errorf("failed to create aggregate directory: %w", err)
 	}
 	return &Exporter{
 		outputDir:   outputDir,
@@ -207,7 +207,7 @@ func (e *Exporter) exportDelimited(path string, records []map[string]interface{}
 	return nil
 }
 
-// formatValue converts a value to string for CSV/TSV output
+// formatValue converts a value to string for CSV/TSV aggregate
 func formatValue(val interface{}) string {
 	switch v := val.(type) {
 	case string:
