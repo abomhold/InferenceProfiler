@@ -13,6 +13,7 @@ const CgroupDir = "/sys/fs/cgroup"
 // CollectContainerStatic populates static container information
 func CollectContainerStatic(m *StaticMetrics) {
 	if !isCgroupDir() {
+		log.Println("Cgroup directory not found: " + CgroupDir)
 		return
 	}
 	m.ContainerID = getContainerID()
@@ -23,6 +24,7 @@ func CollectContainerStatic(m *StaticMetrics) {
 // CollectContainerDynamic populates dynamic container metrics
 func CollectContainerDynamic(m *DynamicMetrics) {
 	if !isCgroupDir() {
+		log.Println("Cgroup directory not found: " + CgroupDir)
 		return
 	}
 
@@ -42,7 +44,6 @@ func CollectContainerDynamic(m *DynamicMetrics) {
 
 func isCgroupDir() bool {
 	if _, err := os.Stat(CgroupDir); os.IsNotExist(err) {
-		log.Println("Cgroup directory not found: " + CgroupDir)
 		return false
 	}
 	return true

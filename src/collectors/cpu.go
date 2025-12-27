@@ -18,6 +18,7 @@ func CollectCPUStatic(m *StaticMetrics) {
 	m.NumProcessors = runtime.NumCPU()
 
 	// CPU cache info
+	// todo: convert to string
 	cache := getCPUCache()
 	m.CPUCacheL1d = cache["L1d"]
 	m.CPUCacheL1i = cache["L1i"]
@@ -116,12 +117,25 @@ func getKernelInfo(m *StaticMetrics) {
 	if err := unix.Uname(&uname); err != nil {
 		return
 	}
-	m.SystemName = ByteSliceToString(uname.Sysname[:])
-	m.NodeName = ByteSliceToString(uname.Nodename[:])
-	m.Hostname = ByteSliceToString(uname.Nodename[:])
-	m.KernelRelease = ByteSliceToString(uname.Release[:])
-	m.KernelVersion = ByteSliceToString(uname.Version[:])
-	m.Machine = ByteSliceToString(uname.Machine[:])
+
+	toString := func(data any) string {
+		var b []byte
+		switch v := data.(type) {
+		case [65]int8:
+			for _, c := range v {
+				b = append(b, byte(c))
+			}
+		case [65]uint8:
+			b = v[:]
+		}
+		return unix.ByteSliceToString(b)
+	}
+	m.KernelInfo = fmt.Sprintf("%s %s %s %s %s",
+		toString(uname.Sysname),
+		toString(uname.Nodename),
+		toString(uname.Release),
+		toString(uname.Version),
+		toString(uname.Machine))
 }
 
 func getBootTime() int64 {

@@ -32,8 +32,12 @@ func NewCollectorManager(cfg CollectorConfig) *CollectorManager {
 	if cfg.Nvidia {
 		cm.nvidia = NewNvidiaCollector(cfg.NvidiaProcs)
 		if err := cm.nvidia.Init(); err != nil {
-			log.Printf("NVIDIA collector initialization failed: %v", err)
+			log.Printf("WARNGING: NVIDIA collector initialization failed: %v", err)
 		}
+	}
+
+	if cfg.Container && !isCgroupDir() {
+		log.Println("WARNING: Cgroup directory not found")
 	}
 
 	return cm
@@ -60,7 +64,7 @@ func (cm *CollectorManager) CollectMetrics() *DynamicMetrics {
 	}
 
 	// Container metrics
-	if cm.cfg.Container {
+	if cm.cfg.Container && isCgroupDir() {
 		CollectContainerDynamic(m)
 	}
 
@@ -82,38 +86,27 @@ func (cm *CollectorManager) CollectMetrics() *DynamicMetrics {
 	return m
 }
 
-// GetStaticInfo collects all static system information
-func (cm *CollectorManager) GetStaticInfo(sessionUUID uuid.UUID) *StaticMetrics {
+// GetStaticMetrics collects all static system information
+func (cm *CollectorManager) GetStaticMetrics(sessionUUID uuid.UUID) *StaticMetrics {
 	m := &StaticMetrics{
 		UUID: sessionUUID.String(),
 	}
 
-	// CPU static info (includes kernel info, boot time, VM ID, hostname)
 	if cm.cfg.CPU {
 		CollectCPUStatic(m)
 	}
-
-	// Memory static info
 	if cm.cfg.Memory {
 		CollectMemoryStatic(m)
 	}
-
-	// Disk static info
 	if cm.cfg.Disk {
 		CollectDiskStatic(m)
 	}
-
-	// Network static info
 	if cm.cfg.Network {
 		CollectNetworkStatic(m)
 	}
-
-	// Container static info
-	if cm.cfg.Container {
+	if cm.cfg.Container && isCgroupDir() {
 		CollectContainerStatic(m)
 	}
-
-	// NVIDIA static info
 	if cm.cfg.Nvidia && cm.nvidia != nil {
 		cm.nvidia.CollectStatic(m)
 	}

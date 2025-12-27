@@ -25,15 +25,16 @@ func main() {
 	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
 	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
 	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
-	flatten := flag.Bool("flatten", true, "Flatten nested data (GPUs, processes) to columns; false keeps JSON strings")
+	noFlatten := flag.Bool("no-flatten", false, "Disable flattening nested data (GPUs, processes) to columns; false keeps JSON strings")
+	noCleanup := flag.Bool("no-cleanup", false, "Disable deleting intermediary snapshot files after final export")
 
-	// Collector toggles (all enabled by default except processes)
+	// Collector toggles (all enabled by default)
 	noCPU := flag.Bool("no-cpu", false, "Disable CPU metrics collection")
 	noMemory := flag.Bool("no-memory", false, "Disable memory metrics collection")
 	noDisk := flag.Bool("no-disk", false, "Disable disk metrics collection")
 	noNetwork := flag.Bool("no-network", false, "Disable network metrics collection")
 	noContainer := flag.Bool("no-container", false, "Disable container/cgroup metrics collection")
-	collectProcs := flag.Bool("no-procs", false, "Disable per-process metrics collection")
+	noProcs := flag.Bool("no-procs", false, "Disable per-process metrics collection")
 	noNvidia := flag.Bool("no-nvidia", false, "Disable NVIDIA GPU metrics collection")
 	noGPUProcs := flag.Bool("no-gpu-procs", false, "Disable GPU process enumeration (still collect GPU metrics)")
 	noVLLM := flag.Bool("no-vllm", false, "Disable vLLM metrics collection")
@@ -54,7 +55,8 @@ func main() {
 	log.Printf("Output Dir:   %s", *outputDir)
 	log.Printf("Interval:     %dms", *interval)
 	log.Printf("Format:       %s", *format)
-	log.Printf("Flatten:      %v", *flatten)
+	log.Printf("Flatten:      %v", !*noFlatten)
+	log.Printf("Cleanup:      %v", !*noCleanup)
 
 	// Build collector config
 	cfg := collectors.CollectorConfig{
@@ -63,10 +65,10 @@ func main() {
 		Disk:        !*noDisk,
 		Network:     !*noNetwork,
 		Container:   !*noContainer,
+		Processes:   !*noProcs,
 		Nvidia:      !*noNvidia,
 		NvidiaProcs: !*noGPUProcs,
 		VLLM:        !*noVLLM,
-		Processes:   *collectProcs,
 	}
 
 	// Log disabled collectors
@@ -98,21 +100,21 @@ func main() {
 	if len(disabled) > 0 {
 		log.Printf("Disabled:     %s", strings.Join(disabled, ", "))
 	}
-	if *collectProcs {
+	if *noProcs {
 		log.Printf("Processes:    enabled")
 	}
 
 	// Initialize
 	collector := collectors.NewCollectorManager(cfg)
 	defer collector.Close()
-	exp, err := utils.NewExporter(*outputDir, sessionUUID, *flatten)
+	exp, err := utils.NewExporter(*outputDir, sessionUUID, !*noFlatten)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
 
 	// Capture and save static info
 	log.Println("Capturing static hardware info...")
-	staticData := collector.GetStaticInfo(sessionUUID)
+	staticData := collector.GetStaticMetrics(sessionUUID)
 	if err := exp.SaveStatic(staticData); err != nil {
 		log.Printf("Warning: Failed to save static info: %v", err)
 	}
@@ -198,9 +200,14 @@ func main() {
 	}
 
 	log.Printf("Converting session data to %s...", *format)
-	if err := exp.ProcessSession(*format); err != nil {
+	err = exp.ProcessSession(*format)
+	if err != nil {
 		log.Printf("Error processing session: %v", err)
+	} else {
+		if !*noCleanup {
+			log.Println("Cleaning up intermediary files...")
+			exp.Cleanup()
+		}
 	}
-
 	log.Println("Done.")
 }
