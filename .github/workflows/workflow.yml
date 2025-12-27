@@ -10,18 +10,21 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    container:
-      image: golang:alpine
     steps:
-      - name: Install deps
-        run: apk add --no-cache build-base git
-
       - uses: actions/checkout@v4
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install musl toolchain
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
       - name: Build
-        run: go mod tidy && go build -buildvcs=false -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
+        run: go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
         env:
           CGO_ENABLED: 1
+          CC: musl-gcc
 
       - uses: softprops/action-gh-release@v2
         with:
