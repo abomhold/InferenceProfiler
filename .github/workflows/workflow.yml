@@ -17,14 +17,10 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Install musl toolchain
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
       - name: Build
-        run: go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
+        run: go mod tidy && go build -ldflags '-s -w -extldflags "-static"' -o container-profiler ./src
         env:
           CGO_ENABLED: 1
-          CC: musl-gcc
 
       - uses: softprops/action-gh-release@v2
         with:
