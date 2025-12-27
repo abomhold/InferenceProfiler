@@ -1,4 +1,4 @@
- PROJECT_NAME  := container-profiler
+PROJECT_NAME  := profiler
 SRC_DIR       := src
 BIN_DIR       := bin
 OUTPUT_DIR    := ./output
@@ -48,7 +48,7 @@ docker-run: docker-build ##@ Run container
 	@mkdir -p $(OUTPUT_DIR)
 	@docker run --rm \
 		-p "8000:8000" \
-		-v $(shell pwd)/$(OUTPUT_DIR):/profiler-output \
+		-v $(OUTPUT_DIR):/profiler-output \
 		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 test-vllm: ##@ Send test request to local vllm server

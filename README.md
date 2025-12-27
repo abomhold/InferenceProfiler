@@ -386,60 +386,6 @@ Histograms are exported as JSON objects with bucket boundaries as keys and cumul
 
 Each collection interval produces a JSON file:
 
-```json
-{
-  "timestamp": 1735166000000,
-  "cpu": {
-    "vCpuTime": {
-      "value": 12345600,
-      "time": 1735166000000
-    },
-    "vCpuTimeUserMode": {
-      "value": 9876500,
-      "time": 1735166000000
-    }
-  },
-  "mem": {
-    "vMemoryTotal": {
-      "value": 17179869184,
-      "time": 1735166000001
-    },
-    "vMemoryUsed": {
-      "value": 8589934592,
-      "time": 1735166000001
-    }
-  },
-  "disk": {
-    ...
-  },
-  "net": {
-    ...
-  },
-  "container": {
-    ...
-  },
-  "nvidia": [
-    {
-      ...
-    },
-    {
-      ...
-    }
-  ],
-  "vllm": {
-    ...
-  },
-  "processes": [
-    {
-      ...
-    },
-    {
-      ...
-    }
-  ]
-}
-```
-
 ### CSV/TSV Flattened Format
 
 When exported to CSV/TSV, metrics are flattened:
@@ -473,20 +419,3 @@ Timestamps are in **milliseconds** since Unix epoch (January 1, 1970 00:00:00 UT
 | Variable           | Default                         | Description                           |
 |--------------------|---------------------------------|---------------------------------------|
 | `VLLM_METRICS_URL` | `http://localhost:8000/metrics` | vLLM Prometheus metrics endpoint URL. |
-
----
-
-## Collection Intervals and Rates
-
-- Default collection interval: 1000ms (1 second)
-- Configurable via `-t` flag (in milliseconds)
-- vLLM scrape timeout: 500ms
-- All counters are cumulative; compute deltas for rates
-
-### Rate Calculation Example
-
-```
-CPU Utilization % = (delta_vCpuTime / delta_elapsed_time) * 100 / num_cpus
-Network Throughput = delta_vNetworkBytesSent / delta_elapsed_time
-Disk IOPS = delta_vDiskSuccessfulReads / delta_elapsed_time
-```

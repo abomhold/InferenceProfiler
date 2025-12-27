@@ -1,90 +1,97 @@
 package collectors
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 )
 
-// CollectMemory collects memory metrics
-func CollectMemory() map[string]MetricValue {
-	metrics := make(map[string]MetricValue)
+const (
+	SectorSize = 512
+	DiskRegex  = `^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$`
+)
 
-	memInfo, tMem := getMeminfo()
-	pgFault, pgMajFault, tVmstat := getPageFaults()
+// --- Static Metrics ---
 
-	total := memInfo["MemTotal"]
-	freeRaw := memInfo["MemFree"]
-	buffers := memInfo["Buffers"]
-	cached := memInfo["Cached"] + memInfo["SReclaimable"]
+func CollectDiskStatic() StaticMetrics {
+	results := make(StaticMetrics)
+	diskPattern := regexp.MustCompile(DiskRegex)
+	entries, _ := os.ReadDir("/sys/class/block/")
 
-	var available int64
-	if val, ok := memInfo["MemAvailable"]; ok {
-		available = val
-	} else {
-		available = freeRaw + buffers + cached
-	}
-
-	used := total - freeRaw - buffers - cached
-
-	var percent float64
-	if total > 0 {
-		percent = float64(total-available) / float64(total) * 100
-	}
-
-	metrics["vMemoryTotal"] = NewMetricWithTime(total, tMem)
-	metrics["vMemoryFree"] = NewMetricWithTime(available, tMem)
-	metrics["vMemoryUsed"] = NewMetricWithTime(used, tMem)
-	metrics["vMemoryBuffers"] = NewMetricWithTime(buffers, tMem)
-	metrics["vMemoryCached"] = NewMetricWithTime(cached, tMem)
-	metrics["vMemoryPercent"] = NewMetricWithTime(percent, tMem)
-	metrics["vPgFault"] = NewMetricWithTime(pgFault, tVmstat)
-	metrics["vMajorPageFault"] = NewMetricWithTime(pgMajFault, tVmstat)
-	metrics["vSwapTotal"] = NewMetricWithTime(memInfo["SwapTotal"], tMem)
-	metrics["vSwapFree"] = NewMetricWithTime(memInfo["SwapFree"], tMem)
-	metrics["vSwapUsed"] = NewMetricWithTime(memInfo["SwapTotal"]-memInfo["SwapFree"], tMem)
-
-	return metrics
-}
-
-func getMeminfo() (map[string]int64, int64) {
-	rawInfo, ts := ParseProcKV("/proc/meminfo", ":")
-	processed := make(map[string]int64)
-
-	for k, v := range rawInfo {
-		v = strings.TrimSuffix(v, " kB")
-		v = strings.TrimSpace(v)
-		val, err := strconv.ParseInt(v, 10, 64)
-		if err == nil {
-			processed[k] = val * 1024
+	idx := 0
+	for _, entry := range entries {
+		devName := entry.Name()
+		if !diskPattern.MatchString(devName) {
+			continue
 		}
+
+		basePath := filepath.Join("/sys/class/block", devName)
+
+		model, _ := ProbeFile(filepath.Join(basePath, "device/model"))
+		vendor, _ := ProbeFile(filepath.Join(basePath, "device/vendor"))
+		sizeSectors, _ := ProbeFileInt(filepath.Join(basePath, "size"))
+
+		prefix := "vDisk" + strconv.Itoa(idx)
+		results[prefix+"Name"] = devName
+		results[prefix+"Model"] = strings.TrimSpace(model)
+		results[prefix+"Vendor"] = strings.TrimSpace(vendor)
+		results[prefix+"SizeBytes"] = sizeSectors * SectorSize
+
+		idx++
 	}
-	return processed, ts
+
+	return results
 }
 
-func getPageFaults() (int64, int64, int64) {
-	content, ts := ProbeFile("/proc/vmstat")
-	if content == "" {
-		return 0, 0, ts
+// --- Dynamic Metrics ---
+
+func CollectDiskDynamic() DynamicMetrics {
+	lines, ts := ProbeFileLines("/proc/diskstats")
+	diskPattern := regexp.MustCompile(DiskRegex)
+
+	var readCount, mergedReads, sectorReads, readTimeMs int64
+	var writeCount, mergedWrites, sectorWrites, writeTimeMs int64
+	var ioInProgress, ioTimeMs, weightedIOTimeMs int64
+
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 14 {
+			continue
+		}
+
+		devName := fields[2]
+		if !diskPattern.MatchString(devName) {
+			continue
+		}
+
+		readCount += parseInt64(fields[3])
+		mergedReads += parseInt64(fields[4])
+		sectorReads += parseInt64(fields[5])
+		readTimeMs += parseInt64(fields[6])
+		writeCount += parseInt64(fields[7])
+		mergedWrites += parseInt64(fields[8])
+		sectorWrites += parseInt64(fields[9])
+		writeTimeMs += parseInt64(fields[10])
+		ioInProgress += parseInt64(fields[11])
+		ioTimeMs += parseInt64(fields[12])
+		weightedIOTimeMs += parseInt64(fields[13])
 	}
 
-	var pgFault, pgMajFault int64
-
-	pgFaultRe := regexp.MustCompile(`pgfault\s+(\d+)`)
-	pgMajFaultRe := regexp.MustCompile(`pgmajfault\s+(\d+)`)
-
-	if match := pgFaultRe.FindStringSubmatch(content); len(match) > 1 {
-		pgFault, _ = strconv.ParseInt(match[1], 10, 64)
+	return DynamicMetrics{
+		"vDiskSectorReads":      NewMetricWithTime(sectorReads, ts),
+		"vDiskSectorWrites":     NewMetricWithTime(sectorWrites, ts),
+		"vDiskReadBytes":        NewMetricWithTime(sectorReads*SectorSize, ts),
+		"vDiskWriteBytes":       NewMetricWithTime(sectorWrites*SectorSize, ts),
+		"vDiskSuccessfulReads":  NewMetricWithTime(readCount, ts),
+		"vDiskSuccessfulWrites": NewMetricWithTime(writeCount, ts),
+		"vDiskMergedReads":      NewMetricWithTime(mergedReads, ts),
+		"vDiskMergedWrites":     NewMetricWithTime(mergedWrites, ts),
+		"vDiskReadTime":         NewMetricWithTime(readTimeMs, ts),
+		"vDiskWriteTime":        NewMetricWithTime(writeTimeMs, ts),
+		"vDiskIOInProgress":     NewMetricWithTime(ioInProgress, ts),
+		"vDiskIOTime":           NewMetricWithTime(ioTimeMs, ts),
+		"vDiskWeightedIOTime":   NewMetricWithTime(weightedIOTimeMs, ts),
 	}
-	if match := pgMajFaultRe.FindStringSubmatch(content); len(match) > 1 {
-		pgMajFault, _ = strconv.ParseInt(match[1], 10, 64)
-	}
-
-	return pgFault, pgMajFault, ts
-}
-
-// GetMemoryStaticInfo returns static memory information
-func GetMemoryStaticInfo() (int64, int64) {
-	memInfo, _ := getMeminfo()
-	return memInfo["MemTotal"], memInfo["SwapTotal"]
 }

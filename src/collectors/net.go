@@ -1,39 +1,57 @@
 package collectors
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 )
 
-// CollectNetwork collects network metrics
-func CollectNetwork() map[string]MetricValue {
-	metrics := make(map[string]MetricValue)
-	stats, ts := getNetworkStats()
+const LoopbackInterface = "lo"
 
-	metrics["vNetworkBytesRecvd"] = NewMetricWithTime(stats["bytesRecv"], ts)
-	metrics["vNetworkBytesSent"] = NewMetricWithTime(stats["bytesSent"], ts)
-	metrics["vNetworkPacketsRecvd"] = NewMetricWithTime(stats["packetsRecv"], ts)
-	metrics["vNetworkPacketsSent"] = NewMetricWithTime(stats["packetsSent"], ts)
-	metrics["vNetworkErrorsRecvd"] = NewMetricWithTime(stats["errsRecv"], ts)
-	metrics["vNetworkErrorsSent"] = NewMetricWithTime(stats["errsSent"], ts)
-	metrics["vNetworkDropsRecvd"] = NewMetricWithTime(stats["dropsRecv"], ts)
-	metrics["vNetworkDropsSent"] = NewMetricWithTime(stats["dropsSent"], ts)
+// --- Static Metrics ---
 
-	return metrics
-}
+func CollectNetworkStatic() StaticMetrics {
+	results := make(StaticMetrics)
+	interfaces, _ := os.ReadDir("/sys/class/net/")
 
-func getNetworkStats() (map[string]int64, int64) {
-	stats := map[string]int64{
-		"bytesRecv":   0,
-		"packetsRecv": 0,
-		"errsRecv":    0,
-		"dropsRecv":   0,
-		"bytesSent":   0,
-		"packetsSent": 0,
-		"errsSent":    0,
-		"dropsSent":   0,
+	idx := 0
+	for _, entry := range interfaces {
+		iface := entry.Name()
+		if iface == "lo" {
+			continue
+		}
+
+		basePath := filepath.Join("/sys/class/net", iface)
+
+		mac, _ := ProbeFile(filepath.Join(basePath, "address"))
+		state, _ := ProbeFile(filepath.Join(basePath, "operstate"))
+		mtu, _ := ProbeFileInt(filepath.Join(basePath, "mtu"))
+		speed, _ := ProbeFileInt(filepath.Join(basePath, "speed")) // Speed in Mbps
+
+		prefix := "vNetwork" + strconv.Itoa(idx)
+		results[prefix+"Name"] = iface
+		results[prefix+"MAC"] = strings.TrimSpace(mac)
+		results[prefix+"State"] = strings.TrimSpace(state)
+		results[prefix+"MTU"] = mtu
+
+		// Speed can be -1 if the interface is down or doesn't support it
+		if speed > 0 {
+			results[prefix+"SpeedMbps"] = speed
+		}
+
+		idx++
 	}
 
+	return results
+}
+
+// --- Dynamic Metrics ---
+
+func CollectNetworkDynamic() DynamicMetrics {
 	lines, ts := ProbeFileLines("/proc/net/dev")
+	var bRecv, pRecv, eRecv, dRecv int64
+	var bSent, pSent, eSent, dSent int64
 
 	for i := 2; i < len(lines); i++ {
 		line := lines[i]
@@ -47,24 +65,34 @@ func getNetworkStats() (map[string]int64, int64) {
 		}
 
 		iface := strings.TrimSpace(parts[0])
-		if iface == "lo" {
+		if iface == LoopbackInterface {
 			continue
 		}
 
 		fields := strings.Fields(parts[1])
-		if len(fields) < 16 {
+		if len(fields) < 12 {
 			continue
 		}
 
-		stats["bytesRecv"] += parseInt64(fields[0])
-		stats["packetsRecv"] += parseInt64(fields[1])
-		stats["errsRecv"] += parseInt64(fields[2])
-		stats["dropsRecv"] += parseInt64(fields[3])
-		stats["bytesSent"] += parseInt64(fields[8])
-		stats["packetsSent"] += parseInt64(fields[9])
-		stats["errsSent"] += parseInt64(fields[10])
-		stats["dropsSent"] += parseInt64(fields[11])
+		bRecv += parseInt64(fields[0])
+		pRecv += parseInt64(fields[1])
+		eRecv += parseInt64(fields[2])
+		dRecv += parseInt64(fields[3])
+		bSent += parseInt64(fields[8])
+		pSent += parseInt64(fields[9])
+		eSent += parseInt64(fields[10])
+		dSent += parseInt64(fields[11])
 	}
 
-	return stats, ts
+	return DynamicMetrics{
+		"vNetworkBytesRecvd":   NewMetricWithTime(bRecv, ts),
+		"vNetworkBytesSent":    NewMetricWithTime(bSent, ts),
+		"vNetworkPacketsRecvd": NewMetricWithTime(pRecv, ts),
+		"vNetworkPacketsSent":  NewMetricWithTime(pSent, ts),
+		"vNetworkErrorsRecvd":  NewMetricWithTime(eRecv, ts),
+		"vNetworkErrorsSent":   NewMetricWithTime(eSent, ts),
+		"vNetworkDroppedRecvd": NewMetricWithTime(dRecv, ts),
+		"vNetworkDroppedSent":  NewMetricWithTime(dSent, ts),
+	}
+
 }

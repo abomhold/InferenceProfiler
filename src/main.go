@@ -3,6 +3,7 @@ package main
 import (
 	"InferenceProfiler/src/collectors"
 	"InferenceProfiler/src/utils"
+
 	"flag"
 	"log"
 	"os"

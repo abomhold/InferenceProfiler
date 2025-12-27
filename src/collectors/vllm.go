@@ -1,33 +1,22 @@
 package collectors
 
 import (
-	"io"
+	"fmt"
+	"math"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
+
+	dto "github.com/prometheus/client_model/go"
+	"github.com/prometheus/common/expfmt"
 )
 
-var vllmMetricsURL = getVLLMMetricsURL()
-
-func getVLLMMetricsURL() string {
-	if url := os.Getenv("VLLM_METRICS_URL"); url != "" {
-		return url
-	}
-	return "http://localhost:8000/metrics"
-}
-
-var prometheusRegex = regexp.MustCompile(`^([a-zA-Z0-9_:]+)(?:\{(.+)\})?\s+([0-9\.eE\+\-]+|nan|inf|NaN|Inf)$`)
+var vllmMetricsURL = getEnv("VLLM_METRICS_URL", "http://localhost:8000/metrics")
 
 var ignoredLabels = map[string]bool{
-	"model_name": true,
-	"model":      true,
-	"engine_id":  true,
-	"engine":     true,
-	"handler":    true,
-	"method":     true,
+	"model_name": true, "model": true, "engine_id": true,
+	"engine": true, "handler": true, "method": true,
 }
 
 var metricAliases = map[string]string{
@@ -59,7 +48,6 @@ var metricAliases = map[string]string{
 	"request_params_n":               "vllmReqParamsN",
 }
 
-// CollectVLLM collects vLLM inference engine metrics
 func CollectVLLM() map[string]MetricValue {
 	metrics := make(map[string]MetricValue)
 	scrapeTime := GetTimestamp()
@@ -71,158 +59,132 @@ func CollectVLLM() map[string]MetricValue {
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	families, err := (&expfmt.TextParser{}).TextToMetricFamilies(resp.Body)
 	if err != nil {
 		return metrics
 	}
 
-	parsed := parsePrometheus(string(body))
-	for k, v := range parsed {
-		metrics[k] = NewMetricWithTime(v, scrapeTime)
+	for name, mf := range families {
+		baseName := getCleanName(name)
+		isInfo := strings.HasSuffix(name, "_info")
+
+		for _, m := range mf.GetMetric() {
+			labels := filterLabels(m.GetLabel())
+			suffix := labelSuffix(labels)
+
+			// Info metrics: extract label values as separate metrics
+			if isInfo {
+				for k, v := range labels {
+					metrics[baseName+"_"+k] = NewMetricWithTime(parseNumber(v), scrapeTime)
+				}
+				continue
+			}
+
+			// Histogram: emit sum, count, and bucket map
+			if h := m.GetHistogram(); h != nil {
+				metrics[baseName+"_sum"+suffix] = NewMetricWithTime(sanitize(h.GetSampleSum()), scrapeTime)
+				metrics[baseName+"_count"+suffix] = NewMetricWithTime(float64(h.GetSampleCount()), scrapeTime)
+
+				buckets := make(map[string]float64)
+				for _, b := range h.GetBucket() {
+					le := b.GetUpperBound()
+					key := "inf"
+					if !math.IsInf(le, 1) {
+						key = fmt.Sprintf("%g", le)
+					}
+					buckets[key] = float64(b.GetCumulativeCount())
+				}
+				metrics[baseName+suffix+"_histogram"] = NewMetricWithTime(buckets, scrapeTime)
+				continue
+			}
+
+			// Summary: emit sum, count, and quantiles
+			if s := m.GetSummary(); s != nil {
+				metrics[baseName+"_sum"+suffix] = NewMetricWithTime(sanitize(s.GetSampleSum()), scrapeTime)
+				metrics[baseName+"_count"+suffix] = NewMetricWithTime(float64(s.GetSampleCount()), scrapeTime)
+				for _, q := range s.GetQuantile() {
+					qKey := fmt.Sprintf("%s_quantile_%g%s", baseName, q.GetQuantile(), suffix)
+					metrics[qKey] = NewMetricWithTime(sanitize(q.GetValue()), scrapeTime)
+				}
+				continue
+			}
+
+			// Counter, Gauge, Untyped: extract single value
+			val := getValue(m)
+			metrics[baseName+suffix] = NewMetricWithTime(sanitize(val), scrapeTime)
+		}
 	}
 
 	if len(metrics) > 0 {
 		metrics["vllmTimestamp"] = NewMetricWithTime(scrapeTime, scrapeTime)
 	}
-
 	return metrics
 }
 
-func getCleanName(rawName string) string {
-	lookupName := strings.Replace(rawName, "vllm:", "", 1)
-	if alias, ok := metricAliases[lookupName]; ok {
+func getCleanName(name string) string {
+	lookup := strings.TrimPrefix(name, "vllm:")
+	if alias, ok := metricAliases[lookup]; ok {
 		return alias
 	}
-	return strings.ReplaceAll(rawName, ":", "_")
+	return strings.ReplaceAll(name, ":", "_")
 }
 
-func parsePrometheus(text string) map[string]interface{} {
-	data := make(map[string]interface{})
-	histograms := make(map[string]map[string]float64)
-
-	lines := strings.Split(text, "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-
-		match := prometheusRegex.FindStringSubmatch(line)
-		if match == nil {
-			continue
-		}
-
-		name := match[1]
-		labelStr := match[2]
-		valueStr := match[3]
-
-		var val float64
-		lowerVal := strings.ToLower(valueStr)
-		if strings.Contains(lowerVal, "nan") {
-			val = 0.0
-		} else if strings.Contains(lowerVal, "inf") {
-			val = 0.0
-		} else {
-			var err error
-			val, err = strconv.ParseFloat(valueStr, 64)
-			if err != nil {
-				continue
-			}
-		}
-
-		labels := make(map[string]string)
-		if labelStr != "" {
-			parts := strings.Split(labelStr, ",")
-			for _, p := range parts {
-				if idx := strings.Index(p, "="); idx != -1 {
-					k := strings.TrimSpace(p[:idx])
-					if !ignoredLabels[k] {
-						v := strings.Trim(strings.TrimSpace(p[idx+1:]), "\"")
-						labels[k] = v
-					}
-				}
-			}
-		}
-
-		isBucket := strings.HasSuffix(name, "_bucket")
-		isSum := strings.HasSuffix(name, "_sum")
-		isCount := strings.HasSuffix(name, "_count")
-		isInfo := strings.HasSuffix(name, "_info")
-
-		baseLookup := name
-		suffix := ""
-
-		if isBucket {
-			baseLookup = name[:len(name)-7]
-			suffix = "_bucket"
-		} else if isSum {
-			baseLookup = name[:len(name)-4]
-			suffix = "_sum"
-		} else if isCount {
-			baseLookup = name[:len(name)-6]
-			suffix = "_count"
-		}
-
-		cleanBase := getCleanName(baseLookup)
-
-		if isInfo && len(labels) > 0 {
-			for k, v := range labels {
-				infoKey := cleanBase + "_" + k
-				data[infoKey] = tryParseNumber(v)
-			}
-			continue
-		}
-
-		if isBucket {
-			if le, ok := labels["le"]; ok {
-				delete(labels, "le")
-
-				var leVal float64
-				if strings.Contains(strings.ToLower(le), "inf") {
-					leVal = -1
-				} else {
-					leVal, _ = strconv.ParseFloat(le, 64)
-				}
-
-				histoKey := cleanBase
-				for k, v := range labels {
-					histoKey += "_" + k + "_" + v
-				}
-
-				if histograms[histoKey] == nil {
-					histograms[histoKey] = make(map[string]float64)
-				}
-
-				leKeyStr := le
-				if leVal == -1 {
-					leKeyStr = "inf"
-				}
-				histograms[histoKey][leKeyStr] = val
-			}
-		} else {
-			finalKey := cleanBase + suffix
-
-			for k, v := range labels {
-				finalKey += "_" + k + "_" + v
-			}
-
-			data[finalKey] = val
+func filterLabels(pairs []*dto.LabelPair) map[string]string {
+	labels := make(map[string]string)
+	for _, p := range pairs {
+		if !ignoredLabels[p.GetName()] {
+			labels[p.GetName()] = p.GetValue()
 		}
 	}
-
-	for key, buckets := range histograms {
-		data[key+"_histogram"] = buckets
-	}
-
-	return data
+	return labels
 }
 
-func tryParseNumber(s string) interface{} {
-	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+func labelSuffix(labels map[string]string) string {
+	var b strings.Builder
+	for k, v := range labels {
+		b.WriteString("_")
+		b.WriteString(k)
+		b.WriteString("_")
+		b.WriteString(v)
+	}
+	return b.String()
+}
+
+func getValue(m *dto.Metric) float64 {
+	if c := m.GetCounter(); c != nil {
+		return c.GetValue()
+	}
+	if g := m.GetGauge(); g != nil {
+		return g.GetValue()
+	}
+	if u := m.GetUntyped(); u != nil {
+		return u.GetValue()
+	}
+	return 0
+}
+
+func sanitize(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	return v
+}
+
+func parseNumber(s string) interface{} {
+	var i int64
+	if _, err := fmt.Sscanf(s, "%d", &i); err == nil {
 		return i
 	}
-	if f, err := strconv.ParseFloat(s, 64); err == nil {
+	var f float64
+	if _, err := fmt.Sscanf(s, "%f", &f); err == nil {
 		return f
 	}
 	return s
+}
+
+func getEnv(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
 }

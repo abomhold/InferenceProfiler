@@ -35,8 +35,8 @@ func NewExporter(outputDir string, sessionUUID uuid.UUID) (*Exporter, error) {
 }
 
 // SaveStatic saves static system information
-func (e *Exporter) SaveStatic(data collectors.StaticInfo) error {
-	path := filepath.Join(e.outputDir, fmt.Sprintf("static_%s.json", e.sessionUUID))
+func (e *Exporter) SaveStatic(data collectors.StaticMetrics) error {
+	path := filepath.Join(e.outputDir, fmt.Sprintf("%s.json", e.sessionUUID))
 
 	file, err := os.Create(path)
 	if err != nil {

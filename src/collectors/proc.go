@@ -7,17 +7,14 @@ import (
 	"syscall"
 )
 
-// CollectProcesses collects per-process metrics
 func CollectProcesses() (int64, []map[string]MetricValue) {
-	var processes []map[string]MetricValue
-	var processCount int64
-
 	dirs, err := filepath.Glob("/proc/[0-9]*")
 	if err != nil {
 		return 0, nil
 	}
 
 	pageSize := int64(syscall.Getpagesize())
+	var processes []map[string]MetricValue
 
 	for _, pidPath := range dirs {
 		pid, err := strconv.ParseInt(filepath.Base(pidPath), 10, 64)
@@ -25,17 +22,9 @@ func CollectProcesses() (int64, []map[string]MetricValue) {
 			continue
 		}
 
-		statData, tStatData := ProbeFile(filepath.Join(pidPath, "stat"))
-		cmdline, _ := ProbeFile(filepath.Join(pidPath, "cmdline"))
-		statusData, tStatusData := ParseProcKV(filepath.Join(pidPath, "status"), ":")
-		statmData, tStatm := ProbeFile(filepath.Join(pidPath, "statm"))
-
-		if statData == "" {
-			continue
-		}
-
+		statData, tStat := ProbeFile(filepath.Join(pidPath, "stat"))
 		rparenIndex := strings.LastIndex(statData, ")")
-		if rparenIndex == -1 {
+		if rparenIndex == -1 || len(statData) < rparenIndex+3 {
 			continue
 		}
 
@@ -44,49 +33,39 @@ func CollectProcesses() (int64, []map[string]MetricValue) {
 			continue
 		}
 
-		processCount++
+		cmdline, _ := ProbeFile(filepath.Join(pidPath, "cmdline"))
+		status, tStatus := ParseProcKV(filepath.Join(pidPath, "status"), ":")
+		statm, tStatm := ProbeFile(filepath.Join(pidPath, "statm"))
 
-		var rssPages int64
-		if statmData != "" {
-			statmParts := strings.Fields(statmData)
-			if len(statmParts) >= 2 {
-				rssPages, _ = strconv.ParseInt(statmParts[1], 10, 64)
-			}
+		var rssBytes int64
+		if parts := strings.Fields(statm); len(parts) >= 2 {
+			rssPages, _ := strconv.ParseInt(parts[1], 10, 64)
+			rssBytes = rssPages * pageSize
 		}
-		rssBytes := rssPages * pageSize
 
-		pName := statusData["Name"]
+		pName := status["Name"]
 		if pName == "" {
-			lparenIndex := strings.Index(statData, "(")
-			if lparenIndex != -1 && rparenIndex > lparenIndex {
-				pName = statData[lparenIndex+1 : rparenIndex]
+			if lp := strings.Index(statData, "("); lp != -1 && rparenIndex > lp {
+				pName = statData[lp+1 : rparenIndex]
 			}
 		}
 
-		proc := make(map[string]MetricValue)
-		proc["pId"] = MetricValue{Value: pid, Time: tStatData}
-		proc["pName"] = MetricValue{Value: pName, Time: tStatData}
-		proc["pCmdline"] = MetricValue{Value: strings.ReplaceAll(cmdline, "\x00", " "), Time: tStatData}
-
-		proc["pNumThreads"] = NewMetricWithTime(parseInt64(statParts[17]), tStatData)
-
-		proc["pCpuTimeUserMode"] = NewMetricWithTime(parseInt64(statParts[11])*JiffiesPerSecond, tStatData)
-		proc["pCpuTimeKernelMode"] = NewMetricWithTime(parseInt64(statParts[12])*JiffiesPerSecond, tStatData)
-		proc["pChildrenUserMode"] = NewMetricWithTime(parseInt64(statParts[13])*JiffiesPerSecond, tStatData)
-		proc["pChildrenKernelMode"] = NewMetricWithTime(parseInt64(statParts[14])*JiffiesPerSecond, tStatData)
-
-		volCtxSwitch, _ := strconv.ParseInt(statusData["voluntary_ctxt_switches"], 10, 64)
-		nonvolCtxSwitch, _ := strconv.ParseInt(statusData["nonvoluntary_ctxt_switches"], 10, 64)
-		proc["pVoluntaryContextSwitches"] = NewMetricWithTime(volCtxSwitch, tStatusData)
-		proc["pNonvoluntaryContextSwitches"] = NewMetricWithTime(nonvolCtxSwitch, tStatusData)
-
-		proc["pBlockIODelays"] = NewMetricWithTime(parseInt64(statParts[39])*JiffiesPerSecond, tStatData)
-
-		proc["pVirtualMemoryBytes"] = NewMetricWithTime(parseInt64(statParts[20]), tStatData)
-		proc["pResidentSetSize"] = NewMetricWithTime(rssBytes, tStatm)
-
-		processes = append(processes, proc)
+		processes = append(processes, map[string]MetricValue{
+			"pId":                          {Value: pid, Time: tStat},
+			"pName":                        {Value: pName, Time: tStat},
+			"pCmdline":                     {Value: strings.ReplaceAll(cmdline, "\x00", " "), Time: tStat},
+			"pNumThreads":                  NewMetricWithTime(parseInt64(statParts[17]), tStat),
+			"pCpuTimeUserMode":             NewMetricWithTime(parseInt64(statParts[11])*JiffiesPerSecond, tStat),
+			"pCpuTimeKernelMode":           NewMetricWithTime(parseInt64(statParts[12])*JiffiesPerSecond, tStat),
+			"pChildrenUserMode":            NewMetricWithTime(parseInt64(statParts[13])*JiffiesPerSecond, tStat),
+			"pChildrenKernelMode":          NewMetricWithTime(parseInt64(statParts[14])*JiffiesPerSecond, tStat),
+			"pVoluntaryContextSwitches":    NewMetricWithTime(parseInt64(status["voluntary_ctxt_switches"]), tStatus),
+			"pNonvoluntaryContextSwitches": NewMetricWithTime(parseInt64(status["nonvoluntary_ctxt_switches"]), tStatus),
+			"pBlockIODelays":               NewMetricWithTime(parseInt64(statParts[39])*JiffiesPerSecond, tStat),
+			"pVirtualMemoryBytes":          NewMetricWithTime(parseInt64(statParts[20]), tStat),
+			"pResidentSetSize":             NewMetricWithTime(rssBytes, tStatm),
+		})
 	}
 
-	return processCount, processes
+	return int64(len(processes)), processes
 }

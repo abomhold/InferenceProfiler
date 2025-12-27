@@ -2,35 +2,145 @@ package collectors
 
 import (
 	"fmt"
-	"os"
+	"log"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
-// CollectCPU collects CPU metrics
-func CollectCPU() map[string]MetricValue {
-	metrics := make(map[string]MetricValue)
+// --- Static Metrics ---
 
+func CollectCPUStatic() StaticMetrics {
+	return StaticMetrics{
+		"vVMID":     NewMetric(GetVMID()),
+		"vBootTime": NewMetric(GetBootTime()),
+		"vCPUType":  NewMetric(getCPUType()),
+		"vNumCPUs":  NewMetric(runtime.NumCPU()),
+		"vCPUCache": NewMetric(getCPUCache()),
+	}.Merge(getKernelInfo())
+}
+
+func getCPUType() string {
+	lines, _ := ProbeFileLines("/proc/cpuinfo")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "model name") {
+			parts := strings.SplitN(line, ":", 2)
+			if len(parts) == 2 {
+				return strings.TrimSpace(parts[1])
+			}
+		}
+	}
+	return "unknown"
+}
+
+func getCPUCache() map[string]int64 {
+	result := make(map[string]int64)
+	seen := make(map[string]bool) // Prevents double-counting shared caches
+
+	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
+	for _, dir := range dirs {
+		level, _ := ProbeFile(filepath.Join(dir, "level"))
+		cType, _ := ProbeFile(filepath.Join(dir, "type"))
+		sizeStr, _ := ProbeFile(filepath.Join(dir, "size"))
+		shared, _ := ProbeFile(filepath.Join(dir, "shared_cpu_map"))
+
+		cacheID := fmt.Sprintf("L%s-%s-%s", level, cType, shared)
+		if seen[cacheID] || level == "" || sizeStr == "" {
+			continue
+		}
+		seen[cacheID] = true
+
+		var size int64
+		var unit rune
+		fmt.Sscanf(sizeStr, "%d%c", &size, &unit)
+		if unit == 'K' {
+			size *= 1024
+		} else if unit == 'M' {
+			size *= 1024 * 1024
+		}
+
+		suffix := ""
+		if cType == "Data" {
+			suffix = "d"
+		} else if cType == "Instruction" {
+			suffix = "i"
+		}
+
+		result["L"+level+suffix] += size
+	}
+	return result
+}
+
+func getKernelInfo() StaticMetrics {
+	var uname unix.Utsname
+	if err := unix.Uname(&uname); err != nil {
+		log.Fatalf("unix.Uname failed: %v", err)
+	}
+	return StaticMetrics{
+		"vSystemName": uname.Sysname,
+		"vNodeName":   uname.Nodename,
+		"vRelease":    uname.Release,
+		"vVersion":    uname.Version,
+		"vMachine":    uname.Machine,
+	}
+}
+
+func GetBootTime() int64 {
+	lines, _ := ProbeFileLines("/proc/stat")
+	for _, line := range lines {
+		if strings.HasPrefix(line, "btime") {
+			parts := strings.Fields(line)
+			if len(parts) > 1 {
+				val, _ := strconv.ParseInt(parts[1], 10, 64)
+				return val
+			}
+		}
+	}
+	return 0
+}
+
+func GetVMID() string {
+	content, _ := ProbeFile("/sys/class/dmi/id/product_uuid")
+	if content != "" && content != "None" {
+		return content
+	}
+
+	content, _ = ProbeFile("/etc/machine-id")
+	if content != "" {
+		return content
+	}
+
+	content, _ = ProbeFile("/etc/hostname")
+	if content != "" {
+		return content
+	}
+
+	return "unavailable"
+}
+
+// --- Dynamic Metrics ---
+
+func CollectCPUDynamic() DynamicMetrics {
 	statMetrics, tStat := getProcStat()
 	loadAvg, tLoad := getLoadAvg()
 	cpuMhz, tFreq := getCPUFreq()
-
-	metrics["vCpuTimeUserMode"] = NewMetricWithTime(statMetrics["user"]*JiffiesPerSecond, tStat)
-	metrics["vCpuTimeKernelMode"] = NewMetricWithTime(statMetrics["system"]*JiffiesPerSecond, tStat)
-	metrics["vCpuIdleTime"] = NewMetricWithTime(statMetrics["idle"]*JiffiesPerSecond, tStat)
-	metrics["vCpuTimeIOWait"] = NewMetricWithTime(statMetrics["iowait"]*JiffiesPerSecond, tStat)
-	metrics["vCpuTimeIntSrvc"] = NewMetricWithTime(statMetrics["irq"]*JiffiesPerSecond, tStat)
-	metrics["vCpuTimeSoftIntSrvc"] = NewMetricWithTime(statMetrics["softirq"]*JiffiesPerSecond, tStat)
-	metrics["vCpuNice"] = NewMetricWithTime(statMetrics["nice"]*JiffiesPerSecond, tStat)
-	metrics["vCpuSteal"] = NewMetricWithTime(statMetrics["steal"]*JiffiesPerSecond, tStat)
-	metrics["vCpuTime"] = NewMetricWithTime((statMetrics["user"]+statMetrics["system"])*JiffiesPerSecond, tStat)
-	metrics["vCpuContextSwitches"] = NewMetricWithTime(statMetrics["ctxt"], tStat)
-	metrics["vLoadAvg"] = NewMetricWithTime(loadAvg, tLoad)
-	metrics["vCpuMhz"] = NewMetricWithTime(cpuMhz, tFreq)
-
-	return metrics
+	return DynamicMetrics{
+		"vCpuTimeUserMode":    NewMetricWithTime(statMetrics["user"], tStat),
+		"vCpuTimeKernelMode":  NewMetricWithTime(statMetrics["system"], tStat),
+		"vCpuIdleTime":        NewMetricWithTime(statMetrics["idle"], tStat),
+		"vCpuTimeIOWait":      NewMetricWithTime(statMetrics["iowait"], tStat),
+		"vCpuTimeIntSrvc":     NewMetricWithTime(statMetrics["irq"], tStat),
+		"vCpuTimeSoftIntSrvc": NewMetricWithTime(statMetrics["softirq"], tStat),
+		"vCpuNice":            NewMetricWithTime(statMetrics["nice"], tStat),
+		"vCpuSteal":           NewMetricWithTime(statMetrics["steal"], tStat),
+		"vCpuTime":            NewMetricWithTime(statMetrics["user"]+statMetrics["system"], tStat),
+		"vCpuContextSwitches": NewMetricWithTime(statMetrics["ctxt"], tStat),
+		"vLoadAvg":            NewMetricWithTime(loadAvg, tLoad),
+		"vCpuMhz":             NewMetricWithTime(cpuMhz, tFreq),
+	}
 }
 
 func getProcStat() (map[string]int64, int64) {
@@ -107,144 +217,4 @@ func getCPUFreq() (float64, int64) {
 		}
 	}
 	return 0.0, ts
-}
-
-// GetCPUStaticInfo returns static CPU information
-func GetCPUStaticInfo() (int, string, map[string]int64, string) {
-	numCPUs := runtime.NumCPU()
-	cpuType := getCPUType()
-	cpuCache := getCPUCache()
-	kernelInfo := getKernelInfo()
-	return numCPUs, cpuType, cpuCache, kernelInfo
-}
-
-// getKernelInfo reads kernel details from /proc/sys/kernel instead of syscalls
-func getKernelInfo() string {
-	sysname, _ := ProbeFile("/proc/sys/kernel/ostype")
-	nodename, _ := ProbeFile("/proc/sys/kernel/hostname")
-	release, _ := ProbeFile("/proc/sys/kernel/osrelease")
-	version, _ := ProbeFile("/proc/sys/kernel/version")
-	machine := runtime.GOARCH
-
-	sysname = strings.TrimSpace(sysname)
-	nodename = strings.TrimSpace(nodename)
-	release = strings.TrimSpace(release)
-	version = strings.TrimSpace(version)
-
-	if sysname == "" {
-		sysname = "Linux"
-	}
-
-	return fmt.Sprintf("%s %s %s %s %s", sysname, nodename, release, version, machine)
-}
-
-func getCPUType() string {
-	lines, _ := ProbeFileLines("/proc/cpuinfo")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "model name") {
-			parts := strings.SplitN(line, ":", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1])
-			}
-		}
-	}
-	return "unknown"
-}
-
-func getCPUCache() map[string]int64 {
-	cacheMap := make(map[string]map[string]int64)
-	result := make(map[string]int64)
-
-	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
-	for _, dir := range dirs {
-		level, _ := ProbeFile(filepath.Join(dir, "level"))
-		cacheType, _ := ProbeFile(filepath.Join(dir, "type"))
-		sizeStr, _ := ProbeFile(filepath.Join(dir, "size"))
-		sharedCPUMap, _ := ProbeFile(filepath.Join(dir, "shared_cpu_map"))
-
-		if level == "" || sizeStr == "" {
-			continue
-		}
-
-		suffix := ""
-		if cacheType == "Data" {
-			suffix = "d"
-		} else if cacheType == "Instruction" {
-			suffix = "i"
-		}
-
-		key := "L" + level + suffix
-
-		multiplier := int64(1)
-		if strings.HasSuffix(sizeStr, "K") {
-			multiplier = 1024
-			sizeStr = sizeStr[:len(sizeStr)-1]
-		} else if strings.HasSuffix(sizeStr, "M") {
-			multiplier = 1024 * 1024
-			sizeStr = sizeStr[:len(sizeStr)-1]
-		}
-
-		sizeBytes, err := strconv.ParseInt(sizeStr, 10, 64)
-		if err != nil {
-			continue
-		}
-		sizeBytes *= multiplier
-
-		if cacheMap[key] == nil {
-			cacheMap[key] = make(map[string]int64)
-		}
-		cacheMap[key][sharedCPUMap] = sizeBytes
-	}
-
-	for key, cpuMaps := range cacheMap {
-		var total int64
-		for _, v := range cpuMaps {
-			total += v
-		}
-		result[key] = total
-	}
-	return result
-}
-
-// GetHostname returns the system hostname
-func GetHostname() string {
-	if name, err := os.Hostname(); err == nil {
-		return name
-	}
-
-	if content, _ := ProbeFile("/proc/sys/kernel/hostname"); content != "" {
-		return strings.TrimSpace(content)
-	}
-
-	return "unknown"
-}
-
-// GetBootTime returns the system boot time
-func GetBootTime() int64 {
-	lines, _ := ProbeFileLines("/proc/stat")
-	for _, line := range lines {
-		if strings.HasPrefix(line, "btime") {
-			parts := strings.Fields(line)
-			if len(parts) > 1 {
-				val, _ := strconv.ParseInt(parts[1], 10, 64)
-				return val
-			}
-		}
-	}
-	return 0
-}
-
-// GetVMID attempts to get VM/instance ID
-func GetVMID() string {
-	content, _ := ProbeFile("/sys/class/dmi/id/product_uuid")
-	if content != "" && content != "None" {
-		return content
-	}
-
-	content, _ = ProbeFile("/etc/machine-id")
-	if content != "" {
-		return content
-	}
-
-	return "unavailable"
 }

@@ -6,10 +6,19 @@ import (
 	"strings"
 )
 
-// CollectMemory collects memory metrics
-func CollectMemory() map[string]MetricValue {
-	metrics := make(map[string]MetricValue)
+// --- Static Metrics ---
 
+func GetMemoryStaticInfo() StaticMetrics {
+	memInfo, _ := getMeminfo()
+	return StaticMetrics{
+		"vMemoryTotalBytes": memInfo["MemTotal"],
+		"vSwapTotalBytes":   memInfo["SwapTotal"],
+	}
+}
+
+// --- Dynamic Metrics ---
+
+func CollectMemoryDynamic() DynamicMetrics {
 	memInfo, tMem := getMeminfo()
 	pgFault, pgMajFault, tVmstat := getPageFaults()
 
@@ -32,19 +41,19 @@ func CollectMemory() map[string]MetricValue {
 		percent = float64(total-available) / float64(total) * 100
 	}
 
-	metrics["vMemoryTotal"] = NewMetricWithTime(total, tMem)
-	metrics["vMemoryFree"] = NewMetricWithTime(available, tMem)
-	metrics["vMemoryUsed"] = NewMetricWithTime(used, tMem)
-	metrics["vMemoryBuffers"] = NewMetricWithTime(buffers, tMem)
-	metrics["vMemoryCached"] = NewMetricWithTime(cached, tMem)
-	metrics["vMemoryPercent"] = NewMetricWithTime(percent, tMem)
-	metrics["vPgFault"] = NewMetricWithTime(pgFault, tVmstat)
-	metrics["vMajorPageFault"] = NewMetricWithTime(pgMajFault, tVmstat)
-	metrics["vSwapTotal"] = NewMetricWithTime(memInfo["SwapTotal"], tMem)
-	metrics["vSwapFree"] = NewMetricWithTime(memInfo["SwapFree"], tMem)
-	metrics["vSwapUsed"] = NewMetricWithTime(memInfo["SwapTotal"]-memInfo["SwapFree"], tMem)
-
-	return metrics
+	return DynamicMetrics{
+		"vMemoryTotal":          NewMetricWithTime(total, tMem),
+		"vMemoryFree":           NewMetricWithTime(available, tMem),
+		"vMemoryUsed":           NewMetricWithTime(used, tMem),
+		"vMemoryBuffers":        NewMetricWithTime(buffers, tMem),
+		"vMemoryCached":         NewMetricWithTime(cached, tMem),
+		"vMemoryPercent":        NewMetricWithTime(percent, tMem),
+		"vMemoryPgFault":        NewMetricWithTime(pgFault, tVmstat),
+		"vMemoryMajorPageFault": NewMetricWithTime(pgMajFault, tVmstat),
+		"vMemorySwapTotal":      NewMetricWithTime(memInfo["SwapTotal"], tMem),
+		"vMemorySwapFree":       NewMetricWithTime(memInfo["SwapFree"], tMem),
+		"vMemorySwapUsed":       NewMetricWithTime(memInfo["SwapTotal"]-memInfo["SwapFree"], tMem),
+	}
 }
 
 func getMeminfo() (map[string]int64, int64) {
@@ -81,10 +90,4 @@ func getPageFaults() (int64, int64, int64) {
 	}
 
 	return pgFault, pgMajFault, ts
-}
-
-// GetMemoryStaticInfo returns static memory information
-func GetMemoryStaticInfo() (int64, int64) {
-	memInfo, _ := getMeminfo()
-	return memInfo["MemTotal"], memInfo["SwapTotal"]
 }
