@@ -11,8 +11,6 @@ permissions:
 jobs:
   build-and-release:
     name: Build Static Linux Binary
-    # Ubuntu is required here only to host the Docker engine.
-    # The actual build happens inside the Alpine container below.
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -22,11 +20,11 @@ jobs:
         uses: docker://golang:alpine
         with:
           entrypoint: /bin/sh
-          # Added '-buildvcs=false' to fix the "exit status 128" error.
-          # This tells Go not to try reading the host's .git folder for version stamping.
           args: -c "apk add --no-cache build-base git && go mod tidy && go build -buildvcs=false -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ./src"
         env:
           CGO_ENABLED: 1
+          # Fix for Alpine/Musl: Define the missing RTLD_DEEPBIND constant as 0 (no-op)
+          CGO_CFLAGS: "-D_GNU_SOURCE -DRTLD_DEEPBIND=0"
 
       - name: Verify Static Build
         run: |
