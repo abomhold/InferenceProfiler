@@ -19,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Build
-        run: go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
+        run: go mod tidy && go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler ./src
         env:
           CGO_ENABLED: 1
 
