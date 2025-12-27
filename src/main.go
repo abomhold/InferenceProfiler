@@ -2,7 +2,7 @@ package main
 
 import (
 	"InferenceProfiler/src/collectors"
-	"InferenceProfiler/src/utils"
+	"InferenceProfiler/src/output"
 
 	"flag"
 	"fmt"
@@ -107,7 +107,7 @@ func main() {
 	// Initialize
 	collector := collectors.NewCollectorManager(cfg)
 	defer collector.Close()
-	exp, err := utils.NewExporter(*outputDir, sessionUUID, !*noFlatten)
+	exp, err := output.NewExporter(*outputDir, sessionUUID, !*noFlatten)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}

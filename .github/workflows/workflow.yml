@@ -16,31 +16,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - name: Build in Alpine Container
+        uses: docker://golang:alpine
         with:
-          go-version: '1.25'
-
-      - name: Install Musl tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y musl-tools
-
-      - name: Build Static Binary
+          # Mount the current directory and run the build script
+          entrypoint: /bin/sh
+          args: -c "apk add --no-cache build-base git && go build -ldflags '-linkmode external -extldflags \"-static\" -s -w' -o container-profiler ."
         env:
           CGO_ENABLED: 1
-          CC: musl-gcc
-        run: |
-          go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler .
 
       - name: Verify Static Build
         run: |
+          # Use 'file' on the host to verify the binary artifact
           if ! file container-profiler | grep -q "statically linked"; then
             echo "Error: Binary is not statically linked"
             exit 1
           fi
 
-      # Updates the "nightly" release with the new binary
       - name: Update Nightly Release
         uses: softprops/action-gh-release@v2
         with:
