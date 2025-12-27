@@ -18,7 +18,6 @@ func CollectCPUStatic(m *StaticMetrics) {
 	m.NumProcessors = runtime.NumCPU()
 
 	// CPU cache info
-	// todo: convert to string
 	cache := getCPUCache()
 	m.CPUCache = cache
 
