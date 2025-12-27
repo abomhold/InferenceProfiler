@@ -121,6 +121,8 @@ func main() {
 
 	// Start subprocess if command provided
 	var proc *exec.Cmd
+	processDone := make(chan error, 1) // Channel to notify when process exits
+
 	if len(args) > 0 {
 		log.Printf("Starting subprocess: %s", args)
 		proc = exec.Command(args[0], args[1:]...)
@@ -129,18 +131,17 @@ func main() {
 		if err := proc.Start(); err != nil {
 			log.Fatalf("Failed to start command: %v", err)
 		}
+
+		// FIX: Use a goroutine to wait for the process
+		go func() {
+			processDone <- proc.Wait()
+		}()
 	}
 
 	// Setup signal handling
 	running := true
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		log.Printf("Signal %v received. Stopping profiler...", sig)
-		running = false
-	}()
 
 	// Profiling loop
 	log.Println("Profiling started. Press Ctrl+C to stop.")
@@ -149,37 +150,49 @@ func main() {
 	for running {
 		loopStart := time.Now()
 
+		// Check if subprocess finished
+		if proc != nil {
+			select {
+			case err := <-processDone:
+				if err != nil {
+					log.Printf("Subprocess finished with error: %v", err)
+				} else {
+					log.Printf("Subprocess finished successfully.")
+				}
+				running = false
+			default:
+				// Process is still running, continue to collect metrics
+			}
+		}
+
+		if !running {
+			break
+		}
+
 		// Collect and save metrics
 		metrics := collector.CollectMetrics()
 		if err := exp.SaveSnapshot(metrics); err != nil {
 			log.Printf("Error saving snapshot: %v", err)
 		}
 
-		// Check subprocess status
-		if proc != nil {
-			if proc.ProcessState != nil && proc.ProcessState.Exited() {
-				log.Printf("Subprocess finished with exit code %d", proc.ProcessState.ExitCode())
-				running = false
-				break
-			}
-			// Check if process has exited
-			if err := proc.Process.Signal(syscall.Signal(0)); err != nil {
-				proc.Wait()
-				if proc.ProcessState != nil {
-					log.Printf("Subprocess finished with exit code %d", proc.ProcessState.ExitCode())
-				}
-				running = false
-				break
-			}
-		}
-
 		// Sleep for remaining interval
 		elapsed := time.Since(loopStart)
 		if sleep := intervalDuration - elapsed; sleep > 0 {
-			time.Sleep(sleep)
+			select {
+			case <-time.After(sleep):
+				// Continue
+			case err := <-processDone:
+				log.Printf("Subprocess finished during sleep.")
+				if err != nil {
+					log.Printf("Exit error: %v", err)
+				}
+				running = false
+			case sig := <-sigChan:
+				log.Printf("Signal %v received. Stopping...", sig)
+				running = false
+			}
 		}
 	}
-
 	// Cleanup
 	log.Println("Shutting down...")
 

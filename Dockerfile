@@ -1,6 +1,6 @@
 # Build
-FROM golang:1.24 AS builder
-WORKDIR /app
+FROM golang:1.25 AS builder
+WORKDIR /profiler
 COPY ./src ./src
 COPY go.mod .
 COPY Makefile .
@@ -10,7 +10,7 @@ RUN CGO_ENABLED=1 GOOS=linux make build
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN mkdir -p /profiler-output
-COPY --from=builder /app/bin/profiler /usr/local/bin/profiler
+COPY --from=builder /profiler/bin/profiler /usr/local/bin/profiler
 ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "5000"]
 
 # User
