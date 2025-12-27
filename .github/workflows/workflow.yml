@@ -18,12 +18,41 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: go mod tidy && go build -ldflags '-s -w -extldflags "-static"' -o container-profiler ./src
-        env:
-          CGO_ENABLED: 1
+        run: go build -ldflags='-s -w' -o container-profiler ./src
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
           files: container-profiler
           prerelease: true
+
+
+#name: Build & Release
+#
+#on:
+#  push:
+#    branches: [master]
+#
+#permissions:
+#  contents: write
+#
+#jobs:
+#  build:
+#    runs-on: ubuntu-latest
+#    steps:
+#      - uses: actions/checkout@v4
+#
+#      - uses: actions/setup-go@v5
+#        with:
+#          go-version-file: go.mod
+#
+#      - name: Build
+#        run: go mod tidy && go build -ldflags '-s -w -extldflags "-static"' -o container-profiler ./src
+#        env:
+#          CGO_ENABLED: 1
+#
+#      - uses: softprops/action-gh-release@v2
+#        with:
+#          tag_name: nightly
+#          files: container-profiler
+#          prerelease: true
