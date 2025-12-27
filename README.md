@@ -29,7 +29,9 @@ This document provides a comprehensive reference for all metrics collected by th
 | `-o <dir>`    | `./profiler-output` | Output directory for logs and exported data                                  |
 | `-t <ms>`     | `1000`              | Sampling interval in milliseconds                                            |
 | `-f <format>` | `jsonl`             | Export format: `jsonl`, `parquet`, `csv`, `tsv`                              |
-| `-flatten`    | `true`              | Flatten nested data (GPUs, processes) to columns; `false` keeps JSON strings |
+| `-no-flatten` | `false`             | Flatten nested data (GPUs, processes) to columns; `false` keeps JSON strings |
+| `-no-cleanup` | `false`             | Keeps the intermediary json files                                            |
+
 
 ### Collector Toggles
 
@@ -42,22 +44,22 @@ All collectors are enabled by default except process-level metrics.
 | `-no-disk`      | `false` | Disable disk I/O metrics collection                             |
 | `-no-network`   | `false` | Disable network metrics collection                              |
 | `-no-container` | `false` | Disable container/cgroup metrics collection                     |
+| `-no-procs`     | `false` | Disable per-process metrics collection                          |
 | `-no-nvidia`    | `false` | Disable all NVIDIA GPU metrics collection                       |
 | `-no-gpu-procs` | `false` | Disable GPU process enumeration (still collects GPU metrics)    |
 | `-no-vllm`      | `false` | Disable vLLM metrics collection                                 |
-| `-p`            | `false` | **Enable** per-process metrics collection (disabled by default) |
 
 ### Example Usage
 
 ```bash
 # Minimal: just CPU/memory, TSV output, no flattening
-./profiler -no-disk -no-network -no-container -no-nvidia -no-vllm -f tsv -flatten=false
+./profiler -no-disk -no-network -no-container -no-procs -no-nvidia -no-vllm -f tsv -no-flatten
 
 # Full GPU monitoring without process overhead
-./profiler -no-gpu-procs -f parquet
+./profiler -no-procs -no-gpu-procs -f parquet
 
-# CSV with all processes, flattened
-./profiler -p -f csv
+# CSV with no processes, flattened
+./profiler -no-procs -f csv
 
 # Profile a subprocess
 ./profiler -f jsonl -- python train.py --epochs 10
