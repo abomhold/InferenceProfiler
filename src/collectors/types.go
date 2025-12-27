@@ -11,18 +11,8 @@ type StaticMetrics struct {
 	// CPU static info
 	NumProcessors int    `json:"vNumProcessors"`
 	CPUType       string `json:"vCpuType"`
-	CPUCacheL1d   int64  `json:"vCpuCacheL1d"`
-	CPUCacheL1i   int64  `json:"vCpuCacheL1i"`
-	CPUCacheL2    int64  `json:"vCpuCacheL2"`
-	CPUCacheL3    int64  `json:"vCpuCacheL3"`
-
-	// Kernel info
-	KernelInfo string `json:"vKernelInfo"`
-	//SystemName    string `json:"vSystemName"`
-	//NodeName      string `json:"vNodeName"`
-	//KernelRelease string `json:"vRelease"`
-	//KernelVersion string `json:"vVersion"`
-	//Machine       string `json:"vMachine"`
+	CPUCache      string `json:"vCpuCache"`
+	KernelInfo    string `json:"vKernelInfo"`
 
 	// Memory static info
 	MemoryTotalBytes int64 `json:"vMemoryTotalBytes"`

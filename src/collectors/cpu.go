@@ -20,10 +20,7 @@ func CollectCPUStatic(m *StaticMetrics) {
 	// CPU cache info
 	// todo: convert to string
 	cache := getCPUCache()
-	m.CPUCacheL1d = cache["L1d"]
-	m.CPUCacheL1i = cache["L1i"]
-	m.CPUCacheL2 = cache["L2"]
-	m.CPUCacheL3 = cache["L3"]
+	m.CPUCache = cache
 
 	// Kernel info
 	getKernelInfo(m)
@@ -74,10 +71,11 @@ func getCPUType() string {
 	return "unknown"
 }
 
-func getCPUCache() map[string]int64 {
+func getCPUCache() string {
 	result := make(map[string]int64)
 	seen := make(map[string]bool)
 
+	// Glob all cache indices
 	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
 	for _, dir := range dirs {
 		level, _ := ProbeFile(filepath.Join(dir, "level"))
@@ -85,12 +83,14 @@ func getCPUCache() map[string]int64 {
 		sizeStr, _ := ProbeFile(filepath.Join(dir, "size"))
 		shared, _ := ProbeFile(filepath.Join(dir, "shared_cpu_map"))
 
+		// Generate a unique ID to prevent double counting shared caches
 		cacheID := fmt.Sprintf("L%s-%s-%s", level, cType, shared)
 		if seen[cacheID] || level == "" || sizeStr == "" {
 			continue
 		}
 		seen[cacheID] = true
 
+		// Parse size (e.g., "32K", "12M")
 		var size int64
 		var unit rune
 		fmt.Sscanf(sizeStr, "%d%c", &size, &unit)
@@ -100,16 +100,51 @@ func getCPUCache() map[string]int64 {
 			size *= 1024 * 1024
 		}
 
+		// Determine suffix for L1 (Data vs Instruction)
 		suffix := ""
-		if cType == "Data" {
-			suffix = "d"
-		} else if cType == "Instruction" {
-			suffix = "i"
+		if level == "1" {
+			if cType == "Data" {
+				suffix = "d"
+			} else if cType == "Instruction" {
+				suffix = "i"
+			}
 		}
 
 		result["L"+level+suffix] += size
 	}
-	return result
+
+	// Format into a sorted, readable string
+	var parts []string
+	// Define explicit order for consistency
+	order := []string{"L1d", "L1i", "L2", "L3", "L4"}
+
+	for _, label := range order {
+		if size, ok := result[label]; ok && size > 0 {
+			var formattedSize string
+			if size >= 1048576 { // >= 1MB
+				formattedSize = fmt.Sprintf("%dM", size/1048576)
+			} else { // KB
+				formattedSize = fmt.Sprintf("%dK", size/1024)
+			}
+			parts = append(parts, fmt.Sprintf("%s:%s", label, formattedSize))
+		}
+	}
+
+	// Check for any odd keys not in our standard order (fallback)
+	for k, size := range result {
+		isOrdered := false
+		for _, o := range order {
+			if k == o {
+				isOrdered = true
+				break
+			}
+		}
+		if !isOrdered {
+			parts = append(parts, fmt.Sprintf("%s:%d", k, size))
+		}
+	}
+
+	return strings.Join(parts, " ")
 }
 
 func getKernelInfo(m *StaticMetrics) {

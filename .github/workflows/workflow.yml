@@ -1,0 +1,51 @@
+name: Build & Release Static Binary
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Static Linux Binary
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+
+      - name: Install Musl tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Build Static Binary
+        env:
+          CGO_ENABLED: 1
+          CC: musl-gcc
+        run: |
+          go build -ldflags '-linkmode external -extldflags "-static" -s -w' -o container-profiler .
+
+      - name: Verify Static Build
+        run: |
+          if ! file container-profiler | grep -q "statically linked"; then
+            echo "Error: Binary is not statically linked"
+            exit 1
+          fi
+
+      # Updates the "nightly" release with the new binary
+      - name: Update Nightly Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Nightly Build
+          tag_name: nightly
+          files: container-profiler
+          prerelease: true
+          make_latest: true
