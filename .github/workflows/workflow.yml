@@ -18,12 +18,12 @@ jobs:
           go-version-file: go.mod
 
       - name: Build
-        run: go build -ldflags='-s -w' -o container-profiler ./src
+        run: go build -ldflags='-s -w' -o InferenceProfiler ./src
 
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly
-          files: container-profiler
+          files: InferenceProfiler
           prerelease: true
 
 
