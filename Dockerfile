@@ -1,5 +1,5 @@
 # Build
-FROM golang:1.25 AS builder
+FROM golang:1.24 AS builder
 WORKDIR /app
 COPY ./src ./src
 COPY go.mod .

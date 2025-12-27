@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
@@ -14,140 +15,199 @@ import (
 
 var vllmMetricsURL = getEnv("VLLM_METRICS_URL", "http://localhost:8000/metrics")
 
-var ignoredLabels = map[string]bool{
-	"model_name": true, "model": true, "engine_id": true,
-	"engine": true, "handler": true, "method": true,
+// Metric name mappings from Prometheus names to our struct fields
+var metricMappings = map[string]string{
+	"num_requests_running":           "RequestsRunning",
+	"num_requests_waiting":           "RequestsWaiting",
+	"engine_sleep_state":             "EngineSleepState",
+	"num_preemptions":                "PreemptionsTotal",
+	"kv_cache_usage_perc":            "KvCacheUsagePercent",
+	"prefix_cache_hits":              "PrefixCacheHits",
+	"prefix_cache_queries":           "PrefixCacheQueries",
+	"mm_cache_hits":                  "MultimodalCacheHits",
+	"mm_cache_queries":               "MultimodalCacheQueries",
+	"request_success":                "RequestsFinishedTotal",
+	"corrupted_requests":             "RequestsCorruptedTotal",
+	"prompt_tokens":                  "TokensPromptTotal",
+	"generation_tokens":              "TokensGenerationTotal",
+	"time_to_first_token_seconds":    "LatencyTtft",
+	"e2e_request_latency_seconds":    "LatencyE2e",
+	"request_queue_time_seconds":     "LatencyQueue",
+	"request_inference_time_seconds": "LatencyInference",
+	"request_prefill_time_seconds":   "LatencyPrefill",
+	"request_decode_time_seconds":    "LatencyDecode",
+	"inter_token_latency_seconds":    "LatencyInterToken",
+	"request_prompt_tokens":          "ReqSizePromptTokens",
+	"request_generation_tokens":      "ReqSizeGenerationTokens",
+	"iteration_tokens_total":         "TokensPerStep",
+	"request_params_max_tokens":      "ReqParamsMaxTokens",
+	"request_params_n":               "ReqParamsN",
 }
 
-var metricAliases = map[string]string{
-	"num_requests_running":           "vllmSystemRequestsRunning",
-	"num_requests_waiting":           "vllmSystemRequestsWaiting",
-	"engine_sleep_state":             "vllmSystemEngineSleepState",
-	"num_preemptions":                "vllmSystemPreemptionsTotal",
-	"cache_config_info":              "vllmConfigCache",
-	"kv_cache_usage_perc":            "vllmCacheKvUsagePercent",
-	"prefix_cache_hits":              "vllmCachePrefixHits",
-	"prefix_cache_queries":           "vllmCachePrefixQueries",
-	"mm_cache_hits":                  "vllmCacheMultimodalHits",
-	"mm_cache_queries":               "vllmCacheMultimodalQueries",
-	"request_success":                "vllmRequestsFinishedTotal",
-	"corrupted_requests":             "vllmRequestsCorruptedTotal",
-	"prompt_tokens":                  "vllmTokensPromptTotal",
-	"generation_tokens":              "vllmTokensGenerationTotal",
-	"iteration_tokens_total":         "vllmTokensPerStepHistogram",
-	"time_to_first_token_seconds":    "vllmLatencyTtftS",
-	"e2e_request_latency_seconds":    "vllmLatencyE2eS",
-	"request_queue_time_seconds":     "vllmLatencyQueueS",
-	"request_inference_time_seconds": "vllmLatencyInferenceS",
-	"request_prefill_time_seconds":   "vllmLatencyPrefillS",
-	"request_decode_time_seconds":    "vllmLatencyDecodeS",
-	"inter_token_latency_seconds":    "vllmLatencyInterTokenS",
-	"request_prompt_tokens":          "vllmReqSizePromptTokens",
-	"request_generation_tokens":      "vllmReqSizeGenerationTokens",
-	"request_params_max_tokens":      "vllmReqParamsMaxTokens",
-	"request_params_n":               "vllmReqParamsN",
-}
-
-func CollectVLLM() map[string]MetricValue {
-	metrics := make(map[string]MetricValue)
+// CollectVLLMDynamic populates vLLM metrics
+func CollectVLLMDynamic(m *DynamicMetrics) {
 	scrapeTime := GetTimestamp()
 
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	resp, err := client.Get(vllmMetricsURL)
 	if err != nil {
-		return metrics
+		m.VLLMAvailable = false
+		return
 	}
 	defer resp.Body.Close()
 
 	families, err := (&expfmt.TextParser{}).TextToMetricFamilies(resp.Body)
 	if err != nil {
-		return metrics
+		m.VLLMAvailable = false
+		return
 	}
+
+	m.VLLMAvailable = true
+	m.VLLMTimestamp = scrapeTime
+
+	histograms := &VLLMHistograms{}
 
 	for name, mf := range families {
-		baseName := getCleanName(name)
-		isInfo := strings.HasSuffix(name, "_info")
+		baseName := strings.TrimPrefix(name, "vllm:")
+		mapping, ok := metricMappings[baseName]
+		if !ok {
+			continue
+		}
 
-		for _, m := range mf.GetMetric() {
-			labels := filterLabels(m.GetLabel())
-			suffix := labelSuffix(labels)
+		for _, metric := range mf.GetMetric() {
+			// Handle histogram metrics
+			if h := metric.GetHistogram(); h != nil {
+				sum := sanitize(h.GetSampleSum())
+				count := float64(h.GetSampleCount())
+				buckets := extractBuckets(h)
 
-			// Info metrics: extract label values as separate metrics
-			if isInfo {
-				for k, v := range labels {
-					metrics[baseName+"_"+k] = NewMetricWithTime(parseNumber(v), scrapeTime)
-				}
+				setHistogramValues(m, histograms, mapping, sum, count, buckets)
 				continue
 			}
 
-			// Histogram: emit sum, count, and bucket map
-			if h := m.GetHistogram(); h != nil {
-				metrics[baseName+"_sum"+suffix] = NewMetricWithTime(sanitize(h.GetSampleSum()), scrapeTime)
-				metrics[baseName+"_count"+suffix] = NewMetricWithTime(float64(h.GetSampleCount()), scrapeTime)
-
-				buckets := make(map[string]float64)
-				for _, b := range h.GetBucket() {
-					le := b.GetUpperBound()
-					key := "inf"
-					if !math.IsInf(le, 1) {
-						key = fmt.Sprintf("%g", le)
-					}
-					buckets[key] = float64(b.GetCumulativeCount())
-				}
-				metrics[baseName+suffix+"_histogram"] = NewMetricWithTime(buckets, scrapeTime)
+			// Handle summary metrics
+			if s := metric.GetSummary(); s != nil {
+				sum := sanitize(s.GetSampleSum())
+				count := float64(s.GetSampleCount())
+				setSummaryValues(m, mapping, sum, count)
 				continue
 			}
 
-			// Summary: emit sum, count, and quantiles
-			if s := m.GetSummary(); s != nil {
-				metrics[baseName+"_sum"+suffix] = NewMetricWithTime(sanitize(s.GetSampleSum()), scrapeTime)
-				metrics[baseName+"_count"+suffix] = NewMetricWithTime(float64(s.GetSampleCount()), scrapeTime)
-				for _, q := range s.GetQuantile() {
-					qKey := fmt.Sprintf("%s_quantile_%g%s", baseName, q.GetQuantile(), suffix)
-					metrics[qKey] = NewMetricWithTime(sanitize(q.GetValue()), scrapeTime)
-				}
-				continue
-			}
-
-			// Counter, Gauge, Untyped: extract single value
-			val := getValue(m)
-			metrics[baseName+suffix] = NewMetricWithTime(sanitize(val), scrapeTime)
+			// Handle gauge/counter metrics
+			val := getValue(metric)
+			setGaugeValue(m, mapping, sanitize(val))
 		}
 	}
 
-	if len(metrics) > 0 {
-		metrics["vllmTimestamp"] = NewMetricWithTime(scrapeTime, scrapeTime)
+	// Serialize histograms to JSON
+	if data, err := json.Marshal(histograms); err == nil && string(data) != "{}" {
+		m.VLLMHistogramsJSON = string(data)
 	}
-	return metrics
 }
 
-func getCleanName(name string) string {
-	lookup := strings.TrimPrefix(name, "vllm:")
-	if alias, ok := metricAliases[lookup]; ok {
-		return alias
-	}
-	return strings.ReplaceAll(name, ":", "_")
-}
-
-func filterLabels(pairs []*dto.LabelPair) map[string]string {
-	labels := make(map[string]string)
-	for _, p := range pairs {
-		if !ignoredLabels[p.GetName()] {
-			labels[p.GetName()] = p.GetValue()
+func extractBuckets(h *dto.Histogram) map[string]float64 {
+	buckets := make(map[string]float64)
+	for _, b := range h.GetBucket() {
+		le := b.GetUpperBound()
+		key := "inf"
+		if !math.IsInf(le, 1) {
+			key = fmt.Sprintf("%g", le)
 		}
+		buckets[key] = float64(b.GetCumulativeCount())
 	}
-	return labels
+	return buckets
 }
 
-func labelSuffix(labels map[string]string) string {
-	var b strings.Builder
-	for k, v := range labels {
-		b.WriteString("_")
-		b.WriteString(k)
-		b.WriteString("_")
-		b.WriteString(v)
+func setHistogramValues(m *DynamicMetrics, h *VLLMHistograms, mapping string, sum, count float64, buckets map[string]float64) {
+	switch mapping {
+	case "LatencyTtft":
+		m.VLLMLatencyTtftSum = sum
+		m.VLLMLatencyTtftCount = count
+		h.LatencyTtft = buckets
+	case "LatencyE2e":
+		m.VLLMLatencyE2eSum = sum
+		m.VLLMLatencyE2eCount = count
+		h.LatencyE2e = buckets
+	case "LatencyQueue":
+		m.VLLMLatencyQueueSum = sum
+		m.VLLMLatencyQueueCount = count
+		h.LatencyQueue = buckets
+	case "LatencyInference":
+		m.VLLMLatencyInferenceSum = sum
+		m.VLLMLatencyInferenceCount = count
+		h.LatencyInference = buckets
+	case "LatencyPrefill":
+		m.VLLMLatencyPrefillSum = sum
+		m.VLLMLatencyPrefillCount = count
+		h.LatencyPrefill = buckets
+	case "LatencyDecode":
+		m.VLLMLatencyDecodeSum = sum
+		m.VLLMLatencyDecodeCount = count
+		h.LatencyDecode = buckets
+	case "LatencyInterToken":
+		// No flattened fields for inter-token, just histogram
+		h.LatencyInterToken = buckets
+	case "ReqSizePromptTokens":
+		h.ReqSizePromptTokens = buckets
+	case "ReqSizeGenerationTokens":
+		h.ReqSizeGenerationTokens = buckets
+	case "TokensPerStep":
+		h.TokensPerStep = buckets
+	case "ReqParamsMaxTokens":
+		h.ReqParamsMaxTokens = buckets
+	case "ReqParamsN":
+		h.ReqParamsN = buckets
 	}
-	return b.String()
+}
+
+func setSummaryValues(m *DynamicMetrics, mapping string, sum, count float64) {
+	switch mapping {
+	case "LatencyTtft":
+		m.VLLMLatencyTtftSum = sum
+		m.VLLMLatencyTtftCount = count
+	case "LatencyE2e":
+		m.VLLMLatencyE2eSum = sum
+		m.VLLMLatencyE2eCount = count
+	case "LatencyQueue":
+		m.VLLMLatencyQueueSum = sum
+		m.VLLMLatencyQueueCount = count
+	case "LatencyInference":
+		m.VLLMLatencyInferenceSum = sum
+		m.VLLMLatencyInferenceCount = count
+	case "LatencyPrefill":
+		m.VLLMLatencyPrefillSum = sum
+		m.VLLMLatencyPrefillCount = count
+	case "LatencyDecode":
+		m.VLLMLatencyDecodeSum = sum
+		m.VLLMLatencyDecodeCount = count
+	}
+}
+
+func setGaugeValue(m *DynamicMetrics, mapping string, val float64) {
+	switch mapping {
+	case "RequestsRunning":
+		m.VLLMRequestsRunning = val
+	case "RequestsWaiting":
+		m.VLLMRequestsWaiting = val
+	case "EngineSleepState":
+		m.VLLMEngineSleepState = val
+	case "PreemptionsTotal":
+		m.VLLMPreemptionsTotal = val
+	case "KvCacheUsagePercent":
+		m.VLLMKvCacheUsagePercent = val
+	case "PrefixCacheHits":
+		m.VLLMPrefixCacheHits = val
+	case "PrefixCacheQueries":
+		m.VLLMPrefixCacheQueries = val
+	case "RequestsFinishedTotal":
+		m.VLLMRequestsFinishedTotal = val
+	case "RequestsCorruptedTotal":
+		m.VLLMRequestsCorruptedTotal = val
+	case "TokensPromptTotal":
+		m.VLLMTokensPromptTotal = val
+	case "TokensGenerationTotal":
+		m.VLLMTokensGenerationTotal = val
+	}
 }
 
 func getValue(m *dto.Metric) float64 {
@@ -168,18 +228,6 @@ func sanitize(v float64) float64 {
 		return 0
 	}
 	return v
-}
-
-func parseNumber(s string) interface{} {
-	var i int64
-	if _, err := fmt.Sscanf(s, "%d", &i); err == nil {
-		return i
-	}
-	var f float64
-	if _, err := fmt.Sscanf(s, "%f", &f); err == nil {
-		return f
-	}
-	return s
 }
 
 func getEnv(key, fallback string) string {

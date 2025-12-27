@@ -1,7 +1,6 @@
 package collectors
 
 import (
-	"fmt"
 	"log"
 
 	"github.com/google/uuid"
@@ -26,50 +25,63 @@ func NewCollectorManager(collectProcesses bool) *CollectorManager {
 	}
 }
 
-// CollectMetrics collects all dynamic metrics into a flat map
-func (cm *CollectorManager) CollectMetrics() DynamicMetrics {
-	metrics := NewDynamicMetrics()
-
-	metrics.Merge(CollectCPUDynamic())
-	metrics.Merge(CollectMemoryDynamic())
-	metrics.Merge(CollectDiskDynamic())
-	metrics.Merge(CollectNetworkDynamic())
-	metrics.Merge(CollectContainerDynamic())
-
-	gpuMetrics := cm.nvidia.CollectDynamic()
-	for i, gpu := range gpuMetrics {
-		prefix := fmt.Sprintf("nvidia_%d_", i)
-		metrics.MergeWithPrefix(prefix, gpu)
+// CollectMetrics collects all dynamic metrics
+func (cm *CollectorManager) CollectMetrics() *DynamicMetrics {
+	m := &DynamicMetrics{
+		Timestamp: GetTimestamp(),
 	}
 
-	// vLLM metrics (all prefixed with vllm*)
-	metrics.Merge(CollectVLLM())
+	// VM-level metrics
+	CollectCPUDynamic(m)
+	CollectMemoryDynamic(m)
+	CollectDiskDynamic(m)
+	CollectNetworkDynamic(m)
 
-	// Process metrics (prefixed with proc_N_*)
+	// Container metrics
+	CollectContainerDynamic(m)
+
+	// NVIDIA GPU metrics
+	cm.nvidia.CollectDynamic(m)
+
+	// vLLM metrics
+	CollectVLLMDynamic(m)
+
+	// Process metrics
 	if cm.collectProcs {
-		count, procs := CollectProcesses()
-		metrics["pNumProcesses"] = NewMetric(count)
-		for i, proc := range procs {
-			prefix := fmt.Sprintf("proc_%d_", i)
-			metrics.MergeWithPrefix(prefix, proc)
-		}
+		CollectProcessesDynamic(m)
 	}
 
-	return metrics
+	return m
 }
 
-func (cm *CollectorManager) GetStaticInfo(sessionUUID uuid.UUID) StaticMetrics {
-	info := NewStaticMetrics(sessionUUID)
-	info.Merge(CollectCPUStatic())
-	info.Merge(GetMemoryStaticInfo())
-	info.Merge(CollectDiskStatic())
-	info.Merge(CollectNetworkStatic())
-	info.Merge(CollectContainerStatic())
-	info.Merge(cm.nvidia.CollectStatic())
+// GetStaticInfo collects all static system information
+func (cm *CollectorManager) GetStaticInfo(sessionUUID uuid.UUID) *StaticMetrics {
+	m := &StaticMetrics{
+		UUID: sessionUUID.String(),
+	}
 
-	return info
+	// CPU static info (includes kernel info, boot time, VM ID, hostname)
+	CollectCPUStatic(m)
+
+	// Memory static info
+	CollectMemoryStatic(m)
+
+	// Disk static info
+	CollectDiskStatic(m)
+
+	// Network static info
+	CollectNetworkStatic(m)
+
+	// Container static info
+	CollectContainerStatic(m)
+
+	// NVIDIA static info
+	cm.nvidia.CollectStatic(m)
+
+	return m
 }
 
+// Close cleans up all collectors
 func (cm *CollectorManager) Close() {
 	if cm.nvidia != nil {
 		cm.nvidia.Cleanup()

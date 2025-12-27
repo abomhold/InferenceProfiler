@@ -22,7 +22,7 @@ func main() {
 	// Arguments
 	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
 	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
-	format := flag.String("f", "parquet", "Final export format (parquet, csv, tsv)")
+	format := flag.String("f", "jsonl", "Final export format (jsonl, parquet)")
 	collectProcs := flag.Bool("p", false, "Collect per-process metrics")
 	flag.Parse()
 	args := flag.Args()

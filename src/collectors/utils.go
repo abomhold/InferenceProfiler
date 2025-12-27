@@ -2,17 +2,13 @@ package collectors
 
 import (
 	"bufio"
-	"log"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
 )
 
-// --- Constants & Global Helpers ---
-
+// Constants
 const JiffiesPerSecond = 100
 
 // GetTimestamp returns current time in nanoseconds
@@ -26,7 +22,11 @@ func parseInt64(s string) int64 {
 	return v
 }
 
-// --- Probing & Filesystem Utilities ---
+// parseFloat64 is a quiet parser for float values
+func parseFloat64(s string) float64 {
+	v, _ := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	return v
+}
 
 // ProbeFile reads a file and returns its content with timestamp
 func ProbeFile(path string) (string, int64) {
@@ -64,17 +64,6 @@ func ProbeFileLines(path string) ([]string, int64) {
 	return lines, ts
 }
 
-// ProbeFunction executes a function and returns result with timestamp
-func ProbeFunction[T any](fn func() (T, error), defaultVal T) (T, int64) {
-	ts := GetTimestamp()
-	result, err := fn()
-	if err != nil {
-		log.Printf("ProbeFunction error: %v", err)
-		return defaultVal, ts
-	}
-	return result, ts
-}
-
 // ParseProcKV parses a key-value file like /proc/meminfo or /proc/self/status
 func ParseProcKV(path string, separator string) (map[string]string, int64) {
 	lines, ts := ProbeFileLines(path)
@@ -87,50 +76,15 @@ func ParseProcKV(path string, separator string) (map[string]string, int64) {
 	return data, ts
 }
 
-// --- Metric Structures ---
-
-// MetricValue represents a single metric data point
-type MetricValue struct {
-	Value interface{} `json:"value"`
-	Time  int64       `json:"time,omitempty"`
-}
-
-func NewMetric(value interface{}) MetricValue {
-	return MetricValue{Value: value}
-}
-
-func NewMetricWithTime(value interface{}, ts int64) MetricValue {
-	return MetricValue{Value: value, Time: ts}
-}
-
-type BaseMap[T any] map[string]T
-
-func (m BaseMap[T]) Merge(src map[string]T) BaseMap[T] {
-	for k, v := range src {
-		m[k] = v
+// ByteSliceToString converts a null-terminated byte array to string
+func ByteSliceToString(b []int8) string {
+	n := 0
+	for n < len(b) && b[n] != 0 {
+		n++
 	}
-	return m
-}
-
-func (m BaseMap[T]) MergeWithPrefix(prefix string, src map[string]T) BaseMap[T] {
-	for k, v := range src {
-		m[prefix+k] = v
+	s := make([]byte, n)
+	for i := 0; i < n; i++ {
+		s[i] = byte(b[i])
 	}
-	return m
-}
-
-type DynamicMetrics = BaseMap[MetricValue]
-
-func NewDynamicMetrics() DynamicMetrics {
-	m := make(DynamicMetrics)
-	m["timestamp"] = NewMetric(GetTimestamp())
-	return m
-}
-
-type StaticMetrics = BaseMap[interface{}]
-
-func NewStaticMetrics(sessionUUID uuid.UUID) StaticMetrics {
-	s := make(StaticMetrics)
-	s["uuid"] = sessionUUID.String()
-	return s
+	return string(s)
 }

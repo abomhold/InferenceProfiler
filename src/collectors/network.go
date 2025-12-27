@@ -1,24 +1,22 @@
 package collectors
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
 const LoopbackInterface = "lo"
 
-// --- Static Metrics ---
-
-func CollectNetworkStatic() StaticMetrics {
-	results := make(StaticMetrics)
+// CollectNetworkStatic populates static network information
+func CollectNetworkStatic(m *StaticMetrics) {
 	interfaces, _ := os.ReadDir("/sys/class/net/")
+	var netInterfaces []NetworkInterfaceStatic
 
-	idx := 0
 	for _, entry := range interfaces {
 		iface := entry.Name()
-		if iface == "lo" {
+		if iface == LoopbackInterface {
 			continue
 		}
 
@@ -27,28 +25,32 @@ func CollectNetworkStatic() StaticMetrics {
 		mac, _ := ProbeFile(filepath.Join(basePath, "address"))
 		state, _ := ProbeFile(filepath.Join(basePath, "operstate"))
 		mtu, _ := ProbeFileInt(filepath.Join(basePath, "mtu"))
-		speed, _ := ProbeFileInt(filepath.Join(basePath, "speed")) // Speed in Mbps
+		speed, _ := ProbeFileInt(filepath.Join(basePath, "speed"))
 
-		prefix := "vNetwork" + strconv.Itoa(idx)
-		results[prefix+"Name"] = iface
-		results[prefix+"MAC"] = strings.TrimSpace(mac)
-		results[prefix+"State"] = strings.TrimSpace(state)
-		results[prefix+"MTU"] = mtu
+		ni := NetworkInterfaceStatic{
+			Name:  iface,
+			MAC:   strings.TrimSpace(mac),
+			State: strings.TrimSpace(state),
+			MTU:   mtu,
+		}
 
 		// Speed can be -1 if the interface is down or doesn't support it
 		if speed > 0 {
-			results[prefix+"SpeedMbps"] = speed
+			ni.SpeedMbps = speed
 		}
 
-		idx++
+		netInterfaces = append(netInterfaces, ni)
 	}
 
-	return results
+	if len(netInterfaces) > 0 {
+		if data, err := json.Marshal(netInterfaces); err == nil {
+			m.NetworkInterfacesJSON = string(data)
+		}
+	}
 }
 
-// --- Dynamic Metrics ---
-
-func CollectNetworkDynamic() DynamicMetrics {
+// CollectNetworkDynamic populates dynamic network metrics
+func CollectNetworkDynamic(m *DynamicMetrics) {
 	lines, ts := ProbeFileLines("/proc/net/dev")
 	var bRecv, pRecv, eRecv, dRecv int64
 	var bSent, pSent, eSent, dSent int64
@@ -84,15 +86,20 @@ func CollectNetworkDynamic() DynamicMetrics {
 		dSent += parseInt64(fields[11])
 	}
 
-	return DynamicMetrics{
-		"vNetworkBytesRecvd":   NewMetricWithTime(bRecv, ts),
-		"vNetworkBytesSent":    NewMetricWithTime(bSent, ts),
-		"vNetworkPacketsRecvd": NewMetricWithTime(pRecv, ts),
-		"vNetworkPacketsSent":  NewMetricWithTime(pSent, ts),
-		"vNetworkErrorsRecvd":  NewMetricWithTime(eRecv, ts),
-		"vNetworkErrorsSent":   NewMetricWithTime(eSent, ts),
-		"vNetworkDroppedRecvd": NewMetricWithTime(dRecv, ts),
-		"vNetworkDroppedSent":  NewMetricWithTime(dSent, ts),
-	}
-
+	m.NetworkBytesRecvd = bRecv
+	m.NetworkBytesRecvdT = ts
+	m.NetworkBytesSent = bSent
+	m.NetworkBytesSentT = ts
+	m.NetworkPacketsRecvd = pRecv
+	m.NetworkPacketsRecvdT = ts
+	m.NetworkPacketsSent = pSent
+	m.NetworkPacketsSentT = ts
+	m.NetworkErrorsRecvd = eRecv
+	m.NetworkErrorsRecvdT = ts
+	m.NetworkErrorsSent = eSent
+	m.NetworkErrorsSentT = ts
+	m.NetworkDropsRecvd = dRecv
+	m.NetworkDropsRecvdT = ts
+	m.NetworkDropsSent = dSent
+	m.NetworkDropsSentT = ts
 }

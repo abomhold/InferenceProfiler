@@ -2,7 +2,6 @@ package collectors
 
 import (
 	"fmt"
-	"log"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -11,16 +10,54 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// --- Static Metrics ---
+// CollectCPUStatic populates static CPU information
+func CollectCPUStatic(m *StaticMetrics) {
+	m.VMID = getVMID()
+	m.BootTime = getBootTime()
+	m.CPUType = getCPUType()
+	m.NumProcessors = runtime.NumCPU()
 
-func CollectCPUStatic() StaticMetrics {
-	return StaticMetrics{
-		"vVMID":     NewMetric(GetVMID()),
-		"vBootTime": NewMetric(GetBootTime()),
-		"vCPUType":  NewMetric(getCPUType()),
-		"vNumCPUs":  NewMetric(runtime.NumCPU()),
-		"vCPUCache": NewMetric(getCPUCache()),
-	}.Merge(getKernelInfo())
+	// CPU cache info
+	cache := getCPUCache()
+	m.CPUCacheL1d = cache["L1d"]
+	m.CPUCacheL1i = cache["L1i"]
+	m.CPUCacheL2 = cache["L2"]
+	m.CPUCacheL3 = cache["L3"]
+
+	// Kernel info
+	getKernelInfo(m)
+}
+
+// CollectCPUDynamic populates dynamic CPU metrics
+func CollectCPUDynamic(m *DynamicMetrics) {
+	// /proc/stat metrics
+	statMetrics, tStat := getProcStat()
+	m.CPUTimeUserMode = statMetrics["user"]
+	m.CPUTimeUserModeT = tStat
+	m.CPUTimeKernelMode = statMetrics["system"]
+	m.CPUTimeKernelModeT = tStat
+	m.CPUIdleTime = statMetrics["idle"]
+	m.CPUIdleTimeT = tStat
+	m.CPUTimeIOWait = statMetrics["iowait"]
+	m.CPUTimeIOWaitT = tStat
+	m.CPUTimeIntSrvc = statMetrics["irq"]
+	m.CPUTimeIntSrvcT = tStat
+	m.CPUTimeSoftIntSrvc = statMetrics["softirq"]
+	m.CPUTimeSoftIntSrvcT = tStat
+	m.CPUNice = statMetrics["nice"]
+	m.CPUNiceT = tStat
+	m.CPUSteal = statMetrics["steal"]
+	m.CPUStealT = tStat
+	m.CPUTime = statMetrics["user"] + statMetrics["system"]
+	m.CPUTimeT = tStat
+	m.CPUContextSwitches = statMetrics["ctxt"]
+	m.CPUContextSwitchesT = tStat
+
+	// Load average
+	m.LoadAvg, m.LoadAvgT = getLoadAvg()
+
+	// CPU frequency
+	m.CPUMhz, m.CPUMhzT = getCPUFreq()
 }
 
 func getCPUType() string {
@@ -38,7 +75,7 @@ func getCPUType() string {
 
 func getCPUCache() map[string]int64 {
 	result := make(map[string]int64)
-	seen := make(map[string]bool) // Prevents double-counting shared caches
+	seen := make(map[string]bool)
 
 	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
 	for _, dir := range dirs {
@@ -74,21 +111,20 @@ func getCPUCache() map[string]int64 {
 	return result
 }
 
-func getKernelInfo() StaticMetrics {
+func getKernelInfo(m *StaticMetrics) {
 	var uname unix.Utsname
 	if err := unix.Uname(&uname); err != nil {
-		log.Fatalf("unix.Uname failed: %v", err)
+		return
 	}
-	return StaticMetrics{
-		"vSystemName": uname.Sysname,
-		"vNodeName":   uname.Nodename,
-		"vRelease":    uname.Release,
-		"vVersion":    uname.Version,
-		"vMachine":    uname.Machine,
-	}
+	m.SystemName = ByteSliceToString(uname.Sysname[:])
+	m.NodeName = ByteSliceToString(uname.Nodename[:])
+	m.Hostname = ByteSliceToString(uname.Nodename[:])
+	m.KernelRelease = ByteSliceToString(uname.Release[:])
+	m.KernelVersion = ByteSliceToString(uname.Version[:])
+	m.Machine = ByteSliceToString(uname.Machine[:])
 }
 
-func GetBootTime() int64 {
+func getBootTime() int64 {
 	lines, _ := ProbeFileLines("/proc/stat")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "btime") {
@@ -102,7 +138,7 @@ func GetBootTime() int64 {
 	return 0
 }
 
-func GetVMID() string {
+func getVMID() string {
 	content, _ := ProbeFile("/sys/class/dmi/id/product_uuid")
 	if content != "" && content != "None" {
 		return content
@@ -121,28 +157,6 @@ func GetVMID() string {
 	return "unavailable"
 }
 
-// --- Dynamic Metrics ---
-
-func CollectCPUDynamic() DynamicMetrics {
-	statMetrics, tStat := getProcStat()
-	loadAvg, tLoad := getLoadAvg()
-	cpuMhz, tFreq := getCPUFreq()
-	return DynamicMetrics{
-		"vCpuTimeUserMode":    NewMetricWithTime(statMetrics["user"], tStat),
-		"vCpuTimeKernelMode":  NewMetricWithTime(statMetrics["system"], tStat),
-		"vCpuIdleTime":        NewMetricWithTime(statMetrics["idle"], tStat),
-		"vCpuTimeIOWait":      NewMetricWithTime(statMetrics["iowait"], tStat),
-		"vCpuTimeIntSrvc":     NewMetricWithTime(statMetrics["irq"], tStat),
-		"vCpuTimeSoftIntSrvc": NewMetricWithTime(statMetrics["softirq"], tStat),
-		"vCpuNice":            NewMetricWithTime(statMetrics["nice"], tStat),
-		"vCpuSteal":           NewMetricWithTime(statMetrics["steal"], tStat),
-		"vCpuTime":            NewMetricWithTime(statMetrics["user"]+statMetrics["system"], tStat),
-		"vCpuContextSwitches": NewMetricWithTime(statMetrics["ctxt"], tStat),
-		"vLoadAvg":            NewMetricWithTime(loadAvg, tLoad),
-		"vCpuMhz":             NewMetricWithTime(cpuMhz, tFreq),
-	}
-}
-
 func getProcStat() (map[string]int64, int64) {
 	metrics := map[string]int64{
 		"user": 0, "nice": 0, "system": 0, "idle": 0,
@@ -156,7 +170,7 @@ func getProcStat() (map[string]int64, int64) {
 			continue
 		}
 
-		if parts[0] == "cpu" {
+		if parts[0] == "cpu" && len(parts) >= 9 {
 			metrics["user"], _ = strconv.ParseInt(parts[1], 10, 64)
 			metrics["nice"], _ = strconv.ParseInt(parts[2], 10, 64)
 			metrics["system"], _ = strconv.ParseInt(parts[3], 10, 64)
@@ -165,7 +179,7 @@ func getProcStat() (map[string]int64, int64) {
 			metrics["irq"], _ = strconv.ParseInt(parts[6], 10, 64)
 			metrics["softirq"], _ = strconv.ParseInt(parts[7], 10, 64)
 			metrics["steal"], _ = strconv.ParseInt(parts[8], 10, 64)
-		} else if parts[0] == "ctxt" {
+		} else if parts[0] == "ctxt" && len(parts) >= 2 {
 			metrics["ctxt"], _ = strconv.ParseInt(parts[1], 10, 64)
 		}
 	}

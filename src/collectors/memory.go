@@ -6,19 +6,15 @@ import (
 	"strings"
 )
 
-// --- Static Metrics ---
-
-func GetMemoryStaticInfo() StaticMetrics {
+// CollectMemoryStatic populates static memory information
+func CollectMemoryStatic(m *StaticMetrics) {
 	memInfo, _ := getMeminfo()
-	return StaticMetrics{
-		"vMemoryTotalBytes": memInfo["MemTotal"],
-		"vSwapTotalBytes":   memInfo["SwapTotal"],
-	}
+	m.MemoryTotalBytes = memInfo["MemTotal"]
+	m.SwapTotalBytes = memInfo["SwapTotal"]
 }
 
-// --- Dynamic Metrics ---
-
-func CollectMemoryDynamic() DynamicMetrics {
+// CollectMemoryDynamic populates dynamic memory metrics
+func CollectMemoryDynamic(m *DynamicMetrics) {
 	memInfo, tMem := getMeminfo()
 	pgFault, pgMajFault, tVmstat := getPageFaults()
 
@@ -41,19 +37,28 @@ func CollectMemoryDynamic() DynamicMetrics {
 		percent = float64(total-available) / float64(total) * 100
 	}
 
-	return DynamicMetrics{
-		"vMemoryTotal":          NewMetricWithTime(total, tMem),
-		"vMemoryFree":           NewMetricWithTime(available, tMem),
-		"vMemoryUsed":           NewMetricWithTime(used, tMem),
-		"vMemoryBuffers":        NewMetricWithTime(buffers, tMem),
-		"vMemoryCached":         NewMetricWithTime(cached, tMem),
-		"vMemoryPercent":        NewMetricWithTime(percent, tMem),
-		"vMemoryPgFault":        NewMetricWithTime(pgFault, tVmstat),
-		"vMemoryMajorPageFault": NewMetricWithTime(pgMajFault, tVmstat),
-		"vMemorySwapTotal":      NewMetricWithTime(memInfo["SwapTotal"], tMem),
-		"vMemorySwapFree":       NewMetricWithTime(memInfo["SwapFree"], tMem),
-		"vMemorySwapUsed":       NewMetricWithTime(memInfo["SwapTotal"]-memInfo["SwapFree"], tMem),
-	}
+	m.MemoryTotal = total
+	m.MemoryTotalT = tMem
+	m.MemoryFree = available
+	m.MemoryFreeT = tMem
+	m.MemoryUsed = used
+	m.MemoryUsedT = tMem
+	m.MemoryBuffers = buffers
+	m.MemoryBuffersT = tMem
+	m.MemoryCached = cached
+	m.MemoryCachedT = tMem
+	m.MemoryPercent = percent
+	m.MemoryPercentT = tMem
+	m.MemoryPgFault = pgFault
+	m.MemoryPgFaultT = tVmstat
+	m.MemoryMajorPageFault = pgMajFault
+	m.MemoryMajorPageFaultT = tVmstat
+	m.MemorySwapTotal = memInfo["SwapTotal"]
+	m.MemorySwapTotalT = tMem
+	m.MemorySwapFree = memInfo["SwapFree"]
+	m.MemorySwapFreeT = tMem
+	m.MemorySwapUsed = memInfo["SwapTotal"] - memInfo["SwapFree"]
+	m.MemorySwapUsedT = tMem
 }
 
 func getMeminfo() (map[string]int64, int64) {

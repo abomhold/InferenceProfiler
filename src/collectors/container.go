@@ -10,16 +10,33 @@ import (
 
 const CgroupDir = "/sys/fs/cgroup"
 
-// --- Static Metrics ---
-
-func CollectContainerStatic() StaticMetrics {
+// CollectContainerStatic populates static container information
+func CollectContainerStatic(m *StaticMetrics) {
 	if !isCgroupDir() {
-		return StaticMetrics{}
+		return
 	}
-	return StaticMetrics{
-		"cId":            NewMetric(getContainerID()),
-		"cNumProcessors": NewMetric(int64(runtime.NumCPU())),
-		"cCgroupVersion": NewMetric(getCgroupVersion()),
+	m.ContainerID = getContainerID()
+	m.ContainerNumCPUs = int64(runtime.NumCPU())
+	m.CgroupVersion = getCgroupVersion()
+}
+
+// CollectContainerDynamic populates dynamic container metrics
+func CollectContainerDynamic(m *DynamicMetrics) {
+	if !isCgroupDir() {
+		return
+	}
+
+	netRecv, netSent, tNet := getContainerNetStats()
+	m.ContainerNetworkBytesRecvd = netRecv
+	m.ContainerNetworkBytesRecvdT = tNet
+	m.ContainerNetworkBytesSent = netSent
+	m.ContainerNetworkBytesSentT = tNet
+
+	switch getCgroupVersion() {
+	case 1:
+		collectContainerV1(m)
+	case 2:
+		collectContainerV2(m)
 	}
 }
 
@@ -58,30 +75,6 @@ func getContainerID() string {
 	return "unavailable"
 }
 
-// --- Dynamic Metrics ---
-
-func CollectContainerDynamic() DynamicMetrics {
-	if !isCgroupDir() {
-		return DynamicMetrics{}
-	}
-	netRecv, netSent, tNet := getContainerNetStats()
-
-	var vData map[string]MetricValue
-	switch getCgroupVersion() {
-	case 1:
-		vData = collectContainerV1()
-		break
-	case 2:
-		vData = collectContainerV2()
-		break
-	}
-
-	return DynamicMetrics{
-		"cNetworkBytesRecvd": NewMetricWithTime(netRecv, tNet),
-		"cNetworkBytesSent":  NewMetricWithTime(netSent, tNet),
-	}.Merge(vData)
-}
-
 func getContainerNetStats() (int64, int64, int64) {
 	var recv, sent int64
 	lines, ts := ProbeFileLines("/proc/net/dev")
@@ -98,9 +91,8 @@ func getContainerNetStats() (int64, int64, int64) {
 	return recv, sent, ts
 }
 
-// --- V1 Specific Metrics ---
-
-func collectContainerV1() map[string]MetricValue {
+// collectContainerV1 collects cgroup v1 specific metrics
+func collectContainerV1(m *DynamicMetrics) {
 	cpuPath := filepath.Join(CgroupDir, "cpuacct")
 	memPath := filepath.Join(CgroupDir, "memory")
 
@@ -110,27 +102,20 @@ func collectContainerV1() map[string]MetricValue {
 	maxMem, tM := ProbeFileInt(filepath.Join(memPath, "memory.max_usage_in_bytes"))
 	dr, dw, tBlk := getBlkioV1()
 
-	return DynamicMetrics{
-		"cCpuTime":           NewMetricWithTime(cpuUsage, tCpu),
-		"cCpuTimeUserMode":   NewMetricWithTime(parseInt64(cpuStat["user"])*JiffiesPerSecond, tCpuStat),
-		"cCpuTimeKernelMode": NewMetricWithTime(parseInt64(cpuStat["system"])*JiffiesPerSecond, tCpuStat),
-		"cMemoryUsed":        NewMetricWithTime(usage, tU),
-		"cMemoryMaxUsed":     NewMetricWithTime(maxMem, tM),
-		"cDiskReadBytes":     NewMetricWithTime(dr, tBlk),
-		"cDiskWriteBytes":    NewMetricWithTime(dw, tBlk),
-	}.Merge(getPerCpuV1())
-}
-
-func getPerCpuV1() map[string]MetricValue {
-	res := make(map[string]MetricValue)
-	content, ts := ProbeFile(filepath.Join(CgroupDir, "cpuacct", "cpuacct.usage_percpu"))
-	if content != "" {
-		for i, val := range strings.Fields(content) {
-			key := "cCpu" + string(rune('0'+i)) + "Time"
-			res[key] = NewMetricWithTime(parseInt64(val), ts)
-		}
-	}
-	return res
+	m.ContainerCPUTime = cpuUsage
+	m.ContainerCPUTimeT = tCpu
+	m.ContainerCPUTimeUserMode = parseInt64(cpuStat["user"]) * JiffiesPerSecond
+	m.ContainerCPUTimeUserModeT = tCpuStat
+	m.ContainerCPUTimeKernelMode = parseInt64(cpuStat["system"]) * JiffiesPerSecond
+	m.ContainerCPUTimeKernelModeT = tCpuStat
+	m.ContainerMemoryUsed = usage
+	m.ContainerMemoryUsedT = tU
+	m.ContainerMemoryMaxUsed = maxMem
+	m.ContainerMemoryMaxUsedT = tM
+	m.ContainerDiskReadBytes = dr
+	m.ContainerDiskReadBytesT = tBlk
+	m.ContainerDiskWriteBytes = dw
+	m.ContainerDiskWriteBytesT = tBlk
 }
 
 func getBlkioV1() (int64, int64, int64) {
@@ -152,23 +137,27 @@ func getBlkioV1() (int64, int64, int64) {
 	return r, w, ts
 }
 
-// --- V2 Specific Metrics ---
-
-func collectContainerV2() map[string]MetricValue {
+// collectContainerV2 collects cgroup v2 specific metrics
+func collectContainerV2(m *DynamicMetrics) {
 	cpuStats, tCpu := ParseProcKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
 	memUsage, tMem := ProbeFileInt(filepath.Join(CgroupDir, "memory.current"))
 	memPeak, tPeak := ProbeFileInt(filepath.Join(CgroupDir, "memory.peak"))
 	dr, dw, tIO := getIOStatV2()
 
-	return DynamicMetrics{
-		"cCpuTime":           NewMetricWithTime(parseInt64(cpuStats["usage_usec"])*1000, tCpu),
-		"cCpuTimeUserMode":   NewMetricWithTime(parseInt64(cpuStats["user_usec"])/10000, tCpu),
-		"cCpuTimeKernelMode": NewMetricWithTime(parseInt64(cpuStats["system_usec"])/10000, tCpu),
-		"cMemoryUsed":        NewMetricWithTime(memUsage, tMem),
-		"cMemoryMaxUsed":     NewMetricWithTime(memPeak, tPeak),
-		"cDiskReadBytes":     NewMetricWithTime(dr, tIO),
-		"cDiskWriteBytes":    NewMetricWithTime(dw, tIO),
-	}
+	m.ContainerCPUTime = parseInt64(cpuStats["usage_usec"]) * 1000
+	m.ContainerCPUTimeT = tCpu
+	m.ContainerCPUTimeUserMode = parseInt64(cpuStats["user_usec"]) / 10000
+	m.ContainerCPUTimeUserModeT = tCpu
+	m.ContainerCPUTimeKernelMode = parseInt64(cpuStats["system_usec"]) / 10000
+	m.ContainerCPUTimeKernelModeT = tCpu
+	m.ContainerMemoryUsed = memUsage
+	m.ContainerMemoryUsedT = tMem
+	m.ContainerMemoryMaxUsed = memPeak
+	m.ContainerMemoryMaxUsedT = tPeak
+	m.ContainerDiskReadBytes = dr
+	m.ContainerDiskReadBytesT = tIO
+	m.ContainerDiskWriteBytes = dw
+	m.ContainerDiskWriteBytesT = tIO
 }
 
 func getIOStatV2() (int64, int64, int64) {
