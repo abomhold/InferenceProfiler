@@ -24,18 +24,18 @@ This document provides a comprehensive reference for all metrics collected by th
 
 ### Output Options
 
-| Flag          | Default             | Description                                                                  |
-|---------------|---------------------|------------------------------------------------------------------------------|
-| `-o <dir>`    | `./profiler-output` | Output directory for logs and exported data                                  |
-| `-t <ms>`     | `1000`              | Sampling interval in milliseconds                                            |
-| `-f <format>` | `jsonl`             | Export format: `jsonl`, `parquet`, `csv`, `tsv`                              |
-| `-no-flatten` | `false`             | Flatten nested data (GPUs, processes) to columns; `false` keeps JSON strings |
-| `-no-cleanup` | `false`             | Keeps the intermediary json files                                            |
+| Flag          | Default              | Description                                                                                     |
+|---------------|----------------------|-------------------------------------------------------------------------------------------------|
+| `-o <dir>`    | `./profiler-aggregate` | Output directory for logs and exported data                                                   |
+| `-t <ms>`     | `1000`               | Sampling interval in milliseconds                                                               |
+| `-f <format>` | `jsonl`              | Export format: `jsonl`, `parquet`, `csv`, `tsv`                                                 |
+| `-no-flatten` | `false`              | When set, disables flattening of nested data (GPUs, processes) to columns; stores as JSON strings instead |
+| `-no-cleanup` | `false`              | When set, keeps the intermediary JSON snapshot files after final export                         |
 
 
 ### Collector Toggles
 
-All collectors are enabled by default except process-level metrics.
+All collectors are enabled by default.
 
 | Flag            | Default | Description                                                     |
 |-----------------|---------|-----------------------------------------------------------------|
@@ -52,13 +52,13 @@ All collectors are enabled by default except process-level metrics.
 ### Example Usage
 
 ```bash
-# Minimal: just CPU/memory, TSV aggregate, no flattening
+# Minimal: just CPU/memory, TSV output, no flattening
 ./profiler -no-disk -no-network -no-container -no-procs -no-nvidia -no-vllm -f tsv -no-flatten
 
 # Full GPU monitoring without process overhead
 ./profiler -no-procs -no-gpu-procs -f parquet
 
-# CSV with no processes, flattened
+# CSV with no processes, flattened (default)
 ./profiler -no-procs -f csv
 
 # Profile a subprocess
@@ -80,9 +80,9 @@ All collectors are enabled by default except process-level metrics.
 
 ### Flatten Modes
 
-The `-flatten` flag controls how nested data (GPUs, processes) is represented:
+The `-no-flatten` flag controls how nested data (GPUs, processes) is represented:
 
-#### Flattened Mode (`-flatten=true`, default)
+#### Flattened Mode (default, `-no-flatten` not set)
 
 GPUs and processes are expanded into individual columns with indexed prefixes:
 
@@ -106,7 +106,7 @@ GPUs and processes are expanded into individual columns with indexed prefixes:
 }
 ```
 
-#### JSON String Mode (`-flatten=false`)
+#### JSON String Mode (`-no-flatten` set)
 
 GPUs and processes are serialized as JSON strings, resulting in fewer columns:
 
@@ -118,7 +118,7 @@ GPUs and processes are serialized as JSON strings, resulting in fewer columns:
   "nvidiaGpuCount": 2,
   "nvidiaGpusJson": "[{\"index\":0,\"utilizationGpu\":85,...},{\"index\":1,...}]",
   "processCount": 150,
-  "processesJson": "[{\"pid\":1,\"name\":\"systemd\",...},...]"
+  "processesJson": "[{\"pId\":1,\"pName\":\"systemd\",...},...]"
 }
 ```
 
@@ -128,9 +128,9 @@ All dynamic metrics include per-field timestamps with a `T` suffix:
 
 | Field           | Description                                                        |
 |-----------------|--------------------------------------------------------------------|
-| `timestamp`     | Overall collection cycle timestamp (milliseconds since Unix epoch) |
+| `timestamp`     | Overall collection cycle timestamp (nanoseconds since Unix epoch)  |
 | `{metricName}`  | The metric value                                                   |
-| `{metricName}T` | Timestamp when this specific metric was collected                  |
+| `{metricName}T` | Timestamp when this specific metric was collected (nanoseconds)    |
 
 Example:
 
@@ -159,45 +159,86 @@ Each profiling session produces:
 
 Static information is collected once at profiler startup and saved to `{uuid}.json`.
 
-### Root Level
+### Session & Host Identification
 
-| Key    | Type   | Source                                                | Description               |
-|--------|--------|-------------------------------------------------------|---------------------------|
-| `uuid` | string | Generated UUID v4                                     | Unique session identifier |
-| `vId`  | string | `/sys/class/dmi/id/product_uuid` or `/etc/machine-id` | VM/instance identifier    |
+| Key            | Type   | Source                                                | Description               |
+|----------------|--------|-------------------------------------------------------|---------------------------|
+| `uuid`         | string | Generated UUID v4                                     | Unique session identifier |
+| `vId`          | string | `/sys/class/dmi/id/product_uuid` or `/etc/machine-id` | VM/instance identifier    |
+| `vHostname`    | string | `syscall.Uname().Nodename`                            | System hostname           |
+| `vBootTime`    | int64  | `/proc/stat` `btime` field                            | System boot time (Unix timestamp seconds) |
 
-### Host Information
+### CPU Static Info
 
-| Key                 | Type             | Source                                | Description                               |
-|---------------------|------------------|---------------------------------------|-------------------------------------------|
-| `hostname`          | string           | `syscall.Uname().Nodename`            | System hostname                           |
-| `bootTime`          | int64            | `/proc/stat` `btime` field            | System boot time (Unix timestamp seconds) |
-| `vNumProcessors`    | int              | `runtime.NumCPU()`                    | Number of logical CPUs/cores              |
-| `vCpuType`          | string           | `/proc/cpuinfo` `model name`          | Processor model name                      |
-| `vCpuCache`         | map[string]int64 | `/sys/devices/system/cpu/cpu*/cache/` | Cache sizes in bytes (L1d, L1i, L2, L3)   |
-| `vKernelInfo`       | string           | `syscall.Uname()`                     | Full kernel version string                |
-| `vMemoryTotalBytes` | int64            | `/proc/meminfo` `MemTotal` × 1024     | Total physical RAM in bytes               |
-| `vSwapTotalBytes`   | int64            | `/proc/meminfo` `SwapTotal` × 1024    | Total swap space in bytes                 |
+| Key              | Type   | Source                                | Description                                    |
+|------------------|--------|---------------------------------------|------------------------------------------------|
+| `vNumProcessors` | int    | `runtime.NumCPU()`                    | Number of logical CPUs/cores                   |
+| `vCpuType`       | string | `/proc/cpuinfo` `model name`          | Processor model name                           |
+| `vCpuCache`      | string | `/sys/devices/system/cpu/cpu*/cache/` | Cache sizes formatted as "L1d:32K L1i:32K L2:256K L3:8M" |
+| `vKernelInfo`    | string | `syscall.Uname()`                     | Full kernel version string                     |
 
-### NVIDIA Static Information
+### Memory Static Info
+
+| Key                 | Type  | Source                             | Description                |
+|---------------------|-------|------------------------------------|----------------------------|
+| `vMemoryTotalBytes` | int64 | `/proc/meminfo` `MemTotal` × 1024  | Total physical RAM in bytes |
+| `vSwapTotalBytes`   | int64 | `/proc/meminfo` `SwapTotal` × 1024 | Total swap space in bytes   |
+
+### Container Static Info
+
+| Key              | Type   | Source              | Description                    |
+|------------------|--------|---------------------|--------------------------------|
+| `cId`            | string | `/proc/self/cgroup` | Container ID or hostname       |
+| `cNumProcessors` | int64  | `runtime.NumCPU()`  | Available processors           |
+| `cCgroupVersion` | int64  | Auto-detected       | Cgroup version (1 or 2)        |
+
+### Network Static Info
+
+| Key                 | Type   | Source             | Description                        |
+|---------------------|--------|--------------------|------------------------------------|
+| `networkInterfaces` | string | `/sys/class/net/`  | JSON array of network interface info |
+
+Each network interface object contains:
+
+| Field       | Type   | Description                              |
+|-------------|--------|------------------------------------------|
+| `name`      | string | Interface name (e.g., "eth0")            |
+| `mac`       | string | MAC address                              |
+| `state`     | string | Operational state (up/down)              |
+| `mtu`       | int64  | Maximum transmission unit                |
+| `speedMbps` | int64  | Link speed in Mbps (if available)        |
+
+### Disk Static Info
+
+| Key     | Type   | Source              | Description                |
+|---------|--------|---------------------|----------------------------|
+| `disks` | string | `/sys/class/block/` | JSON array of disk info    |
+
+Each disk object contains:
+
+| Field       | Type   | Description           |
+|-------------|--------|-----------------------|
+| `name`      | string | Device name (e.g., "sda", "nvme0n1") |
+| `model`     | string | Disk model            |
+| `vendor`    | string | Disk vendor           |
+| `sizeBytes` | int64  | Total size in bytes   |
+
+### NVIDIA Static Info
 
 | Key                   | Type   | Source                             | Description           |
 |-----------------------|--------|------------------------------------|-----------------------|
 | `nvidiaDriverVersion` | string | `nvmlSystemGetDriverVersion()`     | NVIDIA driver version |
 | `nvidiaCudaVersion`   | string | `nvmlSystemGetCudaDriverVersion()` | CUDA driver version   |
+| `nvidiaGpus`          | string | NVML device enumeration            | JSON array of GPU info |
 
-### Per-GPU Static Info (`nvidiaGpus` array)
+Each GPU object in `nvidiaGpus` contains:
 
-| Key                | Type   | Source                                | Description                |
-|--------------------|--------|---------------------------------------|----------------------------|
-| `index`            | int    | Loop index                            | Zero-based GPU index       |
-| `name`             | string | `nvmlDeviceGetName()`                 | GPU model name             |
-| `uuid`             | string | `nvmlDeviceGetUUID()`                 | Unique GPU identifier      |
-| `totalMemoryMb`    | uint64 | `nvmlDeviceGetMemoryInfo().total`     | Total frame buffer in MB   |
-| `pciBusId`         | string | `nvmlDeviceGetPciInfo().busId`        | PCI bus address            |
-| `maxGraphicsClock` | uint32 | `nvmlDeviceGetMaxClockInfo(GRAPHICS)` | Maximum graphics clock MHz |
-| `maxSmClock`       | uint32 | `nvmlDeviceGetMaxClockInfo(SM)`       | Maximum SM clock MHz       |
-| `maxMemClock`      | uint32 | `nvmlDeviceGetMaxClockInfo(MEM)`      | Maximum memory clock MHz   |
+| Field           | Type   | Source                            | Description              |
+|-----------------|--------|-----------------------------------|--------------------------|
+| `index`         | int    | Loop index                        | Zero-based GPU index     |
+| `name`          | string | `nvmlDeviceGetName()`             | GPU model name           |
+| `uuid`          | string | `nvmlDeviceGetUUID()`             | Unique GPU identifier    |
+| `totalMemoryMb` | int64  | `nvmlDeviceGetMemoryInfo().total` | Total frame buffer in MB |
 
 ---
 
@@ -232,19 +273,19 @@ Prefix: `v` (VM-level). Disable with `-no-cpu`.
 
 Prefix: `v` (VM-level). Disable with `-no-memory`.
 
-| Key               | Type    | Unit    | Source                                    | Description                  |
-|-------------------|---------|---------|-------------------------------------------|------------------------------|
-| `vMemoryTotal`    | int64   | bytes   | `/proc/meminfo` `MemTotal`                | Total physical RAM           |
-| `vMemoryFree`     | int64   | bytes   | `/proc/meminfo` `MemAvailable`            | Available memory             |
-| `vMemoryUsed`     | int64   | bytes   | Derived                                   | Actively used memory         |
-| `vMemoryBuffers`  | int64   | bytes   | `/proc/meminfo` `Buffers`                 | Kernel buffer memory         |
-| `vMemoryCached`   | int64   | bytes   | `/proc/meminfo` `Cached` + `SReclaimable` | Page cache memory            |
-| `vMemoryPercent`  | float64 | percent | Derived                                   | RAM usage percentage         |
-| `vSwapTotal`      | int64   | bytes   | `/proc/meminfo` `SwapTotal`               | Total swap space             |
-| `vSwapFree`       | int64   | bytes   | `/proc/meminfo` `SwapFree`                | Free swap space              |
-| `vSwapUsed`       | int64   | bytes   | Derived                                   | Used swap space              |
-| `vPgFault`        | int64   | count   | `/proc/vmstat` `pgfault`                  | Minor page faults            |
-| `vMajorPageFault` | int64   | count   | `/proc/vmstat` `pgmajfault`               | Major page faults (disk I/O) |
+| Key                      | Type    | Unit    | Source                                    | Description                  |
+|--------------------------|---------|---------|-------------------------------------------|------------------------------|
+| `vMemoryTotal`           | int64   | bytes   | `/proc/meminfo` `MemTotal`                | Total physical RAM           |
+| `vMemoryFree`            | int64   | bytes   | `/proc/meminfo` `MemAvailable`            | Available memory             |
+| `vMemoryUsed`            | int64   | bytes   | Derived                                   | Actively used memory         |
+| `vMemoryBuffers`         | int64   | bytes   | `/proc/meminfo` `Buffers`                 | Kernel buffer memory         |
+| `vMemoryCached`          | int64   | bytes   | `/proc/meminfo` `Cached` + `SReclaimable` | Page cache memory            |
+| `vMemoryPercent`         | float64 | percent | Derived                                   | RAM usage percentage         |
+| `vMemorySwapTotal`       | int64   | bytes   | `/proc/meminfo` `SwapTotal`               | Total swap space             |
+| `vMemorySwapFree`        | int64   | bytes   | `/proc/meminfo` `SwapFree`                | Free swap space              |
+| `vMemorySwapUsed`        | int64   | bytes   | Derived                                   | Used swap space              |
+| `vMemoryPgFault`         | int64   | count   | `/proc/vmstat` `pgfault`                  | Minor page faults            |
+| `vMemoryMajorPageFault`  | int64   | count   | `/proc/vmstat` `pgmajfault`               | Major page faults (disk I/O) |
 
 ---
 
@@ -268,8 +309,7 @@ Prefix: `v` (VM-level). Disable with `-no-disk`.
 | `vDiskIOTime`           | int64 | ms      | `/proc/diskstats` col 12 | Total I/O time                 |
 | `vDiskWeightedIOTime`   | int64 | ms      | `/proc/diskstats` col 13 | Weighted I/O time              |
 
-**Device Filtering:** Only physical disks are included: `sd*`, `hd*`, `vd*`, `xvd*`, `nvme*n*`, `mmcblk*`. Partitions
-and loopback devices are excluded.
+**Device Filtering:** Only physical disks are included: `sd*`, `hd*`, `vd*`, `xvd*`, `nvme*n*`, `mmcblk*`. Partitions and loopback devices are excluded.
 
 ---
 
@@ -298,42 +338,46 @@ Prefix: `c` (Container-level). Disable with `-no-container`.
 
 Auto-detects cgroup v1 or v2.
 
+### Dynamic Container Metrics
+
 | Key                  | Type   | Unit         | Source                                        | Description              |
 |----------------------|--------|--------------|-----------------------------------------------|--------------------------|
-| `cId`                | string | -            | `/proc/self/cgroup`                           | Container ID or hostname |
-| `cCgroupVersion`     | int64  | -            | Detected                                      | Cgroup version (1 or 2)  |
-| `cCpuTime`           | int64  | nanoseconds  | `cpuacct.usage` / `cpu.stat`                  | Total CPU time           |
-| `cCpuTimeUserMode`   | int64  | centiseconds | `cpuacct.stat` / `cpu.stat`                   | User mode CPU time       |
-| `cCpuTimeKernelMode` | int64  | centiseconds | `cpuacct.stat` / `cpu.stat`                   | Kernel mode CPU time     |
-| `cNumProcessors`     | int64  | count        | `runtime.NumCPU()`                            | Available processors     |
+| `cCpuTime`           | int64  | nanoseconds  | `cpuacct.usage` / `cpu.stat usage_usec`       | Total CPU time           |
+| `cCpuTimeUserMode`   | int64  | centiseconds | `cpuacct.stat` / `cpu.stat user_usec`         | User mode CPU time       |
+| `cCpuTimeKernelMode` | int64  | centiseconds | `cpuacct.stat` / `cpu.stat system_usec`       | Kernel mode CPU time     |
 | `cMemoryUsed`        | int64  | bytes        | `memory.usage_in_bytes` / `memory.current`    | Current memory usage     |
 | `cMemoryMaxUsed`     | int64  | bytes        | `memory.max_usage_in_bytes` / `memory.peak`   | Peak memory usage        |
 | `cDiskReadBytes`     | int64  | bytes        | `blkio.throttle.io_service_bytes` / `io.stat` | Bytes read               |
 | `cDiskWriteBytes`    | int64  | bytes        | `blkio.throttle.io_service_bytes` / `io.stat` | Bytes written            |
+| `cDiskSectorIO`      | int64  | sectors      | `blkio.sectors` (v1 only)                     | Total sector I/O         |
 | `cNetworkBytesRecvd` | int64  | bytes        | `/proc/net/dev`                               | Network bytes received   |
 | `cNetworkBytesSent`  | int64  | bytes        | `/proc/net/dev`                               | Network bytes sent       |
+| `cPgFault`           | int64  | count        | `memory.stat pgfault`                         | Page faults              |
+| `cMajorPgFault`      | int64  | count        | `memory.stat pgmajfault`                      | Major page faults        |
+| `cNumProcesses`      | int64  | count        | `pids.current` / tasks file                   | Process count in cgroup  |
+| `cCpuPerCpuJson`     | string | -            | `cpuacct.usage_percpu` (v1 only)              | Per-CPU times as JSON array |
 
 ---
 
 ## Process-Level Metrics
 
-Prefix: `process{i}` (flattened) or `processesJson` (JSON mode). **Enable with `-no-procs` flag.**
+Prefix: `process{i}` (flattened) or `processesJson` (JSON mode). Disable with `-no-procs`.
 
-| Key                       | Type   | Unit         | Source                          | Description                  |
-|---------------------------|--------|--------------|---------------------------------|------------------------------|
-| `Pid`                     | int64  | -            | `/proc/[pid]`                   | Process ID                   |
-| `Name`                    | string | -            | `/proc/[pid]/status`            | Executable name              |
-| `Cmdline`                 | string | -            | `/proc/[pid]/cmdline`           | Full command line            |
-| `NumThreads`              | int64  | count        | `/proc/[pid]/stat` field 19     | Thread count                 |
-| `CpuTimeUserMode`         | int64  | centiseconds | `/proc/[pid]/stat` field 14     | User CPU time                |
-| `CpuTimeKernelMode`       | int64  | centiseconds | `/proc/[pid]/stat` field 15     | Kernel CPU time              |
-| `ChildrenUserMode`        | int64  | centiseconds | `/proc/[pid]/stat` field 16     | Children user time           |
-| `ChildrenKernelMode`      | int64  | centiseconds | `/proc/[pid]/stat` field 17     | Children kernel time         |
-| `VoluntaryCtxSwitches`    | int64  | count        | `/proc/[pid]/status`            | Voluntary context switches   |
-| `NonvoluntaryCtxSwitches` | int64  | count        | `/proc/[pid]/status`            | Involuntary context switches |
-| `BlockIODelays`           | int64  | centiseconds | `/proc/[pid]/stat` field 42     | Block I/O wait time          |
-| `VirtualMemoryBytes`      | int64  | bytes        | `/proc/[pid]/stat` field 23     | Virtual memory size          |
-| `ResidentSetSize`         | int64  | bytes        | `/proc/[pid]/statm` × page size | Physical memory (RSS)        |
+| Key                          | Type   | Unit         | Source                          | Description                  |
+|------------------------------|--------|--------------|---------------------------------|------------------------------|
+| `pId`                        | int64  | -            | `/proc/[pid]`                   | Process ID                   |
+| `pName`                      | string | -            | `/proc/[pid]/status`            | Executable name              |
+| `pCmdline`                   | string | -            | `/proc/[pid]/cmdline`           | Full command line            |
+| `pNumThreads`                | int64  | count        | `/proc/[pid]/stat` field 19     | Thread count                 |
+| `pCpuTimeUserMode`           | int64  | centiseconds | `/proc/[pid]/stat` field 14     | User CPU time                |
+| `pCpuTimeKernelMode`         | int64  | centiseconds | `/proc/[pid]/stat` field 15     | Kernel CPU time              |
+| `pChildrenUserMode`          | int64  | centiseconds | `/proc/[pid]/stat` field 16     | Children user time           |
+| `pChildrenKernelMode`        | int64  | centiseconds | `/proc/[pid]/stat` field 17     | Children kernel time         |
+| `pVoluntaryContextSwitches`  | int64  | count        | `/proc/[pid]/status`            | Voluntary context switches   |
+| `pNonvoluntaryContextSwitches` | int64 | count       | `/proc/[pid]/status`            | Involuntary context switches |
+| `pBlockIODelays`             | int64  | centiseconds | `/proc/[pid]/stat` field 42     | Block I/O wait time          |
+| `pVirtualMemoryBytes`        | int64  | bytes        | `/proc/[pid]/stat` field 23     | Virtual memory size          |
+| `pResidentSetSize`           | int64  | bytes        | `/proc/[pid]/statm` × page size | Physical memory (RSS)        |
 
 ### Flattened Output Example
 
@@ -354,27 +398,26 @@ Prefix: `process{i}` (flattened) or `processesJson` (JSON mode). **Enable with `
 
 ## NVIDIA GPU Metrics
 
-Prefix: `nvidia{i}` (flattened) or `nvidiaGpusJson` (JSON mode). Disable with `-no-nvidia`. Disable process enumeration
-only with `-no-gpu-procs`.
+Prefix: `nvidia{i}` (flattened) or `nvidiaGpusJson` (JSON mode). Disable with `-no-nvidia`. Disable process enumeration only with `-no-gpu-procs`.
 
 | Key                | Type    | Unit    | Source                                   | Description                   |
 |--------------------|---------|---------|------------------------------------------|-------------------------------|
-| `UtilizationGpu`   | int64   | percent | `nvmlDeviceGetUtilizationRates().gpu`    | GPU compute utilization       |
-| `UtilizationMem`   | int64   | percent | `nvmlDeviceGetUtilizationRates().memory` | Memory controller utilization |
-| `MemoryUsedMb`     | int64   | MB      | `nvmlDeviceGetMemoryInfo().used`         | Used frame buffer             |
-| `MemoryFreeMb`     | int64   | MB      | `nvmlDeviceGetMemoryInfo().free`         | Free frame buffer             |
-| `Bar1UsedMb`       | int64   | MB      | `nvmlDeviceGetBAR1MemoryInfo()`          | Used BAR1 memory              |
-| `TemperatureC`     | int64   | °C      | `nvmlDeviceGetTemperature()`             | GPU temperature               |
-| `FanSpeed`         | int64   | percent | `nvmlDeviceGetFanSpeed()`                | Fan speed                     |
-| `ClockGraphicsMhz` | int64   | MHz     | `nvmlDeviceGetClockInfo(GRAPHICS)`       | Graphics clock                |
-| `ClockSmMhz`       | int64   | MHz     | `nvmlDeviceGetClockInfo(SM)`             | SM clock                      |
-| `ClockMemMhz`      | int64   | MHz     | `nvmlDeviceGetClockInfo(MEM)`            | Memory clock                  |
-| `PcieTxKbps`       | int64   | KB/s    | `nvmlDeviceGetPcieThroughput(TX)`        | PCIe TX throughput            |
-| `PcieRxKbps`       | int64   | KB/s    | `nvmlDeviceGetPcieThroughput(RX)`        | PCIe RX throughput            |
-| `PowerDrawW`       | float64 | watts   | `nvmlDeviceGetPowerUsage()`              | Power consumption             |
-| `PerfState`        | string  | -       | `nvmlDeviceGetPerformanceState()`        | Performance state (P0-P12)    |
-| `ProcessCount`     | int64   | count   | Process enumeration                      | GPU processes count           |
-| `ProcessesJson`    | string  | -       | Process enumeration                      | GPU processes (JSON)          |
+| `utilizationGpu`   | int64   | percent | `nvmlDeviceGetUtilizationRates().gpu`    | GPU compute utilization       |
+| `utilizationMem`   | int64   | percent | `nvmlDeviceGetUtilizationRates().memory` | Memory controller utilization |
+| `memoryUsedMb`     | int64   | MB      | `nvmlDeviceGetMemoryInfo().used`         | Used frame buffer             |
+| `memoryFreeMb`     | int64   | MB      | `nvmlDeviceGetMemoryInfo().free`         | Free frame buffer             |
+| `bar1UsedMb`       | int64   | MB      | `nvmlDeviceGetBAR1MemoryInfo()`          | Used BAR1 memory              |
+| `temperatureC`     | int64   | °C      | `nvmlDeviceGetTemperature()`             | GPU temperature               |
+| `fanSpeed`         | int64   | percent | `nvmlDeviceGetFanSpeed()`                | Fan speed                     |
+| `clockGraphicsMhz` | int64   | MHz     | `nvmlDeviceGetClockInfo(GRAPHICS)`       | Graphics clock                |
+| `clockSmMhz`       | int64   | MHz     | `nvmlDeviceGetClockInfo(SM)`             | SM clock                      |
+| `clockMemMhz`      | int64   | MHz     | `nvmlDeviceGetClockInfo(MEM)`            | Memory clock                  |
+| `pcieTxKbps`       | int64   | KB/s    | `nvmlDeviceGetPcieThroughput(TX)`        | PCIe TX throughput            |
+| `pcieRxKbps`       | int64   | KB/s    | `nvmlDeviceGetPcieThroughput(RX)`        | PCIe RX throughput            |
+| `powerDrawW`       | float64 | watts   | `nvmlDeviceGetPowerUsage()`              | Power consumption             |
+| `perfState`        | string  | -       | `nvmlDeviceGetPerformanceState()`        | Performance state (P0-P12)    |
+| `processCount`     | int64   | count   | Process enumeration                      | GPU processes count           |
+| `processesJson`    | string  | -       | Process enumeration                      | GPU processes (JSON)          |
 
 ### Flattened Output Example
 
@@ -385,7 +428,7 @@ only with `-no-gpu-procs`.
   "nvidia0UtilizationGpuT": 1735166000002,
   "nvidia0MemoryUsedMb": 8192,
   "nvidia0PowerDrawW": 245.5,
-  "nvidia0ProcessesJson": "[{\"pid\":1234,\"name\":\"python\",\"memMb\":4096}]",
+  "nvidia0ProcessesJson": "[{\"pid\":1234,\"name\":\"python\",\"usedMemoryMb\":4096}]",
   "nvidia1UtilizationGpu": 72,
   "nvidia1MemoryUsedMb": 6144
 }
@@ -395,8 +438,14 @@ only with `-no-gpu-procs`.
 
 ## vLLM Inference Metrics
 
-Prefix: `vllm`. Disable with `-no-vllm`. Configure endpoint via `VLLM_METRICS_URL` environment variable (default:
-`http://localhost:8000/metrics`).
+Prefix: `vllm`. Disable with `-no-vllm`. Configure endpoint via `VLLM_METRICS_URL` environment variable (default: `http://localhost:8000/metrics`).
+
+### Availability & Timing
+
+| Key               | Type  | Unit        | Source         | Description                    |
+|-------------------|-------|-------------|----------------|--------------------------------|
+| `vllmAvailable`   | bool  | -           | HTTP response  | Whether vLLM endpoint is reachable |
+| `vllmTimestamp`   | int64 | nanoseconds | Scrape time    | When metrics were collected    |
 
 ### System State
 
@@ -404,6 +453,7 @@ Prefix: `vllm`. Disable with `-no-vllm`. Configure endpoint via `VLLM_METRICS_UR
 |------------------------|---------|-------|-----------------------------|--------------------|
 | `vllmRequestsRunning`  | float64 | count | `vllm:num_requests_running` | Active requests    |
 | `vllmRequestsWaiting`  | float64 | count | `vllm:num_requests_waiting` | Queued requests    |
+| `vllmEngineSleepState` | float64 | -     | `vllm:engine_sleep_state`   | Engine sleep state |
 | `vllmPreemptionsTotal` | float64 | count | `vllm:num_preemptions`      | Preempted requests |
 
 ### Cache Metrics
@@ -442,13 +492,18 @@ Prefix: `vllm`. Disable with `-no-vllm`. Configure endpoint via `VLLM_METRICS_UR
 
 ### Histograms
 
-Histograms are stored as JSON in `vllmHistogramsJson`:
+Histogram bucket data is stored as JSON in `vllmHistogramsJson`:
 
 ```json
 {
-  "vllmHistogramsJson": "{\"ttft\":{\"0.001\":0,\"0.005\":12,\"0.01\":45,\"inf\":300},...}"
+  "vllmHistogramsJson": "{\"latencyTtft\":{\"0.001\":0,\"0.005\":12,\"0.01\":45,\"inf\":300},\"latencyE2e\":{...},...}"
 }
 ```
+
+Available histogram fields:
+- `latencyTtft`, `latencyE2e`, `latencyQueue`, `latencyInference`, `latencyPrefill`, `latencyDecode`, `latencyInterToken`
+- `reqSizePromptTokens`, `reqSizeGenerationTokens`
+- `tokensPerStep`, `reqParamsMaxTokens`, `reqParamsN`
 
 ---
 
