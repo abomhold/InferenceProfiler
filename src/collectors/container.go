@@ -98,7 +98,7 @@ func collectContainerV1(m *DynamicMetrics) {
 	memPath := filepath.Join(CgroupDir, "memory")
 
 	cpuUsage, tCpu := ProbeFileInt(filepath.Join(cpuPath, "cpuacct.usage"))
-	cpuStat, tCpuStat := ParseProcKV(filepath.Join(cpuPath, "cpuacct.stat"), " ")
+	cpuStat, tCpuStat := ProbeFileKV(filepath.Join(cpuPath, "cpuacct.stat"), " ")
 	usage, tU := ProbeFileInt(filepath.Join(memPath, "memory.usage_in_bytes"))
 	maxMem, tM := ProbeFileInt(filepath.Join(memPath, "memory.max_usage_in_bytes"))
 	dr, dw, tBlk := getBlkioV1()
@@ -140,7 +140,7 @@ func getBlkioV1() (int64, int64, int64) {
 
 // collectContainerV2 collects cgroup v2 specific metrics
 func collectContainerV2(m *DynamicMetrics) {
-	cpuStats, tCpu := ParseProcKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
+	cpuStats, tCpu := ProbeFileKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
 	memUsage, tMem := ProbeFileInt(filepath.Join(CgroupDir, "memory.current"))
 	memPeak, tPeak := ProbeFileInt(filepath.Join(CgroupDir, "memory.peak"))
 	dr, dw, tIO := getIOStatV2()

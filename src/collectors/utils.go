@@ -64,8 +64,8 @@ func ProbeFileLines(path string) ([]string, int64) {
 	return lines, ts
 }
 
-// ParseProcKV parses a key-value file like /proc/meminfo or /proc/self/status
-func ParseProcKV(path string, separator string) (map[string]string, int64) {
+// ProbeFileKV parses a key-value file like /proc/meminfo or /proc/self/status
+func ProbeFileKV(path string, separator string) (map[string]string, int64) {
 	lines, ts := ProbeFileLines(path)
 	data := make(map[string]string)
 	for _, line := range lines {
@@ -74,17 +74,4 @@ func ParseProcKV(path string, separator string) (map[string]string, int64) {
 		}
 	}
 	return data, ts
-}
-
-// ByteSliceToString converts a null-terminated byte array to string
-func ByteSliceToString(b []int8) string {
-	n := 0
-	for n < len(b) && b[n] != 0 {
-		n++
-	}
-	s := make([]byte, n)
-	for i := 0; i < n; i++ {
-		s[i] = byte(b[i])
-	}
-	return string(s)
 }

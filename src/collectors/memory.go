@@ -62,7 +62,7 @@ func CollectMemoryDynamic(m *DynamicMetrics) {
 }
 
 func getMeminfo() (map[string]int64, int64) {
-	rawInfo, ts := ParseProcKV("/proc/meminfo", ":")
+	rawInfo, ts := ProbeFileKV("/proc/meminfo", ":")
 	processed := make(map[string]int64)
 
 	for k, v := range rawInfo {

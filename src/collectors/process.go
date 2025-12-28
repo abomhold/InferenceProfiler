@@ -35,7 +35,7 @@ func CollectProcessesDynamic(m *DynamicMetrics) {
 		}
 
 		cmdline, tCmd := ProbeFile(filepath.Join(pidPath, "cmdline"))
-		status, tStatus := ParseProcKV(filepath.Join(pidPath, "status"), ":")
+		status, tStatus := ProbeFileKV(filepath.Join(pidPath, "status"), ":")
 		statm, tStatm := ProbeFile(filepath.Join(pidPath, "statm"))
 
 		var rssBytes int64
