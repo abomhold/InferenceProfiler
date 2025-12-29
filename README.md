@@ -1,7 +1,6 @@
 # Profiler Metrics Reference
 
-This document provides a comprehensive reference for all metrics collected by the Go profiler.
-
+This document provides a comprehensive reference for all metrics collected.
 ---
 
 ## Table of Contents
