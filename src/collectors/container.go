@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ const CgroupDir = "/sys/fs/cgroup"
 // CollectContainerStatic populates static container information
 func CollectContainerStatic(m *StaticMetrics) {
 	if !isCgroupDir() {
-		log.Println("Cgroup directory not found: " + CgroupDir)
 		return
 	}
 	m.ContainerID = getContainerID()
@@ -24,7 +24,6 @@ func CollectContainerStatic(m *StaticMetrics) {
 // CollectContainerDynamic populates dynamic container metrics
 func CollectContainerDynamic(m *DynamicMetrics) {
 	if !isCgroupDir() {
-		log.Println("Cgroup directory not found: " + CgroupDir)
 		return
 	}
 
@@ -44,6 +43,7 @@ func CollectContainerDynamic(m *DynamicMetrics) {
 
 func isCgroupDir() bool {
 	if _, err := os.Stat(CgroupDir); os.IsNotExist(err) {
+		log.Println("Cgroup directory not found: " + CgroupDir)
 		return false
 	}
 	return true
@@ -96,12 +96,27 @@ func getContainerNetStats() (int64, int64, int64) {
 func collectContainerV1(m *DynamicMetrics) {
 	cpuPath := filepath.Join(CgroupDir, "cpuacct")
 	memPath := filepath.Join(CgroupDir, "memory")
+	blkioPath := filepath.Join(CgroupDir, "blkio")
+	pidsPath := filepath.Join(CgroupDir, "pids")
 
+	// CPU metrics
 	cpuUsage, tCpu := ProbeFileInt(filepath.Join(cpuPath, "cpuacct.usage"))
 	cpuStat, tCpuStat := ProbeFileKV(filepath.Join(cpuPath, "cpuacct.stat"), " ")
+
+	// Per-CPU times (serialized as JSON)
+	perCpuJSON, tPerCpu := getPerCPUTimesV1(cpuPath)
+
+	// Memory metrics
 	usage, tU := ProbeFileInt(filepath.Join(memPath, "memory.usage_in_bytes"))
 	maxMem, tM := ProbeFileInt(filepath.Join(memPath, "memory.max_usage_in_bytes"))
+	memStat, tMemStat := ProbeFileKV(filepath.Join(memPath, "memory.stat"), " ")
+
+	// Disk metrics
 	dr, dw, tBlk := getBlkioV1()
+	sectorIO, tSector := getBlkioSectorsV1(blkioPath)
+
+	// Process count
+	numProcs, tProcs := getProcessCountV1(pidsPath)
 
 	m.ContainerCPUTime = cpuUsage
 	m.ContainerCPUTimeT = tCpu
@@ -109,14 +124,67 @@ func collectContainerV1(m *DynamicMetrics) {
 	m.ContainerCPUTimeUserModeT = tCpuStat
 	m.ContainerCPUTimeKernelMode = parseInt64(cpuStat["system"]) * JiffiesPerSecond
 	m.ContainerCPUTimeKernelModeT = tCpuStat
+	m.ContainerPerCPUTimesJSON = perCpuJSON
+	m.ContainerPerCPUTimesT = tPerCpu
 	m.ContainerMemoryUsed = usage
 	m.ContainerMemoryUsedT = tU
 	m.ContainerMemoryMaxUsed = maxMem
 	m.ContainerMemoryMaxUsedT = tM
+	m.ContainerPgFault = parseInt64(memStat["pgfault"])
+	m.ContainerPgFaultT = tMemStat
+	m.ContainerMajorPgFault = parseInt64(memStat["pgmajfault"])
+	m.ContainerMajorPgFaultT = tMemStat
 	m.ContainerDiskReadBytes = dr
 	m.ContainerDiskReadBytesT = tBlk
 	m.ContainerDiskWriteBytes = dw
 	m.ContainerDiskWriteBytesT = tBlk
+	m.ContainerDiskSectorIO = sectorIO
+	m.ContainerDiskSectorIOT = tSector
+	m.ContainerNumProcesses = numProcs
+	m.ContainerNumProcessesT = tProcs
+}
+
+// getPerCPUTimesV1 reads per-CPU times from cpuacct.usage_percpu and returns as JSON
+func getPerCPUTimesV1(cpuPath string) (string, int64) {
+	content, ts := ProbeFile(filepath.Join(cpuPath, "cpuacct.usage_percpu"))
+	if content == "" {
+		return "", ts
+	}
+	fields := strings.Fields(content)
+	times := make([]int64, 0, len(fields))
+	for _, f := range fields {
+		times = append(times, parseInt64(f))
+	}
+	// Serialize to JSON
+	if len(times) > 0 {
+		data, _ := json.Marshal(times)
+		return string(data), ts
+	}
+	return "", ts
+}
+
+// getBlkioSectorsV1 reads total sector IO from blkio.sectors
+func getBlkioSectorsV1(blkioPath string) (int64, int64) {
+	var total int64
+	lines, ts := ProbeFileLines(filepath.Join(blkioPath, "blkio.sectors"))
+	for _, line := range lines {
+		f := strings.Fields(line)
+		if len(f) >= 2 {
+			total += parseInt64(f[1])
+		}
+	}
+	return total, ts
+}
+
+// getProcessCountV1 counts processes in the cgroup
+func getProcessCountV1(pidsPath string) (int64, int64) {
+	// Try pids.current first (if pids controller available)
+	if count, ts := ProbeFileInt(filepath.Join(pidsPath, "pids.current")); count > 0 {
+		return count, ts
+	}
+	// Fallback: count lines in tasks file
+	lines, ts := ProbeFileLines(filepath.Join(CgroupDir, "cpuacct", "tasks"))
+	return int64(len(lines)), ts
 }
 
 func getBlkioV1() (int64, int64, int64) {
@@ -143,7 +211,9 @@ func collectContainerV2(m *DynamicMetrics) {
 	cpuStats, tCpu := ProbeFileKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
 	memUsage, tMem := ProbeFileInt(filepath.Join(CgroupDir, "memory.current"))
 	memPeak, tPeak := ProbeFileInt(filepath.Join(CgroupDir, "memory.peak"))
+	memStat, tMemStat := ProbeFileKV(filepath.Join(CgroupDir, "memory.stat"), " ")
 	dr, dw, tIO := getIOStatV2()
+	numProcs, tProcs := ProbeFileInt(filepath.Join(CgroupDir, "pids.current"))
 
 	m.ContainerCPUTime = parseInt64(cpuStats["usage_usec"]) * 1000
 	m.ContainerCPUTimeT = tCpu
@@ -155,10 +225,17 @@ func collectContainerV2(m *DynamicMetrics) {
 	m.ContainerMemoryUsedT = tMem
 	m.ContainerMemoryMaxUsed = memPeak
 	m.ContainerMemoryMaxUsedT = tPeak
+	m.ContainerPgFault = parseInt64(memStat["pgfault"])
+	m.ContainerPgFaultT = tMemStat
+	m.ContainerMajorPgFault = parseInt64(memStat["pgmajfault"])
+	m.ContainerMajorPgFaultT = tMemStat
 	m.ContainerDiskReadBytes = dr
 	m.ContainerDiskReadBytesT = tIO
 	m.ContainerDiskWriteBytes = dw
 	m.ContainerDiskWriteBytesT = tIO
+	m.ContainerNumProcesses = numProcs
+	m.ContainerNumProcessesT = tProcs
+	// Note: cgroup v2 doesn't have per-CPU breakdown or sector IO equivalent
 }
 
 func getIOStatV2() (int64, int64, int64) {

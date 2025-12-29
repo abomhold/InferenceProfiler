@@ -66,7 +66,7 @@ type DiskStatic struct {
 type DynamicMetrics struct {
 	Timestamp int64 `json:"timestamp"`
 
-	// CPU dynamic metrics
+	// CPU
 	CPUTimeUserMode     int64   `json:"vCpuTimeUserMode"`
 	CPUTimeUserModeT    int64   `json:"vCpuTimeUserModeT"`
 	CPUTimeKernelMode   int64   `json:"vCpuTimeKernelMode"`
@@ -92,7 +92,7 @@ type DynamicMetrics struct {
 	CPUMhz              float64 `json:"vCpuMhz"`
 	CPUMhzT             int64   `json:"vCpuMhzT"`
 
-	// Memory dynamic metrics
+	// Memory
 	MemoryTotal           int64   `json:"vMemoryTotal"`
 	MemoryTotalT          int64   `json:"vMemoryTotalT"`
 	MemoryFree            int64   `json:"vMemoryFree"`
@@ -116,7 +116,7 @@ type DynamicMetrics struct {
 	MemorySwapUsed        int64   `json:"vMemorySwapUsed"`
 	MemorySwapUsedT       int64   `json:"vMemorySwapUsedT"`
 
-	// Disk dynamic metrics
+	// Disk
 	DiskSectorReads       int64 `json:"vDiskSectorReads"`
 	DiskSectorReadsT      int64 `json:"vDiskSectorReadsT"`
 	DiskSectorWrites      int64 `json:"vDiskSectorWrites"`
@@ -144,7 +144,7 @@ type DynamicMetrics struct {
 	DiskWeightedIOTime    int64 `json:"vDiskWeightedIOTime"`
 	DiskWeightedIOTimeT   int64 `json:"vDiskWeightedIOTimeT"`
 
-	// Network dynamic metrics
+	// Network
 	NetworkBytesRecvd    int64 `json:"vNetworkBytesRecvd"`
 	NetworkBytesRecvdT   int64 `json:"vNetworkBytesRecvdT"`
 	NetworkBytesSent     int64 `json:"vNetworkBytesSent"`
@@ -162,7 +162,7 @@ type DynamicMetrics struct {
 	NetworkDropsSent     int64 `json:"vNetworkDropsSent"`
 	NetworkDropsSentT    int64 `json:"vNetworkDropsSentT"`
 
-	// Container dynamic metrics
+	// Container
 	ContainerNetworkBytesRecvd  int64 `json:"cNetworkBytesRecvd"`
 	ContainerNetworkBytesRecvdT int64 `json:"cNetworkBytesRecvdT"`
 	ContainerNetworkBytesSent   int64 `json:"cNetworkBytesSent"`
@@ -181,12 +181,23 @@ type DynamicMetrics struct {
 	ContainerDiskReadBytesT     int64 `json:"cDiskReadBytesT"`
 	ContainerDiskWriteBytes     int64 `json:"cDiskWriteBytes"`
 	ContainerDiskWriteBytesT    int64 `json:"cDiskWriteBytesT"`
+	ContainerDiskSectorIO       int64 `json:"cDiskSectorIO"`
+	ContainerDiskSectorIOT      int64 `json:"cDiskSectorIOT"`
+	ContainerPgFault            int64 `json:"cPgFault"`
+	ContainerPgFaultT           int64 `json:"cPgFaultT"`
+	ContainerMajorPgFault       int64 `json:"cMajorPgFault"`
+	ContainerMajorPgFaultT      int64 `json:"cMajorPgFaultT"`
+	ContainerNumProcesses       int64 `json:"cNumProcesses"`
+	ContainerNumProcessesT      int64 `json:"cNumProcessesT"`
 
-	// NVIDIA GPU metrics - stored as slice, flattened dynamically at export
-	// Exported as nvidia{i}UtilizationGpu, nvidia{i}MemoryUsedMb, etc.
+	// Per-CPU container metrics - always stored as JSON string, never flattened
+	ContainerPerCPUTimesJSON string `json:"cCpuPerCpuJson,omitempty"`
+	ContainerPerCPUTimesT    int64  `json:"cCpuPerCpuT,omitempty"`
+
+	// NVIDIA
 	NvidiaGPUs []NvidiaGPUDynamic `json:"-"`
 
-	// vLLM metrics - scalar fields flattened, histograms as JSON
+	// vLLM
 	VLLMAvailable              bool    `json:"vllmAvailable"`
 	VLLMTimestamp              int64   `json:"vllmTimestamp"`
 	VLLMRequestsRunning        float64 `json:"vllmRequestsRunning"`

@@ -1,4 +1,4 @@
-package main
+package aggregate
 
 import (
 	"InferenceProfiler/src/aggregate"
