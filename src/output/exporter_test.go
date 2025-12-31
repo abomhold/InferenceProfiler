@@ -5,13 +5,36 @@ import (
 	"bufio"
 	"encoding/csv"
 	"encoding/json"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
 	"github.com/parquet-go/parquet-go"
 )
+
+// TestMain acts as the entry point for tests in this package.
+// It detects if benchmarks are running and silences the logs to ensure clean output.
+func TestMain(m *testing.M) {
+	// Check if the -test.bench flag is present in arguments
+	isBench := false
+	for _, arg := range os.Args {
+		if strings.Contains(arg, "-test.bench") {
+			isBench = true
+			break
+		}
+	}
+
+	// If benchmarking, discard all log output to prevent console spam
+	if isBench {
+		log.SetOutput(io.Discard)
+	}
+
+	os.Exit(m.Run())
+}
 
 // ============================================================================
 // Streaming Tests - All Formats
