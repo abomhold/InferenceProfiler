@@ -19,24 +19,41 @@ type Exporter struct {
 	outputDir     string
 	sessionUUID   uuid.UUID
 	flatten       bool
+	streaming     bool   // true = stream mode, false = batch mode
+	format        string // export format: jsonl, parquet, csv, tsv
 	snapshotFiles []string
-	streamParquet bool
+
+	// Stream state
+	streamFile    *os.File
 	parquetWriter *parquet.Writer
-	parquetFile   *os.File
 	parquetSchema *parquet.Schema
+	csvWriter     *csv.Writer
+	jsonlEncoder  *json.Encoder
+	schemaKeys    []string // for CSV/TSV column order
 	snapshotCount int64
 }
 
 // NewExporter creates a new exporter
-func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool, streamParquet bool) (*Exporter, error) {
+// If streaming is true, format must be one of: jsonl, parquet, csv, tsv
+func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool, streaming bool, format string) (*Exporter, error) {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create aggregate directory: %w", err)
+		return nil, fmt.Errorf("failed to create output directory: %w", err)
 	}
+
+	// Validate format for streaming mode
+	if streaming {
+		validStreamFormats := map[string]bool{"jsonl": true, "parquet": true, "csv": true, "tsv": true}
+		if !validStreamFormats[format] {
+			return nil, fmt.Errorf("streaming mode only supports jsonl, parquet, csv, tsv (got: %s)", format)
+		}
+	}
+
 	return &Exporter{
-		outputDir:     outputDir,
-		sessionUUID:   sessionUUID,
-		flatten:       flatten,
-		streamParquet: streamParquet,
+		outputDir:   outputDir,
+		sessionUUID: sessionUUID,
+		flatten:     flatten,
+		streaming:   streaming,
+		format:      format,
 	}, nil
 }
 
@@ -59,14 +76,14 @@ func (e *Exporter) SaveStatic(data *collectors.StaticMetrics) error {
 }
 
 // SaveSnapshot saves a metrics snapshot
-// In streaming mode, writes directly to parquet file
-// In normal mode, saves as JSON
+// In streaming mode, writes directly to the output file
+// In batch mode, saves as intermediate JSON files
 func (e *Exporter) SaveSnapshot(metrics *collectors.DynamicMetrics) error {
-	if e.streamParquet {
-		return e.writeToParquetStream(metrics)
+	if e.streaming {
+		return e.writeToStream(metrics)
 	}
 
-	// Normal mode: save as JSON
+	// Batch mode: save as intermediate JSON
 	filename := fmt.Sprintf("%s-%d.json", e.sessionUUID, metrics.Timestamp)
 	path := filepath.Join(e.outputDir, filename)
 
@@ -91,90 +108,157 @@ func (e *Exporter) SaveSnapshot(metrics *collectors.DynamicMetrics) error {
 	return nil
 }
 
-// writeToParquetStream writes a single snapshot to the parquet stream
-func (e *Exporter) writeToParquetStream(metrics *collectors.DynamicMetrics) error {
-	// Convert to flat map (streaming parquet always uses flattened format)
+// writeToStream writes a snapshot to the appropriate stream based on format
+func (e *Exporter) writeToStream(metrics *collectors.DynamicMetrics) error {
+	// Convert to flat map (streaming always uses flattened format for consistency)
 	flatData := FlattenMetrics(metrics)
 
-	// Initialize parquet writer on first snapshot
-	if e.parquetWriter == nil {
-		if err := e.initParquetStream(flatData); err != nil {
-			return fmt.Errorf("failed to initialize parquet stream: %w", err)
+	// Initialize stream on first snapshot
+	if e.streamFile == nil {
+		if err := e.initStream(flatData); err != nil {
+			return fmt.Errorf("failed to initialize stream: %w", err)
 		}
 	}
 
-	// Write the map directly - the schema will deconstruct it
-	if err := e.parquetWriter.Write(flatData); err != nil {
-		return fmt.Errorf("failed to write parquet row: %w", err)
+	// Write to appropriate stream
+	switch e.format {
+	case "jsonl":
+		if err := e.jsonlEncoder.Encode(flatData); err != nil {
+			return fmt.Errorf("failed to write jsonl record: %w", err)
+		}
+	case "parquet":
+		if err := e.parquetWriter.Write(flatData); err != nil {
+			return fmt.Errorf("failed to write parquet row: %w", err)
+		}
+	case "csv", "tsv":
+		row := make([]string, len(e.schemaKeys))
+		for i, key := range e.schemaKeys {
+			if val, exists := flatData[key]; exists && val != nil {
+				row[i] = formatValue(val)
+			}
+		}
+		if err := e.csvWriter.Write(row); err != nil {
+			return fmt.Errorf("failed to write csv/tsv row: %w", err)
+		}
 	}
 
 	e.snapshotCount++
 	return nil
 }
 
-// initParquetStream initializes the parquet writer with schema from first snapshot
-func (e *Exporter) initParquetStream(firstSnapshot map[string]interface{}) error {
-	// Build schema from first snapshot
-	nodeMap := make(map[string]parquet.Node)
+// initStream initializes the stream writer based on format
+func (e *Exporter) initStream(firstSnapshot map[string]interface{}) error {
+	// Extract and sort keys for consistent column order
 	var keys []string
-
-	for k, v := range firstSnapshot {
+	for k := range firstSnapshot {
 		keys = append(keys, k)
-		if v != nil {
-			nodeMap[k] = inferParquetType(v)
-		}
 	}
 	sort.Strings(keys)
+	e.schemaKeys = keys
 
-	// Build parquet schema
-	group := make(parquet.Group)
-	for _, k := range keys {
-		node, ok := nodeMap[k]
-		if !ok {
-			node = parquet.String()
-		}
-		group[k] = parquet.Optional(node)
+	// Create output file
+	ext := e.format
+	if ext == "csv" || ext == "tsv" {
+		ext = e.format
 	}
-
-	e.parquetSchema = parquet.NewSchema("InferenceMetrics", group)
-
-	// Create parquet file
-	path := filepath.Join(e.outputDir, fmt.Sprintf("%s-stream.parquet", e.sessionUUID))
+	path := filepath.Join(e.outputDir, fmt.Sprintf("%s.%s", e.sessionUUID, ext))
 	file, err := os.Create(path)
 	if err != nil {
-		return fmt.Errorf("failed to create parquet file: %w", err)
+		return fmt.Errorf("failed to create stream file: %w", err)
 	}
-	e.parquetFile = file
+	e.streamFile = file
 
-	// Create writer using lower-level API
-	e.parquetWriter = parquet.NewWriter(file, e.parquetSchema)
+	// Initialize format-specific writer
+	switch e.format {
+	case "jsonl":
+		e.jsonlEncoder = json.NewEncoder(file)
+		log.Printf("Initialized JSONL stream: %s", path)
 
-	log.Printf("Initialized parquet stream: %s", path)
+	case "parquet":
+		// Build parquet schema
+		nodeMap := make(map[string]parquet.Node)
+		for k, v := range firstSnapshot {
+			if v != nil {
+				nodeMap[k] = inferParquetType(v)
+			}
+		}
+
+		group := make(parquet.Group)
+		for _, k := range keys {
+			node, ok := nodeMap[k]
+			if !ok {
+				node = parquet.String()
+			}
+			group[k] = parquet.Optional(node)
+		}
+
+		e.parquetSchema = parquet.NewSchema("InferenceMetrics", group)
+		e.parquetWriter = parquet.NewWriter(file, e.parquetSchema)
+		log.Printf("Initialized Parquet stream: %s", path)
+
+	case "csv":
+		e.csvWriter = csv.NewWriter(file)
+		e.csvWriter.Comma = ','
+		if err := e.csvWriter.Write(keys); err != nil {
+			return fmt.Errorf("failed to write CSV header: %w", err)
+		}
+		log.Printf("Initialized CSV stream: %s", path)
+
+	case "tsv":
+		e.csvWriter = csv.NewWriter(file)
+		e.csvWriter.Comma = '\t'
+		if err := e.csvWriter.Write(keys); err != nil {
+			return fmt.Errorf("failed to write TSV header: %w", err)
+		}
+		log.Printf("Initialized TSV stream: %s", path)
+	}
+
 	return nil
 }
 
-// CloseStream finalizes the parquet stream if open
+// CloseStream finalizes the stream if open
 func (e *Exporter) CloseStream() error {
-	if e.parquetWriter != nil {
-		if err := e.parquetWriter.Close(); err != nil {
-			return fmt.Errorf("failed to close parquet writer: %w", err)
-		}
-		e.parquetWriter = nil
-		log.Printf("Closed parquet stream (%d records written)", e.snapshotCount)
+	if !e.streaming || e.streamFile == nil {
+		return nil
 	}
-	if e.parquetFile != nil {
-		if err := e.parquetFile.Close(); err != nil {
-			return fmt.Errorf("failed to close parquet file: %w", err)
+
+	var err error
+
+	// Flush format-specific writers
+	switch e.format {
+	case "parquet":
+		if e.parquetWriter != nil {
+			if err = e.parquetWriter.Close(); err != nil {
+				return fmt.Errorf("failed to close parquet writer: %w", err)
+			}
+			e.parquetWriter = nil
 		}
-		e.parquetFile = nil
+	case "csv", "tsv":
+		if e.csvWriter != nil {
+			e.csvWriter.Flush()
+			if err = e.csvWriter.Error(); err != nil {
+				return fmt.Errorf("failed to flush csv writer: %w", err)
+			}
+			e.csvWriter = nil
+		}
 	}
+
+	// Close file
+	if e.streamFile != nil {
+		if err = e.streamFile.Close(); err != nil {
+			return fmt.Errorf("failed to close stream file: %w", err)
+		}
+		e.streamFile = nil
+	}
+
+	log.Printf("Closed %s stream (%d records written)", e.format, e.snapshotCount)
 	return nil
 }
 
 // ProcessSession aggregates snapshots into final format
-// Not used in streaming mode
-func (e *Exporter) ProcessSession(format string) error {
-	if e.streamParquet {
+// Only used in batch mode
+func (e *Exporter) ProcessSession() error {
+	if e.streaming {
 		// In streaming mode, just close the stream
 		return e.CloseStream()
 	}
@@ -208,7 +292,6 @@ func (e *Exporter) ProcessSession(format string) error {
 		file.Close()
 
 		convertJSONNumbers(data)
-
 		allRecords = append(allRecords, data)
 	}
 
@@ -218,7 +301,7 @@ func (e *Exporter) ProcessSession(format string) error {
 
 	basePath := filepath.Join(e.outputDir, e.sessionUUID.String())
 
-	switch format {
+	switch e.format {
 	case "jsonl":
 		return e.exportJSONL(basePath+".jsonl", allRecords)
 	case "parquet":
@@ -228,7 +311,7 @@ func (e *Exporter) ProcessSession(format string) error {
 	case "tsv":
 		return e.exportDelimited(basePath+".tsv", allRecords, '\t')
 	default:
-		return fmt.Errorf("unsupported format: %s (use 'jsonl', 'parquet', 'csv', or 'tsv')", format)
+		return fmt.Errorf("unsupported format: %s", e.format)
 	}
 }
 
@@ -410,7 +493,6 @@ func inferParquetType(v interface{}) parquet.Node {
 	case float64:
 		return parquet.Leaf(parquet.DoubleType)
 	case json.Number:
-		// FIX: Try to parse as Int64 first, fallback to Float64
 		if _, err := val.Int64(); err == nil {
 			return parquet.Int(64)
 		}
@@ -421,6 +503,7 @@ func inferParquetType(v interface{}) parquet.Node {
 		return parquet.String()
 	}
 }
+
 func convertJSONNumbers(v interface{}) interface{} {
 	switch val := v.(type) {
 	case json.Number:

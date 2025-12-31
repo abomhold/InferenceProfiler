@@ -1,19 +1,19 @@
+# Build
+FROM golang:1.25 AS builder
+WORKDIR /app
+COPY . .
+RUN go mod tidy
+RUN CGO_ENABLED=1 GOOS=linux go build -o profiler main.go
+
+# Setup
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /app
-
 RUN mkdir -p /profiler-output
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-venv \
-    pipx \
-    sysbench \
-    && rm -rf /var/lib/apt/lists/* \
+RUN apt-get update && apt-get install -y --no-install-recommends sysbench \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV PATH="/root/.local/bin:$PATH"
-COPY dist/*.whl /app/dist/
-RUN pipx install /app/dist/*.whl --force
+COPY --from=builder /app/profiler /usr/local/bin/profiler
 
-ENTRYPOINT ["inference_profiler", "-o", "/profiler-output", "-t", "1000"]
-
+ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "5000"]
 CMD ["sysbench", "--test=cpu", "--cpu-max-prime=20000", "--max-requests=4000", "run"]

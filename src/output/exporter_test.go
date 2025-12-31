@@ -2,6 +2,9 @@ package output
 
 import (
 	"InferenceProfiler/src/collectors"
+	"bufio"
+	"encoding/csv"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,271 +13,371 @@ import (
 	"github.com/parquet-go/parquet-go"
 )
 
-// TestStreamingParquet tests the streaming parquet mode
-func TestStreamingParquet(t *testing.T) {
-	// Create temp directory
-	tmpDir, err := os.MkdirTemp("", "profiler-stream-test")
+// ============================================================================
+// Streaming Tests - All Formats
+// ============================================================================
+
+func TestStreamingJSONL(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "profiler-stream-jsonl")
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer os.RemoveAll(tmpDir)
 
 	sessionUUID := uuid.New()
-
-	// Create exporter in streaming mode
-	exp, err := NewExporter(tmpDir, sessionUUID, true, true)
+	exp, err := NewExporter(tmpDir, sessionUUID, true, true, "jsonl")
 	if err != nil {
-		t.Fatalf("Failed to create exporter: %v", err)
+		t.Fatal(err)
 	}
 	defer exp.CloseStream()
 
-	metrics1 := &collectors.DynamicMetrics{
-		Timestamp:       1735166000000,
-		CPUTimeUserMode: 12345,
-		MemoryTotal:     32768000000,
-		LoadAvg:         2.45,
-		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 0, MemoryUsedMb: 0},
-		},
-	}
-
-	metrics2 := &collectors.DynamicMetrics{
-		Timestamp:       1735166001000,
-		CPUTimeUserMode: 12346,
-		MemoryTotal:     32768000000,
-		LoadAvg:         2.46,
-	}
-
-	metrics3 := &collectors.DynamicMetrics{
-		Timestamp:       1735166002000,
-		CPUTimeUserMode: 12347,
-		MemoryTotal:     32768000000,
-		LoadAvg:         2.47,
-		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-		},
-	}
-
 	// Write snapshots
-	if err := exp.SaveSnapshot(metrics1); err != nil {
-		t.Fatalf("Failed to save snapshot 1: %v", err)
-	}
-	if err := exp.SaveSnapshot(metrics2); err != nil {
-		t.Fatalf("Failed to save snapshot 2: %v", err)
-	}
-	if err := exp.SaveSnapshot(metrics3); err != nil {
-		t.Fatalf("Failed to save snapshot 3: %v", err)
+	metrics := []*collectors.DynamicMetrics{
+		{Timestamp: 1000, CPUTimeUserMode: 100},
+		{Timestamp: 2000, CPUTimeUserMode: 200},
+		{Timestamp: 3000, CPUTimeUserMode: 300},
 	}
 
-	// Close stream
-	if err := exp.CloseStream(); err != nil {
-		t.Fatalf("Failed to close stream: %v", err)
-	}
-
-	// Verify file exists
-	parquetPath := filepath.Join(tmpDir, sessionUUID.String()+"-stream.parquet")
-	if _, err := os.Stat(parquetPath); os.IsNotExist(err) {
-		t.Fatalf("Parquet file not created: %s", parquetPath)
-	}
-
-	// Read and verify parquet file
-	file, err := os.Open(parquetPath)
-	if err != nil {
-		t.Fatalf("Failed to open parquet file: %v", err)
-	}
-	defer file.Close()
-
-	info, err := file.Stat()
-	if err != nil {
-		t.Fatalf("Failed to stat parquet file: %v", err)
-	}
-
-	pf, err := parquet.OpenFile(file, info.Size())
-	if err != nil {
-		t.Fatalf("Failed to open parquet file: %v", err)
-	}
-
-	reader := parquet.NewReader(pf)
-
-	// Read all rows
-	rows := make([]map[string]interface{}, 0, 3)
-	for {
-		row := make(map[string]interface{})
-		err := reader.Read(&row)
-		if err != nil {
-			break
+	for _, m := range metrics {
+		if err := exp.SaveSnapshot(m); err != nil {
+			t.Fatal(err)
 		}
-		rows = append(rows, row)
 	}
 
-	// Verify row count
+	if err := exp.CloseStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output
+	path := filepath.Join(tmpDir, sessionUUID.String()+".jsonl")
+	lines := readJSONLFile(t, path)
+
+	if len(lines) != 3 {
+		t.Errorf("Expected 3 lines, got %d", len(lines))
+	}
+
+	if lines[0]["timestamp"] != float64(1000) {
+		t.Errorf("First record timestamp = %v; want 1000", lines[0]["timestamp"])
+	}
+	if lines[2]["vCpuTimeUserMode"] != float64(300) {
+		t.Errorf("Third record vCpuTimeUserMode = %v; want 300", lines[2]["vCpuTimeUserMode"])
+	}
+}
+
+func TestStreamingParquet(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "profiler-stream-parquet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	sessionUUID := uuid.New()
+	exp, err := NewExporter(tmpDir, sessionUUID, true, true, "parquet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.CloseStream()
+
+	// Write snapshots with GPUs
+	metrics := []*collectors.DynamicMetrics{
+		{
+			Timestamp:       1000,
+			CPUTimeUserMode: 100,
+			NvidiaGPUs: []collectors.NvidiaGPUDynamic{
+				{Index: 0, UtilizationGPU: 50},
+			},
+		},
+		{Timestamp: 2000, CPUTimeUserMode: 200},
+		{
+			Timestamp:       3000,
+			CPUTimeUserMode: 300,
+			NvidiaGPUs: []collectors.NvidiaGPUDynamic{
+				{Index: 0, UtilizationGPU: 85},
+			},
+		},
+	}
+
+	for _, m := range metrics {
+		if err := exp.SaveSnapshot(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := exp.CloseStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output
+	path := filepath.Join(tmpDir, sessionUUID.String()+".parquet")
+	rows := readParquetFile(t, path)
+
 	if len(rows) != 3 {
 		t.Errorf("Expected 3 rows, got %d", len(rows))
 	}
 
-	// Verify first row data
-	if rows[0]["timestamp"] != int64(1735166000000) {
-		t.Errorf("First row timestamp = %v; want 1735166000000", rows[0]["timestamp"])
-	}
-
-	// Verify GPU data in third row
-	if rows[2]["nvidiaGpuCount"] != int64(1) {
-		t.Errorf("Third row nvidiaGpuCount = %v; want 1", rows[2]["nvidiaGpuCount"])
-	}
 	if rows[2]["nvidia0UtilizationGpu"] != int64(85) {
 		t.Errorf("Third row nvidia0UtilizationGpu = %v; want 85", rows[2]["nvidia0UtilizationGpu"])
 	}
 }
 
-// TestStreamingVsBatch compares output between streaming and batch modes
-func TestStreamingVsBatch(t *testing.T) {
-	// Create temp directories
-	streamDir, err := os.MkdirTemp("", "profiler-stream")
+func TestStreamingCSV(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "profiler-stream-csv")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.RemoveAll(streamDir)
+	defer os.RemoveAll(tmpDir)
 
-	batchDir, err := os.MkdirTemp("", "profiler-batch")
+	sessionUUID := uuid.New()
+	exp, err := NewExporter(tmpDir, sessionUUID, true, true, "csv")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer exp.CloseStream()
+
+	// Write snapshots
+	metrics := []*collectors.DynamicMetrics{
+		{Timestamp: 1000, CPUTimeUserMode: 100, LoadAvg: 1.5},
+		{Timestamp: 2000, CPUTimeUserMode: 200, LoadAvg: 2.5},
+	}
+
+	for _, m := range metrics {
+		if err := exp.SaveSnapshot(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := exp.CloseStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output
+	path := filepath.Join(tmpDir, sessionUUID.String()+".csv")
+	records := readCSVFile(t, path, ',')
+
+	if len(records) != 3 { // header + 2 data rows
+		t.Errorf("Expected 3 rows (header + 2 data), got %d", len(records))
+	}
+
+	// Check header exists
+	header := records[0]
+	hasTimestamp := false
+	for _, col := range header {
+		if col == "timestamp" {
+			hasTimestamp = true
+			break
+		}
+	}
+	if !hasTimestamp {
+		t.Error("Header missing 'timestamp' column")
+	}
+}
+
+func TestStreamingTSV(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "profiler-stream-tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	sessionUUID := uuid.New()
+	exp, err := NewExporter(tmpDir, sessionUUID, true, true, "tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer exp.CloseStream()
+
+	// Write snapshots
+	metrics := []*collectors.DynamicMetrics{
+		{Timestamp: 1000, CPUTimeUserMode: 100},
+		{Timestamp: 2000, CPUTimeUserMode: 200},
+	}
+
+	for _, m := range metrics {
+		if err := exp.SaveSnapshot(m); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := exp.CloseStream(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify output
+	path := filepath.Join(tmpDir, sessionUUID.String()+".tsv")
+	records := readCSVFile(t, path, '\t')
+
+	if len(records) != 3 { // header + 2 data rows
+		t.Errorf("Expected 3 rows, got %d", len(records))
+	}
+}
+
+// ============================================================================
+// Batch vs Stream Comparison Tests
+// ============================================================================
+
+func TestBatchVsStreamJSONL(t *testing.T) {
+	streamDir, _ := os.MkdirTemp("", "stream-jsonl")
+	defer os.RemoveAll(streamDir)
+	batchDir, _ := os.MkdirTemp("", "batch-jsonl")
 	defer os.RemoveAll(batchDir)
 
 	sessionUUID := uuid.New()
-
-	// Create test metrics
 	metrics := []*collectors.DynamicMetrics{
-		{
-			Timestamp:       1735166000000,
-			CPUTimeUserMode: 12345,
-			MemoryTotal:     32768000000,
-			NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-				{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-			},
-		},
-		{
-			Timestamp:       1735166001000,
-			CPUTimeUserMode: 12346,
-			MemoryTotal:     32768000000,
-			NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-				{Index: 0, UtilizationGPU: 86, MemoryUsedMb: 8193},
-			},
-		},
+		{Timestamp: 1000, CPUTimeUserMode: 100, MemoryTotal: 8192},
+		{Timestamp: 2000, CPUTimeUserMode: 200, MemoryTotal: 8192},
 	}
 
-	// Streaming mode
-	streamExp, err := NewExporter(streamDir, sessionUUID, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Stream mode
+	streamExp, _ := NewExporter(streamDir, sessionUUID, true, true, "jsonl")
 	for _, m := range metrics {
-		if err := streamExp.SaveSnapshot(m); err != nil {
-			t.Fatal(err)
-		}
+		streamExp.SaveSnapshot(m)
 	}
 	streamExp.CloseStream()
 
 	// Batch mode
-	batchExp, err := NewExporter(batchDir, sessionUUID, true, false)
-	if err != nil {
-		t.Fatal(err)
-	}
+	batchExp, _ := NewExporter(batchDir, sessionUUID, true, false, "jsonl")
 	for _, m := range metrics {
-		if err := batchExp.SaveSnapshot(m); err != nil {
-			t.Fatal(err)
+		batchExp.SaveSnapshot(m)
+	}
+	batchExp.ProcessSession()
+
+	// Compare outputs
+	streamPath := filepath.Join(streamDir, sessionUUID.String()+".jsonl")
+	batchPath := filepath.Join(batchDir, sessionUUID.String()+".jsonl")
+
+	streamLines := readJSONLFile(t, streamPath)
+	batchLines := readJSONLFile(t, batchPath)
+
+	if len(streamLines) != len(batchLines) {
+		t.Errorf("Line count mismatch: stream=%d, batch=%d", len(streamLines), len(batchLines))
+	}
+
+	// Compare timestamps
+	for i := range streamLines {
+		if streamLines[i]["timestamp"] != batchLines[i]["timestamp"] {
+			t.Errorf("Row %d timestamp mismatch", i)
 		}
 	}
-	if err := batchExp.ProcessSession("parquet"); err != nil {
-		t.Fatal(err)
+}
+
+func TestBatchVsStreamParquet(t *testing.T) {
+	streamDir, _ := os.MkdirTemp("", "stream-pq")
+	defer os.RemoveAll(streamDir)
+	batchDir, _ := os.MkdirTemp("", "batch-pq")
+	defer os.RemoveAll(batchDir)
+
+	sessionUUID := uuid.New()
+	metrics := []*collectors.DynamicMetrics{
+		{Timestamp: 1000, CPUTimeUserMode: 100},
+		{Timestamp: 2000, CPUTimeUserMode: 200},
 	}
 
-	// Read both files
-	streamFile := filepath.Join(streamDir, sessionUUID.String()+"-stream.parquet")
-	batchFile := filepath.Join(batchDir, sessionUUID.String()+".parquet")
+	// Stream mode
+	streamExp, _ := NewExporter(streamDir, sessionUUID, true, true, "parquet")
+	for _, m := range metrics {
+		streamExp.SaveSnapshot(m)
+	}
+	streamExp.CloseStream()
 
-	streamRows := readParquetFile(t, streamFile)
-	batchRows := readParquetFile(t, batchFile)
+	// Batch mode
+	batchExp, _ := NewExporter(batchDir, sessionUUID, true, false, "parquet")
+	for _, m := range metrics {
+		batchExp.SaveSnapshot(m)
+	}
+	batchExp.ProcessSession()
 
-	// Compare row counts
+	// Compare
+	streamPath := filepath.Join(streamDir, sessionUUID.String()+".parquet")
+	batchPath := filepath.Join(batchDir, sessionUUID.String()+".parquet")
+
+	streamRows := readParquetFile(t, streamPath)
+	batchRows := readParquetFile(t, batchPath)
+
 	if len(streamRows) != len(batchRows) {
 		t.Errorf("Row count mismatch: stream=%d, batch=%d", len(streamRows), len(batchRows))
 	}
+}
 
-	// Compare data (timestamps should match)
-	for i := range streamRows {
-		if streamRows[i]["timestamp"] != batchRows[i]["timestamp"] {
-			t.Errorf("Row %d timestamp mismatch: stream=%v, batch=%v",
-				i, streamRows[i]["timestamp"], batchRows[i]["timestamp"])
+// ============================================================================
+// Edge Cases
+// ============================================================================
+
+func TestStreamingNoSnapshots(t *testing.T) {
+	for _, format := range []string{"jsonl", "parquet", "csv", "tsv"} {
+		t.Run(format, func(t *testing.T) {
+			tmpDir, _ := os.MkdirTemp("", "stream-empty-"+format)
+			defer os.RemoveAll(tmpDir)
+
+			sessionUUID := uuid.New()
+			exp, _ := NewExporter(tmpDir, sessionUUID, true, true, format)
+
+			// Close without writing
+			if err := exp.CloseStream(); err != nil {
+				t.Fatal(err)
+			}
+
+			// No file should exist
+			ext := format
+			path := filepath.Join(tmpDir, sessionUUID.String()+"."+ext)
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("File should not exist when no snapshots written: %s", format)
+			}
+		})
+	}
+}
+
+func TestStreamingMultipleClose(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "stream-close")
+	defer os.RemoveAll(tmpDir)
+
+	sessionUUID := uuid.New()
+	exp, _ := NewExporter(tmpDir, sessionUUID, true, true, "jsonl")
+
+	// Write one snapshot
+	exp.SaveSnapshot(&collectors.DynamicMetrics{Timestamp: 1000})
+
+	// Multiple closes should be safe
+	for i := 0; i < 3; i++ {
+		if err := exp.CloseStream(); err != nil {
+			t.Fatalf("Close #%d failed: %v", i+1, err)
 		}
 	}
 }
 
-// TestStreamingNoSnapshots tests streaming mode with no data written
-func TestStreamingNoSnapshots(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "profiler-stream-empty")
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestInvalidFormatForStreaming(t *testing.T) {
+	tmpDir, _ := os.MkdirTemp("", "stream-invalid")
 	defer os.RemoveAll(tmpDir)
 
-	sessionUUID := uuid.New()
-
-	// Create exporter but don't write any snapshots
-	exp, err := NewExporter(tmpDir, sessionUUID, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Close without writing - should not create parquet file
-	if err := exp.CloseStream(); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify no parquet file created
-	parquetPath := filepath.Join(tmpDir, sessionUUID.String()+"-stream.parquet")
-	if _, err := os.Stat(parquetPath); !os.IsNotExist(err) {
-		t.Error("Parquet file should not exist when no snapshots written")
+	_, err := NewExporter(tmpDir, uuid.New(), true, true, "invalid")
+	if err == nil {
+		t.Error("Expected error for invalid streaming format")
 	}
 }
 
-// TestStreamingMultipleClose tests that multiple close calls are safe
-func TestStreamingMultipleClose(t *testing.T) {
-	tmpDir, err := os.MkdirTemp("", "profiler-stream-close")
+// ============================================================================
+// Helper Functions
+// ============================================================================
+
+func readJSONLFile(t *testing.T, path string) []map[string]interface{} {
+	file, err := os.Open(path)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("Failed to open %s: %v", path, err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer file.Close()
 
-	sessionUUID := uuid.New()
-
-	exp, err := NewExporter(tmpDir, sessionUUID, true, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	// Write one snapshot
-	metrics := &collectors.DynamicMetrics{
-		Timestamp:       1735166000000,
-		CPUTimeUserMode: 12345,
-	}
-	if err := exp.SaveSnapshot(metrics); err != nil {
-		t.Fatal(err)
+	var lines []map[string]interface{}
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		var record map[string]interface{}
+		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
+			t.Fatalf("Failed to parse JSON line: %v", err)
+		}
+		lines = append(lines, record)
 	}
 
-	// Close multiple times - should not panic or error
-	if err := exp.CloseStream(); err != nil {
-		t.Fatalf("First close failed: %v", err)
-	}
-	if err := exp.CloseStream(); err != nil {
-		t.Fatalf("Second close failed: %v", err)
-	}
-	if err := exp.CloseStream(); err != nil {
-		t.Fatalf("Third close failed: %v", err)
-	}
+	return lines
 }
 
-// Helper function to read parquet file
 func readParquetFile(t *testing.T, path string) []map[string]interface{} {
 	file, err := os.Open(path)
 	if err != nil {
@@ -282,19 +385,16 @@ func readParquetFile(t *testing.T, path string) []map[string]interface{} {
 	}
 	defer file.Close()
 
-	// Get file info for size
 	info, err := file.Stat()
 	if err != nil {
 		t.Fatalf("Failed to stat file: %v", err)
 	}
 
-	// Create parquet file reader
 	pf, err := parquet.OpenFile(file, info.Size())
 	if err != nil {
 		t.Fatalf("Failed to open parquet file: %v", err)
 	}
 
-	// Read all rows
 	var rows []map[string]interface{}
 	reader := parquet.NewReader(pf)
 
@@ -310,51 +410,113 @@ func readParquetFile(t *testing.T, path string) []map[string]interface{} {
 	return rows
 }
 
-// BenchmarkStreamingWrite benchmarks streaming write performance
-func BenchmarkStreamingWrite(b *testing.B) {
-	tmpDir, _ := os.MkdirTemp("", "profiler-bench")
+func readCSVFile(t *testing.T, path string, delimiter rune) [][]string {
+	file, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Failed to open %s: %v", path, err)
+	}
+	defer file.Close()
+
+	reader := csv.NewReader(file)
+	reader.Comma = delimiter
+
+	records, err := reader.ReadAll()
+	if err != nil {
+		t.Fatalf("Failed to read CSV: %v", err)
+	}
+
+	return records
+}
+
+// ============================================================================
+// Benchmarks
+// ============================================================================
+
+func BenchmarkStreamingJSONL(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "bench-jsonl")
 	defer os.RemoveAll(tmpDir)
 
 	sessionUUID := uuid.New()
-	exp, _ := NewExporter(tmpDir, sessionUUID, true, true)
+	exp, _ := NewExporter(tmpDir, sessionUUID, true, true, "jsonl")
 	defer exp.CloseStream()
 
 	metrics := &collectors.DynamicMetrics{
-		Timestamp:       1735166000000,
-		CPUTimeUserMode: 12345,
-		MemoryTotal:     32768000000,
-		LoadAvg:         2.45,
+		Timestamp:       1000,
+		CPUTimeUserMode: 100,
 	}
 
-	// First write initializes schema
+	// First write to initialize
 	exp.SaveSnapshot(metrics)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		metrics.Timestamp = int64(1735166000000 + i)
+		metrics.Timestamp = int64(1000 + i)
 		exp.SaveSnapshot(metrics)
 	}
 }
 
-// BenchmarkBatchWrite benchmarks batch write performance
-func BenchmarkBatchWrite(b *testing.B) {
-	tmpDir, _ := os.MkdirTemp("", "profiler-bench")
+func BenchmarkStreamingParquet(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "bench-pq")
 	defer os.RemoveAll(tmpDir)
 
 	sessionUUID := uuid.New()
-	exp, _ := NewExporter(tmpDir, sessionUUID, true, false)
+	exp, _ := NewExporter(tmpDir, sessionUUID, true, true, "parquet")
+	defer exp.CloseStream()
 
 	metrics := &collectors.DynamicMetrics{
-		Timestamp:       1735166000000,
-		CPUTimeUserMode: 12345,
-		MemoryTotal:     32768000000,
-		LoadAvg:         2.45,
+		Timestamp:       1000,
+		CPUTimeUserMode: 100,
+	}
+
+	// First write to initialize
+	exp.SaveSnapshot(metrics)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		metrics.Timestamp = int64(1000 + i)
+		exp.SaveSnapshot(metrics)
+	}
+}
+
+func BenchmarkStreamingCSV(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "bench-csv")
+	defer os.RemoveAll(tmpDir)
+
+	sessionUUID := uuid.New()
+	exp, _ := NewExporter(tmpDir, sessionUUID, true, true, "csv")
+	defer exp.CloseStream()
+
+	metrics := &collectors.DynamicMetrics{
+		Timestamp:       1000,
+		CPUTimeUserMode: 100,
+	}
+
+	// First write to initialize
+	exp.SaveSnapshot(metrics)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		metrics.Timestamp = int64(1000 + i)
+		exp.SaveSnapshot(metrics)
+	}
+}
+
+func BenchmarkBatchJSONL(b *testing.B) {
+	tmpDir, _ := os.MkdirTemp("", "bench-batch")
+	defer os.RemoveAll(tmpDir)
+
+	sessionUUID := uuid.New()
+	exp, _ := NewExporter(tmpDir, sessionUUID, true, false, "jsonl")
+
+	metrics := &collectors.DynamicMetrics{
+		Timestamp:       1000,
+		CPUTimeUserMode: 100,
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		metrics.Timestamp = int64(1735166000000 + i)
+		metrics.Timestamp = int64(1000 + i)
 		exp.SaveSnapshot(metrics)
 	}
-	exp.ProcessSession("parquet")
+	exp.ProcessSession()
 }

@@ -9,8 +9,13 @@ DOCKER_IMAGE  := $(PROJECT_NAME)
 DOCKER_TAG    := latest
 DOCKER_FILE   := Dockerfile
 
+# Model Settings
+MODEL_ID      ?= meta-llama/Llama-3.2-1B-Instruct
+MODEL_DIR     ?= $(PWD)/model
+
 .DELETE_ON_ERROR:
-.PHONY: all help build clean run docker-build docker-run docker-clean refresh test test-v test-cover bench bench-parse bench-collect
+.PHONY: all help build clean run docker-build docker-run docker-clean refresh test test-v test-cover bench bench-parse bench-collect get-model
+
 all: help
 
 help: ##@ Shows this help message
@@ -44,42 +49,48 @@ test-v: ##@ Run all unit tests with verbose output
 	@echo "--- Running Tests (verbose) ---"
 	go test -v ./...
 
-test-cover: ##@ Run tests with coverage report
-	@echo "--- Running Tests with Coverage ---"
-	go test -cover ./...
-
 bench: ##@ Run all benchmarks
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem ./...
 
-bench-collect: ##@ Run collection benchmarks (requires /proc)
-	@echo "--- Running Collection Benchmarks ---"
-	go test -bench=Collect -benchmem ./$(SRC_DIR)/collectors/
-
-bench-output: ##@ Run flatten/aggregate benchmarks
-	@echo "--- Running Flatten Benchmarks ---"
-	go test -bench=. -benchmem ./$(SRC_DIR)/aggregate/
+get-model: ##@ Download HF model to local dir (requires python3 & huggingface_hub)
+	@echo "--- Downloading Model: $(MODEL_ID) to $(MODEL_DIR) ---"
+	mkdir -p $(MODEL_DIR)
+	hf download $(MODEL_ID) --local-dir $(MODEL_DIR)
+	@echo "--- Download Complete ---"
 
 docker-build: ##@ Build Docker image
 	@echo "--- Building Docker Image ($(DOCKER_FILE)) ---"
 	docker build --progress=plain \
-		-f $(DOCKER_FILE) \
-		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
-		.
+	   -f $(DOCKER_FILE) \
+	   -t $(DOCKER_IMAGE):$(DOCKER_TAG) \
+	   .
 
-docker-run: docker-build ##@ Run container
+docker-run: docker-build ##@ Run container (Mounts $(MODEL_DIR) if it exists)
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
-	docker run --rm \
-		-p "8000:8000" \
-		-v $(OUTPUT_DIR):/profiler-output \
-		$(DOCKER_IMAGE):$(DOCKER_TAG)
+	@# Checks if model dir exists to mount it, otherwise runs without mounting
+	@if [ -d "$(MODEL_DIR)" ]; then \
+		echo "Mounting model from $(MODEL_DIR)..."; \
+		docker run --rm \
+		   --gpus all \
+		   -p "8000:8000" \
+		   -v $(OUTPUT_DIR):/profiler-output \
+		   -v $(MODEL_DIR):/app/model \
+		   $(DOCKER_IMAGE):$(DOCKER_TAG); \
+	else \
+		echo "No local model found at $(MODEL_DIR). Running without mount..."; \
+		docker run --rm \
+		   -p "8000:8000" \
+		   -v $(OUTPUT_DIR):/profiler-output \
+		   $(DOCKER_IMAGE):$(DOCKER_TAG); \
+	fi
 
 test-vllm: ##@ Send test request to local vllm server
 	@echo "--- Testing vllm Server ---"
 	curl http://localhost:8000/v1/chat/completions \
-		-H "Content-Type: application/json" \
-		-d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
+	   -H "Content-Type: application/json" \
+	   -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
 
 clean: ##@ Remove all artifacts and docker images
 	@echo "--- Cleaning Artifacts ---"
