@@ -1,4 +1,4 @@
-package aggregate
+package output
 
 import (
 	"InferenceProfiler/src/collectors"
@@ -20,17 +20,23 @@ type Exporter struct {
 	sessionUUID   uuid.UUID
 	flatten       bool
 	snapshotFiles []string
+	streamParquet bool
+	parquetWriter *parquet.Writer
+	parquetFile   *os.File
+	parquetSchema *parquet.Schema
+	snapshotCount int64
 }
 
 // NewExporter creates a new exporter
-func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool) (*Exporter, error) {
+func NewExporter(outputDir string, sessionUUID uuid.UUID, flatten bool, streamParquet bool) (*Exporter, error) {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return nil, fmt.Errorf("failed to create aggregate directory: %w", err)
 	}
 	return &Exporter{
-		outputDir:   outputDir,
-		sessionUUID: sessionUUID,
-		flatten:     flatten,
+		outputDir:     outputDir,
+		sessionUUID:   sessionUUID,
+		flatten:       flatten,
+		streamParquet: streamParquet,
 	}, nil
 }
 
@@ -52,8 +58,15 @@ func (e *Exporter) SaveStatic(data *collectors.StaticMetrics) error {
 	return nil
 }
 
-// SaveSnapshot saves a metrics snapshot as JSON
+// SaveSnapshot saves a metrics snapshot
+// In streaming mode, writes directly to parquet file
+// In normal mode, saves as JSON
 func (e *Exporter) SaveSnapshot(metrics *collectors.DynamicMetrics) error {
+	if e.streamParquet {
+		return e.writeToParquetStream(metrics)
+	}
+
+	// Normal mode: save as JSON
 	filename := fmt.Sprintf("%s-%d.json", e.sessionUUID, metrics.Timestamp)
 	path := filepath.Join(e.outputDir, filename)
 
@@ -78,8 +91,94 @@ func (e *Exporter) SaveSnapshot(metrics *collectors.DynamicMetrics) error {
 	return nil
 }
 
+// writeToParquetStream writes a single snapshot to the parquet stream
+func (e *Exporter) writeToParquetStream(metrics *collectors.DynamicMetrics) error {
+	// Convert to flat map (streaming parquet always uses flattened format)
+	flatData := FlattenMetrics(metrics)
+
+	// Initialize parquet writer on first snapshot
+	if e.parquetWriter == nil {
+		if err := e.initParquetStream(flatData); err != nil {
+			return fmt.Errorf("failed to initialize parquet stream: %w", err)
+		}
+	}
+
+	// Write the map directly - the schema will deconstruct it
+	if err := e.parquetWriter.Write(flatData); err != nil {
+		return fmt.Errorf("failed to write parquet row: %w", err)
+	}
+
+	e.snapshotCount++
+	return nil
+}
+
+// initParquetStream initializes the parquet writer with schema from first snapshot
+func (e *Exporter) initParquetStream(firstSnapshot map[string]interface{}) error {
+	// Build schema from first snapshot
+	nodeMap := make(map[string]parquet.Node)
+	var keys []string
+
+	for k, v := range firstSnapshot {
+		keys = append(keys, k)
+		if v != nil {
+			nodeMap[k] = inferParquetType(v)
+		}
+	}
+	sort.Strings(keys)
+
+	// Build parquet schema
+	group := make(parquet.Group)
+	for _, k := range keys {
+		node, ok := nodeMap[k]
+		if !ok {
+			node = parquet.String()
+		}
+		group[k] = parquet.Optional(node)
+	}
+
+	e.parquetSchema = parquet.NewSchema("InferenceMetrics", group)
+
+	// Create parquet file
+	path := filepath.Join(e.outputDir, fmt.Sprintf("%s-stream.parquet", e.sessionUUID))
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create parquet file: %w", err)
+	}
+	e.parquetFile = file
+
+	// Create writer using lower-level API
+	e.parquetWriter = parquet.NewWriter(file, e.parquetSchema)
+
+	log.Printf("Initialized parquet stream: %s", path)
+	return nil
+}
+
+// CloseStream finalizes the parquet stream if open
+func (e *Exporter) CloseStream() error {
+	if e.parquetWriter != nil {
+		if err := e.parquetWriter.Close(); err != nil {
+			return fmt.Errorf("failed to close parquet writer: %w", err)
+		}
+		e.parquetWriter = nil
+		log.Printf("Closed parquet stream (%d records written)", e.snapshotCount)
+	}
+	if e.parquetFile != nil {
+		if err := e.parquetFile.Close(); err != nil {
+			return fmt.Errorf("failed to close parquet file: %w", err)
+		}
+		e.parquetFile = nil
+	}
+	return nil
+}
+
 // ProcessSession aggregates snapshots into final format
+// Not used in streaming mode
 func (e *Exporter) ProcessSession(format string) error {
+	if e.streamParquet {
+		// In streaming mode, just close the stream
+		return e.CloseStream()
+	}
+
 	if len(e.snapshotFiles) == 0 {
 		log.Println("No snapshots captured to process")
 		return nil
@@ -97,13 +196,19 @@ func (e *Exporter) ProcessSession(format string) error {
 			continue
 		}
 
+		decoder := json.NewDecoder(file)
+		decoder.UseNumber() // Keeps numbers as json.Number
+
 		var data map[string]interface{}
-		if err := json.NewDecoder(file).Decode(&data); err != nil {
+		if err := decoder.Decode(&data); err != nil {
 			file.Close()
 			log.Printf("Skipping corrupt file %s: %v", filePath, err)
 			continue
 		}
 		file.Close()
+
+		convertJSONNumbers(data)
+
 		allRecords = append(allRecords, data)
 	}
 
@@ -207,7 +312,7 @@ func (e *Exporter) exportDelimited(path string, records []map[string]interface{}
 	return nil
 }
 
-// formatValue converts a value to string for CSV/TSV aggregate
+// formatValue converts a value to string for CSV/TSV output
 func formatValue(val interface{}) string {
 	switch v := val.(type) {
 	case string:
@@ -280,28 +385,13 @@ func (e *Exporter) exportParquet(path string, records []map[string]interface{}) 
 	}
 	defer file.Close()
 
-	writer := parquet.NewGenericWriter[any](file, schema)
+	writer := parquet.NewWriter(file, schema)
 
-	// Convert maps to parquet rows
-	rows := make([]parquet.Row, len(records))
-	for i, record := range records {
-		rowValues := make([]parquet.Value, 0, len(keys))
-
-		for j, key := range keys {
-			val, exists := record[key]
-			if !exists || val == nil {
-				rowValues = append(rowValues, parquet.ValueOf(nil).Level(0, 0, j))
-				continue
-			}
-
-			pVal := convertToParquetValue(val, nodeMap[key])
-			rowValues = append(rowValues, pVal.Level(0, 1, j))
+	// Write maps directly - the schema will deconstruct them
+	for _, record := range records {
+		if err := writer.Write(record); err != nil {
+			return fmt.Errorf("failed to write parquet row: %w", err)
 		}
-		rows[i] = rowValues
-	}
-
-	if _, err := writer.WriteRows(rows); err != nil {
-		return fmt.Errorf("failed to write parquet rows: %w", err)
 	}
 
 	if err := writer.Close(); err != nil {
@@ -314,52 +404,45 @@ func (e *Exporter) exportParquet(path string, records []map[string]interface{}) 
 
 // inferParquetType determines the parquet type for a Go value
 func inferParquetType(v interface{}) parquet.Node {
-	switch v.(type) {
-	case int, int32, int64, float64:
-		// JSON numbers are float64, but we want int64 for most metrics
+	switch val := v.(type) {
+	case int, int32, int64:
 		return parquet.Int(64)
+	case float64:
+		return parquet.Leaf(parquet.DoubleType)
+	case json.Number:
+		// FIX: Try to parse as Int64 first, fallback to Float64
+		if _, err := val.Int64(); err == nil {
+			return parquet.Int(64)
+		}
+		return parquet.Leaf(parquet.DoubleType)
 	case bool:
 		return parquet.Leaf(parquet.BooleanType)
 	default:
 		return parquet.String()
 	}
 }
-
-// convertToParquetValue converts a Go value to a parquet.Value
-func convertToParquetValue(val interface{}, node parquet.Node) parquet.Value {
-	if node == nil {
-		return parquet.ValueOf(fmt.Sprintf("%v", val))
+func convertJSONNumbers(v interface{}) interface{} {
+	switch val := v.(type) {
+	case json.Number:
+		if i, err := val.Int64(); err == nil {
+			return i
+		}
+		if f, err := val.Float64(); err == nil {
+			return f
+		}
+		return val.String()
+	case map[string]interface{}:
+		for k, v := range val {
+			val[k] = convertJSONNumbers(v)
+		}
+		return val
+	case []interface{}:
+		for i, v := range val {
+			val[i] = convertJSONNumbers(v)
+		}
+		return val
 	}
-
-	switch node.Type().Kind() {
-	case parquet.Int64:
-		switch v := val.(type) {
-		case float64:
-			return parquet.ValueOf(int64(v))
-		case int64:
-			return parquet.ValueOf(v)
-		case int:
-			return parquet.ValueOf(int64(v))
-		default:
-			return parquet.ValueOf(int64(0))
-		}
-	case parquet.Double:
-		switch v := val.(type) {
-		case float64:
-			return parquet.ValueOf(v)
-		case int64:
-			return parquet.ValueOf(float64(v))
-		default:
-			return parquet.ValueOf(0.0)
-		}
-	case parquet.Boolean:
-		if v, ok := val.(bool); ok {
-			return parquet.ValueOf(v)
-		}
-		return parquet.ValueOf(false)
-	default:
-		return parquet.ValueOf(fmt.Sprintf("%v", val))
-	}
+	return v
 }
 
 // Cleanup removes intermediate snapshot files

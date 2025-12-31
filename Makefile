@@ -10,7 +10,7 @@ DOCKER_TAG    := latest
 DOCKER_FILE   := Dockerfile
 
 .DELETE_ON_ERROR:
-.PHONY: all help build clean run docker-build docker-run docker-clean refresh
+.PHONY: all help build clean run docker-build docker-run docker-clean refresh test test-v test-cover bench bench-parse bench-collect
 all: help
 
 help: ##@ Shows this help message
@@ -36,6 +36,30 @@ run: build ##@ Build and run the profiler locally
 	mkdir -p $(OUTPUT_DIR)
 	./$(GO_BINARY) -o $(OUTPUT_DIR)
 
+test: ##@ Run all unit tests
+	@echo "--- Running Tests ---"
+	go test ./...
+
+test-v: ##@ Run all unit tests with verbose output
+	@echo "--- Running Tests (verbose) ---"
+	go test -v ./...
+
+test-cover: ##@ Run tests with coverage report
+	@echo "--- Running Tests with Coverage ---"
+	go test -cover ./...
+
+bench: ##@ Run all benchmarks
+	@echo "--- Running All Benchmarks ---"
+	go test -bench=. -benchmem ./...
+
+bench-collect: ##@ Run collection benchmarks (requires /proc)
+	@echo "--- Running Collection Benchmarks ---"
+	go test -bench=Collect -benchmem ./$(SRC_DIR)/collectors/
+
+bench-output: ##@ Run flatten/aggregate benchmarks
+	@echo "--- Running Flatten Benchmarks ---"
+	go test -bench=. -benchmem ./$(SRC_DIR)/aggregate/
+
 docker-build: ##@ Build Docker image
 	@echo "--- Building Docker Image ($(DOCKER_FILE)) ---"
 	docker build --progress=plain \
@@ -59,6 +83,6 @@ test-vllm: ##@ Send test request to local vllm server
 
 clean: ##@ Remove all artifacts and docker images
 	@echo "--- Cleaning Artifacts ---"
-	rm -rf $(BIN_DIR) $(OUTPUT_DIR)
+	rm -rf $(BIN_DIR) $(OUTPUT_DIR) coverage.out coverage.html
 	@echo "--- Removing Docker Image ---"
 	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true

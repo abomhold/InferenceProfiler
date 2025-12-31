@@ -1,8 +1,8 @@
-package aggregate
+package main
 
 import (
-	"InferenceProfiler/src/aggregate"
 	"InferenceProfiler/src/collectors"
+	"InferenceProfiler/src/output"
 
 	"flag"
 	"fmt"
@@ -22,11 +22,12 @@ func main() {
 	log.SetPrefix("")
 
 	// Output options
-	outputDir := flag.String("o", "./profiler-aggregate", "Output directory for logs")
+	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
 	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
 	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
 	noFlatten := flag.Bool("no-flatten", false, "Disable flattening nested data (GPUs, processes) to columns; false keeps JSON strings")
 	noCleanup := flag.Bool("no-cleanup", false, "Disable deleting intermediary snapshot files after final export")
+	streamParquet := flag.Bool("stream-parquet", false, "Stream metrics directly to parquet file (ignores -f, always uses flattened format)")
 
 	// Collector toggles (all enabled by default)
 	noCPU := flag.Bool("no-cpu", false, "Disable CPU metrics collection")
@@ -42,11 +43,13 @@ func main() {
 	flag.Parse()
 	args := flag.Args()
 
-	// Validate format
-	validFormats := map[string]bool{"jsonl": true, "parquet": true, "csv": true, "tsv": true}
-	if !validFormats[*format] {
-		fmt.Fprintf(os.Stderr, "Invalid format: %s. Use: jsonl, parquet, csv, tsv\n", *format)
-		os.Exit(1)
+	// Validate format (not used if streaming)
+	if !*streamParquet {
+		validFormats := map[string]bool{"jsonl": true, "parquet": true, "csv": true, "tsv": true}
+		if !validFormats[*format] {
+			fmt.Fprintf(os.Stderr, "Invalid format: %s. Use: jsonl, parquet, csv, tsv\n", *format)
+			os.Exit(1)
+		}
 	}
 
 	sessionUUID := uuid.New()
@@ -54,9 +57,15 @@ func main() {
 	log.Printf("Session UUID: %s", sessionUUID)
 	log.Printf("Output Dir:   %s", *outputDir)
 	log.Printf("Interval:     %dms", *interval)
-	log.Printf("Format:       %s", *format)
-	log.Printf("Flatten:      %v", !*noFlatten)
-	log.Printf("Cleanup:      %v", !*noCleanup)
+
+	if *streamParquet {
+		log.Printf("Mode:         streaming parquet (ignores -f flag)")
+		log.Printf("Flatten:      true (streaming always flattens)")
+	} else {
+		log.Printf("Format:       %s", *format)
+		log.Printf("Flatten:      %v", !*noFlatten)
+		log.Printf("Cleanup:      %v", !*noCleanup)
+	}
 
 	// Build collector config
 	cfg := collectors.CollectorConfig{
@@ -100,17 +109,20 @@ func main() {
 	if len(disabled) > 0 {
 		log.Printf("Disabled:     %s", strings.Join(disabled, ", "))
 	}
-	if *noProcs {
+	if !*noProcs {
 		log.Printf("Processes:    enabled")
 	}
 
 	// Initialize
 	collector := collectors.NewCollectorManager(cfg)
 	defer collector.Close()
-	exp, err := aggregate.NewExporter(*outputDir, sessionUUID, !*noFlatten)
+
+	// For streaming, always use flatten mode
+	exp, err := output.NewExporter(*outputDir, sessionUUID, !*noFlatten || *streamParquet, *streamParquet)
 	if err != nil {
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
+	defer exp.CloseStream() // Safe to call even if not streaming
 
 	// Capture and save static info
 	log.Println("Capturing static hardware info...")
@@ -121,7 +133,7 @@ func main() {
 
 	// Start subprocess if command provided
 	var proc *exec.Cmd
-	processDone := make(chan error, 1) // Channel to notify when process exits
+	processDone := make(chan error, 1)
 
 	if len(args) > 0 {
 		log.Printf("Starting subprocess: %s", args)
@@ -132,7 +144,6 @@ func main() {
 			log.Fatalf("Failed to start command: %v", err)
 		}
 
-		// FIX: Use a goroutine to wait for the process
 		go func() {
 			processDone <- proc.Wait()
 		}()
@@ -144,7 +155,11 @@ func main() {
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
 	// Profiling loop
-	log.Println("Profiling started. Press Ctrl+C to stop.")
+	if *streamParquet {
+		log.Println("Profiling started (streaming to parquet). Press Ctrl+C to stop.")
+	} else {
+		log.Println("Profiling started. Press Ctrl+C to stop.")
+	}
 	intervalDuration := time.Duration(*interval) * time.Millisecond
 
 	for running {
@@ -193,6 +208,7 @@ func main() {
 			}
 		}
 	}
+
 	// Cleanup
 	log.Println("Shutting down...")
 
@@ -212,15 +228,23 @@ func main() {
 		}
 	}
 
-	log.Printf("Converting session data to %s...", *format)
-	err = exp.ProcessSession(*format)
-	if err != nil {
-		log.Printf("Error processing session: %v", err)
+	if *streamParquet {
+		log.Println("Finalizing parquet stream...")
+		if err := exp.CloseStream(); err != nil {
+			log.Printf("Error closing parquet stream: %v", err)
+		}
 	} else {
-		if !*noCleanup {
-			log.Println("Cleaning up intermediary files...")
-			exp.Cleanup()
+		log.Printf("Converting session data to %s...", *format)
+		err = exp.ProcessSession(*format)
+		if err != nil {
+			log.Printf("Error processing session: %v", err)
+		} else {
+			if !*noCleanup {
+				log.Println("Cleaning up intermediary files...")
+				exp.Cleanup()
+			}
 		}
 	}
+
 	log.Println("Done.")
 }
