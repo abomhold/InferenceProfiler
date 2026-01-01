@@ -21,96 +21,77 @@ type CollectorConfig struct {
 
 // CollectorManager aggregates all collectors
 type CollectorManager struct {
-	cfg    CollectorConfig
-	nvidia *NvidiaCollector
+	cfg                      CollectorConfig
+	nvidia                   *NvidiaCollector
+	dynamicMetricsCollectors []func(*DynamicMetrics)
+	staticMetricsCollectors  []func(*StaticMetrics)
 }
 
 // NewCollectorManager creates a new collector manager
 func NewCollectorManager(cfg CollectorConfig) *CollectorManager {
 	cm := &CollectorManager{cfg: cfg}
 
+	if cm.cfg.CPU {
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, CollectCPUStatic)
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectCPUDynamic)
+	}
+	if cm.cfg.Memory {
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, CollectMemoryStatic)
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectMemoryDynamic)
+	}
+	if cm.cfg.Disk {
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, CollectDiskStatic)
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectDiskDynamic)
+	}
+	if cm.cfg.Network {
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, CollectNetworkStatic)
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectNetworkDynamic)
+	}
+	if cm.cfg.Container && isCgroupDir() {
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectContainerDynamic)
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, CollectContainerStatic)
+	} else if cm.cfg.Container && !isCgroupDir() {
+		log.Printf("WARNING: Container collector is enabled but no cgroup directory")
+	}
+	if cm.cfg.Processes {
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectProcessesDynamic)
+	}
 	if cfg.Nvidia {
 		cm.nvidia = NewNvidiaCollector(cfg.NvidiaProcs)
 		if err := cm.nvidia.Init(); err != nil {
-			log.Printf("WARNGING: NVIDIA collector initialization failed: %v", err)
+			log.Printf("WARNING: NVIDIA collector initialization failed: %v", err)
 		}
+		cm.staticMetricsCollectors = append(cm.staticMetricsCollectors, cm.nvidia.CollectNvidiaStatic)
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, cm.nvidia.CollectNvidiaDynamic)
 	}
-
-	if cfg.Container && !isCgroupDir() {
-		log.Println("WARNING: Cgroup directory not found")
+	if cfg.VLLM {
+		cm.dynamicMetricsCollectors = append(cm.dynamicMetricsCollectors, CollectVLLMDynamic)
 	}
 
 	return cm
 }
 
-// CollectMetrics collects all dynamic metrics
-func (cm *CollectorManager) CollectMetrics() *DynamicMetrics {
+// CollectDynamicMetrics collects all dynamic metrics
+func (cm *CollectorManager) CollectDynamicMetrics() *DynamicMetrics {
 	m := &DynamicMetrics{
 		Timestamp: GetTimestamp(),
 	}
 
-	// VM-level metrics
-	if cm.cfg.CPU {
-		CollectCPUDynamic(m)
-	}
-	if cm.cfg.Memory {
-		CollectMemoryDynamic(m)
-	}
-	if cm.cfg.Disk {
-		CollectDiskDynamic(m)
-	}
-	if cm.cfg.Network {
-		CollectNetworkDynamic(m)
-	}
-
-	// Container metrics
-	if cm.cfg.Container && isCgroupDir() {
-		CollectContainerDynamic(m)
-	}
-
-	// NVIDIA GPU metrics
-	if cm.cfg.Nvidia && cm.nvidia != nil {
-		cm.nvidia.CollectDynamic(m)
-	}
-
-	// vLLM metrics
-	if cm.cfg.VLLM {
-		CollectVLLMDynamic(m)
-	}
-
-	// Process metrics
-	if cm.cfg.Processes {
-		CollectProcessesDynamic(m)
+	for _, collector := range cm.dynamicMetricsCollectors {
+		collector(m)
 	}
 
 	return m
 }
 
-// GetStaticMetrics collects all static system information
-func (cm *CollectorManager) GetStaticMetrics(sessionUUID uuid.UUID) *StaticMetrics {
+// CollectStaticMetrics collects all static system information
+func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *StaticMetrics {
 	m := &StaticMetrics{
 		UUID: sessionUUID.String(),
 	}
-
-	if cm.cfg.CPU {
-		CollectCPUStatic(m)
+	for _, collector := range cm.staticMetricsCollectors {
+		collector(m)
 	}
-	if cm.cfg.Memory {
-		CollectMemoryStatic(m)
-	}
-	if cm.cfg.Disk {
-		CollectDiskStatic(m)
-	}
-	if cm.cfg.Network {
-		CollectNetworkStatic(m)
-	}
-	if cm.cfg.Container && isCgroupDir() {
-		CollectContainerStatic(m)
-	}
-	if cm.cfg.Nvidia && cm.nvidia != nil {
-		cm.nvidia.CollectStatic(m)
-	}
-
 	return m
 }
 

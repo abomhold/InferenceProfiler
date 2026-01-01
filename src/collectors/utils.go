@@ -13,7 +13,7 @@ const JiffiesPerSecond = 100
 
 // GetTimestamp returns current time in nanoseconds
 func GetTimestamp() int64 {
-	return time.Now().UnixMilli()
+	return time.Now().UnixNano()
 }
 
 // parseInt64 is a quiet parser for DRYer metric collection

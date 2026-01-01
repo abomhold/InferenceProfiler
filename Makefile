@@ -39,7 +39,7 @@ build: refresh ##@ Compile Go binary locally
 run: build ##@ Build and run the profiler locally
 	@echo "--- Running Profiler ---"
 	mkdir -p $(OUTPUT_DIR)
-	./$(GO_BINARY) -o $(OUTPUT_DIR)
+	./$(GO_BINARY) -o $(OUTPUT_DIR) --no-procs --no-flatten -f parquet
 
 test: ##@ Run all unit tests
 	@echo "--- Running Tests ---"

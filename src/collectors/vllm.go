@@ -46,9 +46,8 @@ var metricMappings = map[string]string{
 
 // CollectVLLMDynamic populates vLLM metrics
 func CollectVLLMDynamic(m *DynamicMetrics) {
-	scrapeTime := GetTimestamp()
-
 	client := &http.Client{Timeout: 500 * time.Millisecond}
+	scrapeTime := GetTimestamp()
 	resp, err := client.Get(vllmMetricsURL)
 	if err != nil {
 		m.VLLMAvailable = false

@@ -4,6 +4,7 @@ import (
 	"InferenceProfiler/src/collectors"
 	"InferenceProfiler/src/output"
 
+	"context"
 	"flag"
 	"fmt"
 	"log"
@@ -11,6 +12,8 @@ import (
 	"os/exec"
 	"os/signal"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -21,15 +24,17 @@ func main() {
 	log.SetFlags(log.LstdFlags)
 	log.SetPrefix("")
 
-	// Output options
+	// -------------------------------------------------------------------------
+	// 1. Configuration & Flags
+	// -------------------------------------------------------------------------
 	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
-	interval := flag.Int("t", 1000, "Sampling interval in milliseconds")
+	intervalArg := flag.Int("t", 1, "Sampling interval in milliseconds")
 	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
 	noFlatten := flag.Bool("no-flatten", false, "Disable flattening nested data (GPUs, processes) to columns")
 	noCleanup := flag.Bool("no-cleanup", false, "Disable deleting intermediary snapshot files after final export")
 	stream := flag.Bool("stream", false, "Stream mode: write directly to output file")
 
-	// Collector toggles (all enabled by default)
+	// Collector toggles
 	noCPU := flag.Bool("no-cpu", false, "Disable CPU metrics collection")
 	noMemory := flag.Bool("no-memory", false, "Disable memory metrics collection")
 	noDisk := flag.Bool("no-disk", false, "Disable disk metrics collection")
@@ -54,7 +59,7 @@ func main() {
 
 	log.Printf("Session UUID: %s", sessionUUID)
 	log.Printf("Output Dir:   %s", *outputDir)
-	log.Printf("Interval:     %dms", *interval)
+	log.Printf("Interval:     %dms", *intervalArg)
 	log.Printf("Format:       %s", *format)
 	log.Printf("Mode:         %s", map[bool]string{true: "streaming", false: "batch"}[*stream])
 	log.Printf("Flatten:      %v", !*noFlatten)
@@ -108,138 +113,182 @@ func main() {
 		log.Printf("Processes:    enabled")
 	}
 
-	// Initialize
+	// -------------------------------------------------------------------------
+	// 2. Component Initialization
+	// -------------------------------------------------------------------------
+	// Initialize Collector
 	collector := collectors.NewCollectorManager(cfg)
-	defer collector.Close()
+	// We defer Close logic to the explicit shutdown block to avoid ordering issues with signal handlers
 
-	// Create exporter - streaming mode always uses flatten
+	// Initialize Exporter
 	exp, err := output.NewExporter(*outputDir, sessionUUID, !*noFlatten || *stream, *stream, *format)
 	if err != nil {
+		collector.Close()
 		log.Fatalf("Failed to create exporter: %v", err)
 	}
-	defer exp.CloseStream() // Safe to call even if not streaming
 
 	// Capture and save static info
 	log.Println("Capturing static hardware info...")
-	staticData := collector.GetStaticMetrics(sessionUUID)
+	staticData := collector.CollectStaticMetrics(sessionUUID)
 	if err := exp.SaveStatic(staticData); err != nil {
 		log.Printf("Warning: Failed to save static info: %v", err)
 	}
 
-	// Start subprocess if command provided
+	// -------------------------------------------------------------------------
+	// 3. Process & Signal Management
+	// -------------------------------------------------------------------------
+	// Create a cancellable context for the whole app
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+
 	var proc *exec.Cmd
 	processDone := make(chan error, 1)
 
+	// Start subprocess if command provided
 	if len(args) > 0 {
 		log.Printf("Starting subprocess: %s", args)
 		proc = exec.Command(args[0], args[1:]...)
 		proc.Stdout = os.Stdout
 		proc.Stderr = os.Stderr
+
 		if err := proc.Start(); err != nil {
 			log.Fatalf("Failed to start command: %v", err)
 		}
 
+		// Monitor subprocess in background
 		go func() {
-			processDone <- proc.Wait()
+			err := proc.Wait()
+			processDone <- err
+			if err != nil {
+				log.Printf("Subprocess finished with error: %v", err)
+			} else {
+				log.Printf("Subprocess finished successfully.")
+			}
+			// Trigger main shutdown when process exits
+			cancel()
 		}()
 	}
 
-	// Setup signal handling
-	running := true
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// -------------------------------------------------------------------------
+	// 4. Async Worker Loop (The Fix)
+	// -------------------------------------------------------------------------
+	var wg sync.WaitGroup
+	wg.Add(1)
 
-	// Profiling loop
-	if *stream {
-		log.Printf("Profiling started (streaming to %s). Press Ctrl+C to stop.", *format)
-	} else {
-		log.Println("Profiling started. Press Ctrl+C to stop.")
-	}
-	intervalDuration := time.Duration(*interval) * time.Millisecond
+	go func() {
+		defer wg.Done()
 
-	for running {
-		loopStart := time.Now()
+		intervalDuration := time.Duration(*intervalArg) * time.Millisecond
+		ticker := time.NewTicker(intervalDuration)
+		defer ticker.Stop()
 
-		// Check if subprocess finished
-		if proc != nil {
+		var busy int32 = 0
+
+		if *stream {
+			log.Printf("Profiling started (streaming to %s). Press Ctrl+C to stop.", *format)
+		} else {
+			log.Println("Profiling started. Press Ctrl+C to stop.")
+		}
+
+		for {
 			select {
-			case err := <-processDone:
-				if err != nil {
-					log.Printf("Subprocess finished with error: %v", err)
-				} else {
-					log.Printf("Subprocess finished successfully.")
+			case <-ctx.Done():
+				return // Stop loop
+
+			case <-ticker.C:
+				// NON-BLOCKING CHECK: Skip if previous collection is still running
+				if !atomic.CompareAndSwapInt32(&busy, 0, 1) {
+					continue
 				}
-				running = false
-			default:
-				// Process is still running, continue to collect metrics
+
+				// Run collection
+				go func() {
+					defer atomic.StoreInt32(&busy, 0)
+
+					// Double check context before doing work (optional optimization)
+					if ctx.Err() != nil {
+						return
+					}
+
+					metrics := collector.CollectDynamicMetrics()
+					if err := exp.SaveSnapshot(metrics); err != nil {
+						log.Printf("Error saving snapshot: %v", err)
+					}
+				}()
 			}
 		}
+	}()
 
-		if !running {
-			break
-		}
+	// -------------------------------------------------------------------------
+	// 5. Main Blocking Wait
+	// -------------------------------------------------------------------------
+	<-ctx.Done() // Waits for Signal OR Subprocess Exit
 
-		// Collect and save metrics
-		metrics := collector.CollectMetrics()
-		if err := exp.SaveSnapshot(metrics); err != nil {
-			log.Printf("Error saving snapshot: %v", err)
-		}
-
-		// Sleep for remaining interval
-		elapsed := time.Since(loopStart)
-		if sleep := intervalDuration - elapsed; sleep > 0 {
-			select {
-			case <-time.After(sleep):
-				// Continue
-			case err := <-processDone:
-				log.Printf("Subprocess finished during sleep.")
-				if err != nil {
-					log.Printf("Exit error: %v", err)
-				}
-				running = false
-			case sig := <-sigChan:
-				log.Printf("Signal %v received. Stopping...", sig)
-				running = false
-			}
-		}
-	}
-
-	// Cleanup
+	// -------------------------------------------------------------------------
+	// 6. Shutdown Sequence
+	// -------------------------------------------------------------------------
 	log.Println("Shutting down...")
 
+	// Kill subprocess if it's still alive
 	if proc != nil && proc.Process != nil {
-		log.Println("Terminating subprocess...")
-		proc.Process.Signal(syscall.SIGTERM)
-
-		done := make(chan error, 1)
-		go func() {
-			done <- proc.Wait()
-		}()
-
+		// Check if it's already dead
 		select {
-		case <-done:
-		case <-time.After(2 * time.Second):
-			proc.Process.Kill()
-		}
-	}
+		case <-processDone:
+			// Already done
+		default:
+			log.Println("Terminating subprocess...")
+			proc.Process.Signal(syscall.SIGTERM)
 
-	if *stream {
-		log.Printf("Finalizing %s stream...", *format)
-		if err := exp.CloseStream(); err != nil {
-			log.Printf("Error closing stream: %v", err)
-		}
-	} else {
-		log.Printf("Converting session data to %s...", *format)
-		err = exp.ProcessSession()
-		if err != nil {
-			log.Printf("Error processing session: %v", err)
-		} else {
-			if !*noCleanup {
-				log.Println("Cleaning up intermediary files...")
-				exp.Cleanup()
+			// Quick wait for SIGTERM to work
+			killTimer := time.NewTimer(2 * time.Second)
+			select {
+			case <-processDone:
+				// Exited gracefully
+			case <-killTimer.C:
+				log.Println("Subprocess did not exit, sending SIGKILL...")
+				proc.Process.Kill()
 			}
 		}
 	}
 
-	log.Println("Done.")
+	// Wait for profiler loop to finish with timeout
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer shutdownCancel()
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()         // Wait for worker goroutine
+		collector.Close() // Close NVML, etc.
+
+		// Finalize Exporter
+		if *stream {
+			log.Printf("Finalizing %s stream...", *format)
+			if err := exp.CloseStream(); err != nil {
+				log.Printf("Error closing stream: %v", err)
+			}
+		} else {
+			log.Printf("Converting session data to %s...", *format)
+			// Close stream first to flush buffers if any
+			exp.CloseStream()
+
+			err := exp.ProcessSession()
+			if err != nil {
+				log.Printf("Error processing session: %v", err)
+			} else {
+				if !*noCleanup {
+					log.Println("Cleaning up intermediary files...")
+					exp.Cleanup()
+				}
+			}
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Println("Done.")
+	case <-shutdownCtx.Done():
+		log.Println("!! Cleanup timed out (likely blocked in CGO). Forcing exit. !!")
+		os.Exit(1)
+	}
 }

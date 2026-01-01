@@ -41,8 +41,8 @@ func (n *NvidiaCollector) Cleanup() {
 	}
 }
 
-// CollectStatic populates static GPU information
-func (n *NvidiaCollector) CollectStatic(m *StaticMetrics) {
+// CollectNvidiaStatic populates static GPU information
+func (n *NvidiaCollector) CollectNvidiaStatic(m *StaticMetrics) {
 	if !n.initialized {
 		return
 	}
@@ -89,9 +89,9 @@ func (n *NvidiaCollector) CollectStatic(m *StaticMetrics) {
 	}
 }
 
-// CollectDynamic populates dynamic GPU metrics into the slice
+// CollectNvidiaDynamic populates dynamic GPU metrics into the slice
 // Flattening to nvidia{i}Field format happens at export time
-func (n *NvidiaCollector) CollectDynamic(m *DynamicMetrics) {
+func (n *NvidiaCollector) CollectNvidiaDynamic(m *DynamicMetrics) {
 	if !n.initialized {
 		return
 	}
@@ -219,7 +219,7 @@ func (n *NvidiaCollector) getRunningProcesses(device nvml.Device) ([]GPUProcess,
 		device.GetComputeRunningProcesses,
 		device.GetGraphicsRunningProcesses,
 	} {
-		if list, ret := getter(); ret == nvml.SUCCESS {
+		if list, ret := getter(); errors.Is(ret, nvml.SUCCESS) {
 			for _, p := range list {
 				if !seen[p.Pid] {
 					seen[p.Pid] = true
