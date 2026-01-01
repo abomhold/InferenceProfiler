@@ -1,5 +1,8 @@
 package collectors
 
+// Constants
+const JiffiesPerSecond = 100
+
 // StaticMetrics contains all static system information - collected once at startup
 type StaticMetrics struct {
 	// Session identification

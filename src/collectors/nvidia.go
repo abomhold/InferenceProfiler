@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -17,7 +16,14 @@ type NvidiaCollector struct {
 
 // NewNvidiaCollector creates a new NVIDIA collector
 func NewNvidiaCollector(collectProcs bool) *NvidiaCollector {
-	return &NvidiaCollector{collectProcs: collectProcs}
+	n := &NvidiaCollector{
+		collectProcs: collectProcs,
+	}
+	err := n.Init()
+	if err != nil {
+		panic(err)
+	}
+	return n
 }
 
 // Init initializes the NVML library
@@ -29,7 +35,6 @@ func (n *NvidiaCollector) Init() error {
 		return fmt.Errorf("failed to initialize NVML: %s", nvml.ErrorString(ret))
 	}
 	n.initialized = true
-	log.Println("NVIDIA NVML initialized successfully")
 	return nil
 }
 
@@ -90,7 +95,6 @@ func (n *NvidiaCollector) CollectNvidiaStatic(m *StaticMetrics) {
 }
 
 // CollectNvidiaDynamic populates dynamic GPU metrics into the slice
-// Flattening to nvidia{i}Field format happens at export time
 func (n *NvidiaCollector) CollectNvidiaDynamic(m *DynamicMetrics) {
 	if !n.initialized {
 		return

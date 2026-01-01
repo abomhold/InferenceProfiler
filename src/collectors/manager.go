@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"log"
+	"sync" // Added sync package
 
 	"github.com/google/uuid"
 )
@@ -14,7 +15,7 @@ type CollectorConfig struct {
 	Network     bool
 	Container   bool
 	Nvidia      bool
-	NvidiaProcs bool // Collect GPU processes (requires Nvidia=true)
+	NvidiaProcs bool
 	VLLM        bool
 	Processes   bool
 }
@@ -77,9 +78,19 @@ func (cm *CollectorManager) CollectDynamicMetrics() *DynamicMetrics {
 		Timestamp: GetTimestamp(),
 	}
 
+	var wg sync.WaitGroup
+
 	for _, collector := range cm.dynamicMetricsCollectors {
-		collector(m)
+		wg.Add(1)
+		// Launch goroutine
+		go func(c func(*DynamicMetrics)) {
+			defer wg.Done()
+			c(m)
+		}(collector)
 	}
+
+	// Wait for all collectors to finish populating 'm'
+	wg.Wait()
 
 	return m
 }
@@ -89,6 +100,8 @@ func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *StaticM
 	m := &StaticMetrics{
 		UUID: sessionUUID.String(),
 	}
+	// Static metrics are usually collected sequentially as they are done once at startup
+	// and often require order or are fast enough not to need complex concurrency.
 	for _, collector := range cm.staticMetricsCollectors {
 		collector(m)
 	}

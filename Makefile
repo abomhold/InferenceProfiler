@@ -53,7 +53,7 @@ bench: ##@ Run all benchmarks
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem ./...
 
-get-model: ##@ Download HF model to local dir (requires python3 & huggingface_hub)
+get-model: ##@ Download HF model to local dir
 	@echo "--- Downloading Model: $(MODEL_ID) to $(MODEL_DIR) ---"
 	mkdir -p $(MODEL_DIR)
 	hf download $(MODEL_ID) --local-dir $(MODEL_DIR)

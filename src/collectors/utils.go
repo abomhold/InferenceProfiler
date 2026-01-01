@@ -8,9 +8,6 @@ import (
 	"time"
 )
 
-// Constants
-const JiffiesPerSecond = 100
-
 // GetTimestamp returns current time in nanoseconds
 func GetTimestamp() int64 {
 	return time.Now().UnixNano()
