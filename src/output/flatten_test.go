@@ -49,7 +49,7 @@ func TestFlattenMetrics_NoGPUs(t *testing.T) {
 
 	// Should not have any nvidia0* keys
 	for key := range flat {
-		if key[:7] == "nvidia0" {
+		if len(key) >= 7 && key[:7] == "nvidia0" {
 			t.Errorf("Found unexpected GPU key: %s", key)
 		}
 	}
@@ -60,16 +60,16 @@ func TestFlattenMetrics_SingleGPU(t *testing.T) {
 		Timestamp: 1735166000000,
 		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
 			{
-				Index:           0,
-				UtilizationGPU:  85,
-				UtilizationGPUT: 1735166000001,
-				MemoryUsedMb:    8192,
-				MemoryFreeMb:    8192,
-				TemperatureC:    65,
-				PowerDrawW:      245.5,
-				PerfState:       "P0",
-				ProcessCount:    3,
-				ProcessesJSON:   `[{"pid":1234,"name":"python","usedMemoryMb":4096}]`,
+				Index:            0,
+				UtilizationGPU:   85,
+				UtilizationGPUT:  1735166000001,
+				MemoryUsedBytes:  8589934592, // 8 GiB in bytes
+				MemoryFreeBytes:  8589934592,
+				TemperatureGpuC:  65,
+				PowerUsageMw:     245500, // milliwatts
+				PerformanceState: 0,
+				ProcessCount:     3,
+				ProcessesJSON:    `[{"pid":1234,"name":"python","usedMemoryBytes":4294967296}]`,
 			},
 		},
 	}
@@ -82,19 +82,19 @@ func TestFlattenMetrics_SingleGPU(t *testing.T) {
 	if flat["nvidia0UtilizationGpu"] != int64(85) {
 		t.Errorf("nvidia0UtilizationGpu = %v; want 85", flat["nvidia0UtilizationGpu"])
 	}
-	if flat["nvidia0MemoryUsedMb"] != int64(8192) {
-		t.Errorf("nvidia0MemoryUsedMb = %v; want 8192", flat["nvidia0MemoryUsedMb"])
+	if flat["nvidia0MemoryUsedBytes"] != int64(8589934592) {
+		t.Errorf("nvidia0MemoryUsedBytes = %v; want 8589934592", flat["nvidia0MemoryUsedBytes"])
 	}
-	if flat["nvidia0TemperatureC"] != int64(65) {
-		t.Errorf("nvidia0TemperatureC = %v; want 65", flat["nvidia0TemperatureC"])
+	if flat["nvidia0TemperatureGpuC"] != int64(65) {
+		t.Errorf("nvidia0TemperatureGpuC = %v; want 65", flat["nvidia0TemperatureGpuC"])
 	}
-	if flat["nvidia0PowerDrawW"] != 245.5 {
-		t.Errorf("nvidia0PowerDrawW = %v; want 245.5", flat["nvidia0PowerDrawW"])
+	if flat["nvidia0PowerUsageMw"] != int64(245500) {
+		t.Errorf("nvidia0PowerUsageMw = %v; want 245500", flat["nvidia0PowerUsageMw"])
 	}
-	if flat["nvidia0PerfState"] != "P0" {
-		t.Errorf("nvidia0PerfState = %v; want P0", flat["nvidia0PerfState"])
+	if flat["nvidia0PerformanceState"] != 0 {
+		t.Errorf("nvidia0PerformanceState = %v; want 0", flat["nvidia0PerformanceState"])
 	}
-	if flat["nvidia0ProcessesJson"] != `[{"pid":1234,"name":"python","usedMemoryMb":4096}]` {
+	if flat["nvidia0ProcessesJson"] != `[{"pid":1234,"name":"python","usedMemoryBytes":4294967296}]` {
 		t.Errorf("nvidia0ProcessesJson = %v", flat["nvidia0ProcessesJson"])
 	}
 }
@@ -103,9 +103,9 @@ func TestFlattenMetrics_MultipleGPUs(t *testing.T) {
 	m := &collectors.DynamicMetrics{
 		Timestamp: 1735166000000,
 		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-			{Index: 1, UtilizationGPU: 72, MemoryUsedMb: 6144},
-			{Index: 2, UtilizationGPU: 90, MemoryUsedMb: 10240},
+			{Index: 0, UtilizationGPU: 85, MemoryUsedBytes: 8589934592},
+			{Index: 1, UtilizationGPU: 72, MemoryUsedBytes: 6442450944},
+			{Index: 2, UtilizationGPU: 90, MemoryUsedBytes: 10737418240},
 		},
 	}
 
@@ -121,17 +121,17 @@ func TestFlattenMetrics_MultipleGPUs(t *testing.T) {
 		util    int64
 		memUsed int64
 	}{
-		{"nvidia0", 85, 8192},
-		{"nvidia1", 72, 6144},
-		{"nvidia2", 90, 10240},
+		{"nvidia0", 85, 8589934592},
+		{"nvidia1", 72, 6442450944},
+		{"nvidia2", 90, 10737418240},
 	}
 
 	for _, tt := range gpuTests {
 		if flat[tt.prefix+"UtilizationGpu"] != tt.util {
 			t.Errorf("%sUtilizationGpu = %v; want %d", tt.prefix, flat[tt.prefix+"UtilizationGpu"], tt.util)
 		}
-		if flat[tt.prefix+"MemoryUsedMb"] != tt.memUsed {
-			t.Errorf("%sMemoryUsedMb = %v; want %d", tt.prefix, flat[tt.prefix+"MemoryUsedMb"], tt.memUsed)
+		if flat[tt.prefix+"MemoryUsedBytes"] != tt.memUsed {
+			t.Errorf("%sMemoryUsedBytes = %v; want %d", tt.prefix, flat[tt.prefix+"MemoryUsedBytes"], tt.memUsed)
 		}
 	}
 }
@@ -241,8 +241,8 @@ func TestToJSONMode_GPUsAsJSON(t *testing.T) {
 	m := &collectors.DynamicMetrics{
 		Timestamp: 1735166000000,
 		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-			{Index: 1, UtilizationGPU: 72, MemoryUsedMb: 6144},
+			{Index: 0, UtilizationGPU: 85, MemoryUsedBytes: 8589934592},
+			{Index: 1, UtilizationGPU: 72, MemoryUsedBytes: 6442450944},
 		},
 	}
 
@@ -270,8 +270,8 @@ func TestToJSONMode_GPUsAsJSON(t *testing.T) {
 	if gpus[0].UtilizationGPU != 85 {
 		t.Errorf("GPU 0 utilization = %d; want 85", gpus[0].UtilizationGPU)
 	}
-	if gpus[1].MemoryUsedMb != 6144 {
-		t.Errorf("GPU 1 memoryUsedMb = %d; want 6144", gpus[1].MemoryUsedMb)
+	if gpus[1].MemoryUsedBytes != 6442450944 {
+		t.Errorf("GPU 1 memoryUsedBytes = %d; want 6442450944", gpus[1].MemoryUsedBytes)
 	}
 
 	// Should NOT have flattened nvidia0* keys
@@ -492,10 +492,10 @@ func BenchmarkFlattenMetrics_WithGPUs(b *testing.B) {
 		MemoryTotal:       32768000000,
 		NetworkBytesRecvd: 987654321,
 		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-			{Index: 1, UtilizationGPU: 72, MemoryUsedMb: 6144},
-			{Index: 2, UtilizationGPU: 90, MemoryUsedMb: 10240},
-			{Index: 3, UtilizationGPU: 65, MemoryUsedMb: 4096},
+			{Index: 0, UtilizationGPU: 85, MemoryUsedBytes: 8589934592},
+			{Index: 1, UtilizationGPU: 72, MemoryUsedBytes: 6442450944},
+			{Index: 2, UtilizationGPU: 90, MemoryUsedBytes: 10737418240},
+			{Index: 3, UtilizationGPU: 65, MemoryUsedBytes: 4294967296},
 		},
 	}
 
@@ -534,8 +534,8 @@ func BenchmarkToJSONMode_WithGPUs(b *testing.B) {
 		MemoryTotal:       32768000000,
 		NetworkBytesRecvd: 987654321,
 		NvidiaGPUs: []collectors.NvidiaGPUDynamic{
-			{Index: 0, UtilizationGPU: 85, MemoryUsedMb: 8192},
-			{Index: 1, UtilizationGPU: 72, MemoryUsedMb: 6144},
+			{Index: 0, UtilizationGPU: 85, MemoryUsedBytes: 8589934592},
+			{Index: 1, UtilizationGPU: 72, MemoryUsedBytes: 6442450944},
 		},
 	}
 

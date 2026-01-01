@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -80,47 +79,7 @@ func main() {
 		VLLM:        !*noVLLM,
 	}
 
-	// Log disabled collectors
-	var disabled []string
-	if *noCPU {
-		disabled = append(disabled, "cpu")
-	}
-	if *noMemory {
-		disabled = append(disabled, "memory")
-	}
-	if *noDisk {
-		disabled = append(disabled, "disk")
-	}
-	if *noNetwork {
-		disabled = append(disabled, "network")
-	}
-	if *noContainer {
-		disabled = append(disabled, "container")
-	}
-	if *noNvidia {
-		disabled = append(disabled, "nvidia")
-	}
-	if *noGPUProcs && !*noNvidia {
-		disabled = append(disabled, "gpu-procs")
-	}
-	if *noVLLM {
-		disabled = append(disabled, "vllm")
-	}
-	if len(disabled) > 0 {
-		log.Printf("Disabled:     %s", strings.Join(disabled, ", "))
-	}
-	if !*noProcs {
-		log.Printf("Processes:    enabled")
-	}
-
-	// -------------------------------------------------------------------------
-	// 2. Component Initialization
-	// -------------------------------------------------------------------------
-	// Initialize Collector
 	collector := collectors.NewCollectorManager(cfg)
-	// We defer Close logic to the explicit shutdown block to avoid ordering issues with signal handlers
-
-	// Initialize Exporter
 	exp, err := output.NewExporter(*outputDir, sessionUUID, !*noFlatten || *stream, *stream, *format)
 	if err != nil {
 		collector.Close()
@@ -134,9 +93,6 @@ func main() {
 		log.Printf("Warning: Failed to save static info: %v", err)
 	}
 
-	// -------------------------------------------------------------------------
-	// 3. Process & Signal Management
-	// -------------------------------------------------------------------------
 	// Create a cancellable context for the whole app
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -169,10 +125,8 @@ func main() {
 		}()
 	}
 
-	// -------------------------------------------------------------------------
-	// 4. Async Worker Loop (The Fix)
-	// -------------------------------------------------------------------------
 	var wg sync.WaitGroup
+	var collectionWg sync.WaitGroup // Track in-flight collection goroutines
 	wg.Add(1)
 
 	go func() {
@@ -202,7 +156,9 @@ func main() {
 				}
 
 				// Run collection
+				collectionWg.Add(1)
 				go func() {
+					defer collectionWg.Done()
 					defer atomic.StoreInt32(&busy, 0)
 
 					// Double check context before doing work (optional optimization)
@@ -219,14 +175,7 @@ func main() {
 		}
 	}()
 
-	// -------------------------------------------------------------------------
-	// 5. Main Blocking Wait
-	// -------------------------------------------------------------------------
 	<-ctx.Done() // Waits for Signal OR Subprocess Exit
-
-	// -------------------------------------------------------------------------
-	// 6. Shutdown Sequence
-	// -------------------------------------------------------------------------
 	log.Println("Shutting down...")
 
 	// Kill subprocess if it's still alive
@@ -257,10 +206,10 @@ func main() {
 
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()         // Wait for worker goroutine
-		collector.Close() // Close NVML, etc.
+		wg.Wait()
+		collectionWg.Wait()
+		collector.Close()
 
-		// Finalize Exporter
 		if *stream {
 			log.Printf("Finalizing %s stream...", *format)
 			if err := exp.CloseStream(); err != nil {
@@ -268,9 +217,7 @@ func main() {
 			}
 		} else {
 			log.Printf("Converting session data to %s...", *format)
-			// Close stream first to flush buffers if any
 			exp.CloseStream()
-
 			err := exp.ProcessSession()
 			if err != nil {
 				log.Printf("Error processing session: %v", err)

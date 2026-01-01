@@ -104,40 +104,227 @@ func ToJSONMode(m *collectors.DynamicMetrics) map[string]interface{} {
 func flattenGPU(flat map[string]interface{}, gpu collectors.NvidiaGPUDynamic) {
 	prefix := fmt.Sprintf("nvidia%d", gpu.Index)
 
+	// =========================================================================
+	// UTILIZATION
+	// =========================================================================
 	flat[prefix+"UtilizationGpu"] = gpu.UtilizationGPU
 	flat[prefix+"UtilizationGpuT"] = gpu.UtilizationGPUT
-	flat[prefix+"UtilizationMem"] = gpu.UtilizationMem
-	flat[prefix+"UtilizationMemT"] = gpu.UtilizationMemT
-	flat[prefix+"MemoryUsedMb"] = gpu.MemoryUsedMb
-	flat[prefix+"MemoryUsedMbT"] = gpu.MemoryUsedMbT
-	flat[prefix+"MemoryFreeMb"] = gpu.MemoryFreeMb
-	flat[prefix+"MemoryFreeMbT"] = gpu.MemoryFreeMbT
-	flat[prefix+"Bar1UsedMb"] = gpu.Bar1UsedMb
-	flat[prefix+"Bar1UsedMbT"] = gpu.Bar1UsedMbT
-	flat[prefix+"TemperatureC"] = gpu.TemperatureC
-	flat[prefix+"TemperatureCT"] = gpu.TemperatureCT
-	flat[prefix+"FanSpeed"] = gpu.FanSpeed
-	flat[prefix+"FanSpeedT"] = gpu.FanSpeedT
+	flat[prefix+"UtilizationMemory"] = gpu.UtilizationMemory
+	flat[prefix+"UtilizationMemoryT"] = gpu.UtilizationMemoryT
+	flat[prefix+"UtilizationEncoder"] = gpu.UtilizationEncoder
+	flat[prefix+"UtilizationEncoderT"] = gpu.UtilizationEncoderT
+	flat[prefix+"UtilizationDecoder"] = gpu.UtilizationDecoder
+	flat[prefix+"UtilizationDecoderT"] = gpu.UtilizationDecoderT
+
+	// Optional utilization fields (Turing+)
+	if gpu.UtilizationJpeg != 0 || gpu.UtilizationJpegT != 0 {
+		flat[prefix+"UtilizationJpeg"] = gpu.UtilizationJpeg
+		flat[prefix+"UtilizationJpegT"] = gpu.UtilizationJpegT
+	}
+	if gpu.UtilizationOfa != 0 || gpu.UtilizationOfaT != 0 {
+		flat[prefix+"UtilizationOfa"] = gpu.UtilizationOfa
+		flat[prefix+"UtilizationOfaT"] = gpu.UtilizationOfaT
+	}
+
+	// Sampling periods
+	if gpu.EncoderSamplingPeriodUs != 0 {
+		flat[prefix+"EncoderSamplingPeriodUs"] = gpu.EncoderSamplingPeriodUs
+	}
+	if gpu.DecoderSamplingPeriodUs != 0 {
+		flat[prefix+"DecoderSamplingPeriodUs"] = gpu.DecoderSamplingPeriodUs
+	}
+
+	// =========================================================================
+	// MEMORY
+	// =========================================================================
+	flat[prefix+"MemoryUsedBytes"] = gpu.MemoryUsedBytes
+	flat[prefix+"MemoryUsedBytesT"] = gpu.MemoryUsedBytesT
+	flat[prefix+"MemoryFreeBytes"] = gpu.MemoryFreeBytes
+	flat[prefix+"MemoryFreeBytesT"] = gpu.MemoryFreeBytesT
+	flat[prefix+"MemoryTotalBytes"] = gpu.MemoryTotalBytes
+
+	if gpu.MemoryReservedBytes != 0 {
+		flat[prefix+"MemoryReservedBytes"] = gpu.MemoryReservedBytes
+		flat[prefix+"MemoryReservedBytesT"] = gpu.MemoryReservedBytesT
+	}
+
+	flat[prefix+"Bar1UsedBytes"] = gpu.Bar1UsedBytes
+	flat[prefix+"Bar1UsedBytesT"] = gpu.Bar1UsedBytesT
+	flat[prefix+"Bar1FreeBytes"] = gpu.Bar1FreeBytes
+	flat[prefix+"Bar1FreeBytesT"] = gpu.Bar1FreeBytesT
+	flat[prefix+"Bar1TotalBytes"] = gpu.Bar1TotalBytes
+
+	// =========================================================================
+	// TEMPERATURE
+	// =========================================================================
+	flat[prefix+"TemperatureGpuC"] = gpu.TemperatureGpuC
+	flat[prefix+"TemperatureGpuCT"] = gpu.TemperatureGpuCT
+
+	if gpu.TemperatureMemoryC != 0 || gpu.TemperatureMemoryCT != 0 {
+		flat[prefix+"TemperatureMemoryC"] = gpu.TemperatureMemoryC
+		flat[prefix+"TemperatureMemoryCT"] = gpu.TemperatureMemoryCT
+	}
+
+	// =========================================================================
+	// FAN
+	// =========================================================================
+	flat[prefix+"FanSpeedPercent"] = gpu.FanSpeedPercent
+	flat[prefix+"FanSpeedPercentT"] = gpu.FanSpeedPercentT
+
+	if gpu.FanSpeedsJSON != "" {
+		flat[prefix+"FanSpeedsJson"] = gpu.FanSpeedsJSON
+	}
+
+	// =========================================================================
+	// CLOCKS
+	// =========================================================================
 	flat[prefix+"ClockGraphicsMhz"] = gpu.ClockGraphicsMhz
 	flat[prefix+"ClockGraphicsMhzT"] = gpu.ClockGraphicsMhzT
 	flat[prefix+"ClockSmMhz"] = gpu.ClockSmMhz
 	flat[prefix+"ClockSmMhzT"] = gpu.ClockSmMhzT
-	flat[prefix+"ClockMemMhz"] = gpu.ClockMemMhz
-	flat[prefix+"ClockMemMhzT"] = gpu.ClockMemMhzT
-	flat[prefix+"PcieTxKbps"] = gpu.PcieTxKbps
-	flat[prefix+"PcieTxKbpsT"] = gpu.PcieTxKbpsT
-	flat[prefix+"PcieRxKbps"] = gpu.PcieRxKbps
-	flat[prefix+"PcieRxKbpsT"] = gpu.PcieRxKbpsT
-	flat[prefix+"PowerDrawW"] = gpu.PowerDrawW
-	flat[prefix+"PowerDrawWT"] = gpu.PowerDrawWT
-	flat[prefix+"PerfState"] = gpu.PerfState
-	flat[prefix+"PerfStateT"] = gpu.PerfStateT
+	flat[prefix+"ClockMemoryMhz"] = gpu.ClockMemoryMhz
+	flat[prefix+"ClockMemoryMhzT"] = gpu.ClockMemoryMhzT
+	flat[prefix+"ClockVideoMhz"] = gpu.ClockVideoMhz
+	flat[prefix+"ClockVideoMhzT"] = gpu.ClockVideoMhzT
+
+	// Application clocks (optional)
+	if gpu.AppClockGraphicsMhz != 0 || gpu.AppClockMemoryMhz != 0 {
+		flat[prefix+"AppClockGraphicsMhz"] = gpu.AppClockGraphicsMhz
+		flat[prefix+"AppClockMemoryMhz"] = gpu.AppClockMemoryMhz
+		flat[prefix+"AppClocksT"] = gpu.AppClocksT
+	}
+
+	// =========================================================================
+	// PERFORMANCE STATE
+	// =========================================================================
+	flat[prefix+"PerformanceState"] = gpu.PerformanceState
+	flat[prefix+"PerformanceStateT"] = gpu.PerformanceStateT
+
+	// =========================================================================
+	// POWER
+	// =========================================================================
+	flat[prefix+"PowerUsageMw"] = gpu.PowerUsageMw
+	flat[prefix+"PowerUsageMwT"] = gpu.PowerUsageMwT
+	flat[prefix+"PowerLimitMw"] = gpu.PowerLimitMw
+	flat[prefix+"PowerLimitMwT"] = gpu.PowerLimitMwT
+	flat[prefix+"PowerEnforcedLimitMw"] = gpu.PowerEnforcedLimitMw
+	flat[prefix+"PowerEnforcedLimitMwT"] = gpu.PowerEnforcedLimitMwT
+	flat[prefix+"EnergyConsumptionMj"] = gpu.EnergyConsumptionMj
+	flat[prefix+"EnergyConsumptionMjT"] = gpu.EnergyConsumptionMjT
+
+	// =========================================================================
+	// PCIe
+	// =========================================================================
+	flat[prefix+"PcieTxBytesPerSec"] = gpu.PcieTxBytesPerSec
+	flat[prefix+"PcieTxBytesPerSecT"] = gpu.PcieTxBytesPerSecT
+	flat[prefix+"PcieRxBytesPerSec"] = gpu.PcieRxBytesPerSec
+	flat[prefix+"PcieRxBytesPerSecT"] = gpu.PcieRxBytesPerSecT
+	flat[prefix+"PcieCurrentLinkGen"] = gpu.PcieCurrentLinkGen
+	flat[prefix+"PcieCurrentLinkGenT"] = gpu.PcieCurrentLinkGenT
+	flat[prefix+"PcieCurrentLinkWidth"] = gpu.PcieCurrentLinkWidth
+	flat[prefix+"PcieCurrentLinkWidthT"] = gpu.PcieCurrentLinkWidthT
+	flat[prefix+"PcieReplayCounter"] = gpu.PcieReplayCounter
+	flat[prefix+"PcieReplayCounterT"] = gpu.PcieReplayCounterT
+
+	// =========================================================================
+	// THROTTLING
+	// =========================================================================
+	flat[prefix+"ClocksEventReasons"] = gpu.ClocksEventReasons
+	flat[prefix+"ClocksEventReasonsT"] = gpu.ClocksEventReasonsT
+
+	if len(gpu.ThrottleReasonsActive) > 0 {
+		if data, err := json.Marshal(gpu.ThrottleReasonsActive); err == nil {
+			flat[prefix+"ThrottleReasonsActiveJson"] = string(data)
+		}
+	}
+
+	// Violation times
+	flat[prefix+"ViolationPowerNs"] = gpu.ViolationPowerNs
+	flat[prefix+"ViolationPowerNsT"] = gpu.ViolationPowerNsT
+	flat[prefix+"ViolationThermalNs"] = gpu.ViolationThermalNs
+	flat[prefix+"ViolationThermalNsT"] = gpu.ViolationThermalNsT
+
+	if gpu.ViolationReliabilityNs != 0 {
+		flat[prefix+"ViolationReliabilityNs"] = gpu.ViolationReliabilityNs
+		flat[prefix+"ViolationReliabilityNsT"] = gpu.ViolationReliabilityNsT
+	}
+	if gpu.ViolationBoardLimitNs != 0 {
+		flat[prefix+"ViolationBoardLimitNs"] = gpu.ViolationBoardLimitNs
+		flat[prefix+"ViolationBoardLimitNsT"] = gpu.ViolationBoardLimitNsT
+	}
+	if gpu.ViolationLowUtilNs != 0 {
+		flat[prefix+"ViolationLowUtilNs"] = gpu.ViolationLowUtilNs
+		flat[prefix+"ViolationLowUtilNsT"] = gpu.ViolationLowUtilNsT
+	}
+	if gpu.ViolationSyncBoostNs != 0 {
+		flat[prefix+"ViolationSyncBoostNs"] = gpu.ViolationSyncBoostNs
+		flat[prefix+"ViolationSyncBoostNsT"] = gpu.ViolationSyncBoostNsT
+	}
+
+	// =========================================================================
+	// ECC ERRORS
+	// =========================================================================
+	flat[prefix+"EccVolatileSbe"] = gpu.EccVolatileSbe
+	flat[prefix+"EccVolatileSbeT"] = gpu.EccVolatileSbeT
+	flat[prefix+"EccVolatileDbe"] = gpu.EccVolatileDbe
+	flat[prefix+"EccVolatileDbeT"] = gpu.EccVolatileDbeT
+	flat[prefix+"EccAggregateSbe"] = gpu.EccAggregateSbe
+	flat[prefix+"EccAggregateSbeT"] = gpu.EccAggregateSbeT
+	flat[prefix+"EccAggregateDbe"] = gpu.EccAggregateDbe
+	flat[prefix+"EccAggregateDbeT"] = gpu.EccAggregateDbeT
+
+	// Retired pages (optional)
+	if gpu.RetiredPagesSbe != 0 || gpu.RetiredPagesDbe != 0 {
+		flat[prefix+"RetiredPagesSbe"] = gpu.RetiredPagesSbe
+		flat[prefix+"RetiredPagesDbe"] = gpu.RetiredPagesDbe
+		flat[prefix+"RetiredPagesT"] = gpu.RetiredPagesT
+		flat[prefix+"RetiredPending"] = gpu.RetiredPending
+		flat[prefix+"RetiredPendingT"] = gpu.RetiredPendingT
+	}
+
+	// Remapped rows (Ampere+)
+	if gpu.RemappedRowsCorrectable != 0 || gpu.RemappedRowsUncorrectable != 0 || gpu.RemappedRowsPending || gpu.RemappedRowsFailure {
+		flat[prefix+"RemappedRowsCorrectable"] = gpu.RemappedRowsCorrectable
+		flat[prefix+"RemappedRowsUncorrectable"] = gpu.RemappedRowsUncorrectable
+		flat[prefix+"RemappedRowsPending"] = gpu.RemappedRowsPending
+		flat[prefix+"RemappedRowsFailure"] = gpu.RemappedRowsFailure
+		flat[prefix+"RemappedRowsT"] = gpu.RemappedRowsT
+	}
+
+	// =========================================================================
+	// ENCODER/DECODER STATS
+	// =========================================================================
+	flat[prefix+"EncoderSessionCount"] = gpu.EncoderSessionCount
+	flat[prefix+"EncoderAvgFps"] = gpu.EncoderAvgFps
+	flat[prefix+"EncoderAvgLatencyUs"] = gpu.EncoderAvgLatencyUs
+	flat[prefix+"EncoderStatsT"] = gpu.EncoderStatsT
+
+	flat[prefix+"FbcSessionCount"] = gpu.FbcSessionCount
+	flat[prefix+"FbcAvgFps"] = gpu.FbcAvgFps
+	flat[prefix+"FbcAvgLatencyUs"] = gpu.FbcAvgLatencyUs
+	flat[prefix+"FbcStatsT"] = gpu.FbcStatsT
+
+	// =========================================================================
+	// NVLINK
+	// =========================================================================
+	if gpu.NvLinkBandwidthJSON != "" {
+		flat[prefix+"NvlinkBandwidthJson"] = gpu.NvLinkBandwidthJSON
+	}
+	if gpu.NvLinkErrorsJSON != "" {
+		flat[prefix+"NvlinkErrorsJson"] = gpu.NvLinkErrorsJSON
+	}
+
+	// =========================================================================
+	// PROCESSES
+	// =========================================================================
 	flat[prefix+"ProcessCount"] = gpu.ProcessCount
 	flat[prefix+"ProcessCountT"] = gpu.ProcessCountT
 
-	// GPU processes as JSON string
 	if gpu.ProcessesJSON != "" {
 		flat[prefix+"ProcessesJson"] = gpu.ProcessesJSON
+	}
+	if gpu.ProcessUtilizationJSON != "" {
+		flat[prefix+"ProcessUtilizationJson"] = gpu.ProcessUtilizationJSON
 	}
 }
 

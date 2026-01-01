@@ -21,7 +21,7 @@ RUN pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
 COPY --from=builder /app/profiler /usr/local/bin/profiler
 RUN mkdir -p /profiler-output
 
-ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "100", "-f", "parquet","--stream", "--no-cleanup"]
+ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "1", "-f", "parquet"]
 
 CMD ["python3", "-c", \
      "from vllm import LLM, SamplingParams; \
@@ -30,5 +30,5 @@ CMD ["python3", "-c", \
                 max_model_len=2048, \
                 dtype='bfloat16'); \
       sampling_params = SamplingParams(max_tokens=512); \
-      prompts = ['Explain the difference between TCP and UDP.'] * 20; \
+      prompts = ['Explain the difference between TCP and UDP.'] * 200; \
       print(llm.generate(prompts, sampling_params))"]

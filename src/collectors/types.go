@@ -1,9 +1,16 @@
 package collectors
 
-// Constants
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
 const JiffiesPerSecond = 100
 
-// StaticMetrics contains all static system information - collected once at startup
+// ============================================================================
+// STATIC METRICS - Collected once at startup
+// ============================================================================
+
+// StaticMetrics contains all static system information collected at startup
 type StaticMetrics struct {
 	// Session identification
 	UUID     string `json:"uuid"`
@@ -26,16 +33,18 @@ type StaticMetrics struct {
 	ContainerNumCPUs int64  `json:"cNumProcessors"`
 	CgroupVersion    int64  `json:"cCgroupVersion"`
 
-	// Network static info (JSON string)
+	// Network static info
 	NetworkInterfacesJSON string `json:"networkInterfaces,omitempty"`
 
-	// NVIDIA static info
+	// Disk static info
+	DisksJSON string `json:"disks,omitempty"`
+
+	// NVIDIA GPU static info
 	NvidiaDriverVersion string `json:"nvidiaDriverVersion,omitempty"`
 	NvidiaCudaVersion   string `json:"nvidiaCudaVersion,omitempty"`
+	NvmlVersion         string `json:"nvmlVersion,omitempty"`
+	NvidiaGPUCount      int    `json:"nvidiaGpuCount,omitempty"`
 	NvidiaGPUsJSON      string `json:"nvidiaGpus,omitempty"`
-
-	// Disk static info (JSON string)
-	DisksJSON string `json:"disks,omitempty"`
 }
 
 // NetworkInterfaceStatic contains static info for a network interface
@@ -47,15 +56,7 @@ type NetworkInterfaceStatic struct {
 	SpeedMbps int64  `json:"speedMbps,omitempty"`
 }
 
-// NvidiaGPUStatic contains static info for a single GPU
-type NvidiaGPUStatic struct {
-	Index         int    `json:"index"`
-	Name          string `json:"name"`
-	UUID          string `json:"uuid"`
-	TotalMemoryMb int64  `json:"totalMemoryMb"`
-}
-
-// DiskStatic contains static info for a single disk
+// DiskStatic contains static info for a disk device
 type DiskStatic struct {
 	Name      string `json:"name"`
 	Model     string `json:"model"`
@@ -63,13 +64,88 @@ type DiskStatic struct {
 	SizeBytes int64  `json:"sizeBytes"`
 }
 
-// DynamicMetrics contains all dynamic metrics
-// GPU metrics stored as slice during collection, flattened at export time
-// Process metrics stored as JSON string
+// NvidiaGPUStatic contains static information for a single NVIDIA GPU
+type NvidiaGPUStatic struct {
+	// Basic identification
+	Index           int    `json:"index"`
+	Name            string `json:"name"`
+	UUID            string `json:"uuid"`
+	Serial          string `json:"serial,omitempty"`
+	BoardPartNumber string `json:"boardPartNumber,omitempty"`
+	Brand           string `json:"brand,omitempty"`
+
+	// Architecture and compute capability
+	Architecture        string `json:"architecture,omitempty"`
+	CudaCapabilityMajor int    `json:"cudaCapabilityMajor,omitempty"`
+	CudaCapabilityMinor int    `json:"cudaCapabilityMinor,omitempty"`
+
+	// Memory specifications
+	MemoryTotalBytes   int64 `json:"memoryTotalBytes"`
+	Bar1TotalBytes     int64 `json:"bar1TotalBytes,omitempty"`
+	MemoryBusWidthBits int   `json:"memoryBusWidthBits,omitempty"`
+
+	// Compute specifications
+	NumCores            int `json:"numCores,omitempty"`
+	MaxClockGraphicsMhz int `json:"maxClockGraphicsMhz,omitempty"`
+	MaxClockMemoryMhz   int `json:"maxClockMemoryMhz,omitempty"`
+	MaxClockSmMhz       int `json:"maxClockSmMhz,omitempty"`
+	MaxClockVideoMhz    int `json:"maxClockVideoMhz,omitempty"`
+
+	// PCI information
+	PciBusId         string `json:"pciBusId,omitempty"`
+	PciDeviceId      uint32 `json:"pciDeviceId,omitempty"`
+	PciSubsystemId   uint32 `json:"pciSubsystemId,omitempty"`
+	PcieMaxLinkGen   int    `json:"pcieMaxLinkGen,omitempty"`
+	PcieMaxLinkWidth int    `json:"pcieMaxLinkWidth,omitempty"`
+
+	// Power specifications (milliwatts)
+	PowerDefaultLimitMw int `json:"powerDefaultLimitMw,omitempty"`
+	PowerMinLimitMw     int `json:"powerMinLimitMw,omitempty"`
+	PowerMaxLimitMw     int `json:"powerMaxLimitMw,omitempty"`
+
+	// Firmware versions
+	VbiosVersion        string `json:"vbiosVersion,omitempty"`
+	InforomImageVersion string `json:"inforomImageVersion,omitempty"`
+	InforomOemVersion   string `json:"inforomOemVersion,omitempty"`
+
+	// Thermal specifications
+	NumFans           int `json:"numFans,omitempty"`
+	TempShutdownC     int `json:"tempShutdownC,omitempty"`
+	TempSlowdownC     int `json:"tempSlowdownC,omitempty"`
+	TempMaxOperatingC int `json:"tempMaxOperatingC,omitempty"`
+	TempTargetC       int `json:"tempTargetC,omitempty"`
+
+	// Configuration state
+	EccModeEnabled     bool   `json:"eccModeEnabled,omitempty"`
+	PersistenceModeOn  bool   `json:"persistenceModeOn,omitempty"`
+	ComputeMode        string `json:"computeMode,omitempty"`
+	IsMultiGpuBoard    bool   `json:"isMultiGpuBoard,omitempty"`
+	MultiGpuBoardId    uint   `json:"multiGpuBoardId,omitempty"`
+	DisplayModeEnabled bool   `json:"displayModeEnabled,omitempty"`
+	DisplayActive      bool   `json:"displayActive,omitempty"`
+
+	// MIG capabilities
+	MigModeEnabled  bool `json:"migModeEnabled,omitempty"`
+	MaxMigInstances int  `json:"maxMigInstances,omitempty"`
+
+	// Encoder/decoder capabilities
+	EncoderCapacityH264 int `json:"encoderCapacityH264,omitempty"`
+	EncoderCapacityHEVC int `json:"encoderCapacityHevc,omitempty"`
+	EncoderCapacityAV1  int `json:"encoderCapacityAv1,omitempty"`
+
+	// NVLink info
+	NvLinkCount int `json:"nvlinkCount,omitempty"`
+}
+
+// ============================================================================
+// DYNAMIC METRICS - Collected repeatedly during profiling
+// ============================================================================
+
+// DynamicMetrics contains all dynamic metrics collected during profiling
 type DynamicMetrics struct {
 	Timestamp int64 `json:"timestamp"`
 
-	// CPU
+	// CPU metrics
 	CPUTimeUserMode     int64   `json:"vCpuTimeUserMode"`
 	CPUTimeUserModeT    int64   `json:"vCpuTimeUserModeT"`
 	CPUTimeKernelMode   int64   `json:"vCpuTimeKernelMode"`
@@ -95,7 +171,7 @@ type DynamicMetrics struct {
 	CPUMhz              float64 `json:"vCpuMhz"`
 	CPUMhzT             int64   `json:"vCpuMhzT"`
 
-	// Memory
+	// Memory metrics
 	MemoryTotal           int64   `json:"vMemoryTotal"`
 	MemoryTotalT          int64   `json:"vMemoryTotalT"`
 	MemoryFree            int64   `json:"vMemoryFree"`
@@ -119,7 +195,7 @@ type DynamicMetrics struct {
 	MemorySwapUsed        int64   `json:"vMemorySwapUsed"`
 	MemorySwapUsedT       int64   `json:"vMemorySwapUsedT"`
 
-	// Disk
+	// Disk metrics
 	DiskSectorReads       int64 `json:"vDiskSectorReads"`
 	DiskSectorReadsT      int64 `json:"vDiskSectorReadsT"`
 	DiskSectorWrites      int64 `json:"vDiskSectorWrites"`
@@ -147,7 +223,7 @@ type DynamicMetrics struct {
 	DiskWeightedIOTime    int64 `json:"vDiskWeightedIOTime"`
 	DiskWeightedIOTimeT   int64 `json:"vDiskWeightedIOTimeT"`
 
-	// Network
+	// Network metrics
 	NetworkBytesRecvd    int64 `json:"vNetworkBytesRecvd"`
 	NetworkBytesRecvdT   int64 `json:"vNetworkBytesRecvdT"`
 	NetworkBytesSent     int64 `json:"vNetworkBytesSent"`
@@ -165,42 +241,40 @@ type DynamicMetrics struct {
 	NetworkDropsSent     int64 `json:"vNetworkDropsSent"`
 	NetworkDropsSentT    int64 `json:"vNetworkDropsSentT"`
 
-	// Container
-	ContainerNetworkBytesRecvd  int64 `json:"cNetworkBytesRecvd"`
-	ContainerNetworkBytesRecvdT int64 `json:"cNetworkBytesRecvdT"`
-	ContainerNetworkBytesSent   int64 `json:"cNetworkBytesSent"`
-	ContainerNetworkBytesSentT  int64 `json:"cNetworkBytesSentT"`
-	ContainerCPUTime            int64 `json:"cCpuTime"`
-	ContainerCPUTimeT           int64 `json:"cCpuTimeT"`
-	ContainerCPUTimeUserMode    int64 `json:"cCpuTimeUserMode"`
-	ContainerCPUTimeUserModeT   int64 `json:"cCpuTimeUserModeT"`
-	ContainerCPUTimeKernelMode  int64 `json:"cCpuTimeKernelMode"`
-	ContainerCPUTimeKernelModeT int64 `json:"cCpuTimeKernelModeT"`
-	ContainerMemoryUsed         int64 `json:"cMemoryUsed"`
-	ContainerMemoryUsedT        int64 `json:"cMemoryUsedT"`
-	ContainerMemoryMaxUsed      int64 `json:"cMemoryMaxUsed"`
-	ContainerMemoryMaxUsedT     int64 `json:"cMemoryMaxUsedT"`
-	ContainerDiskReadBytes      int64 `json:"cDiskReadBytes"`
-	ContainerDiskReadBytesT     int64 `json:"cDiskReadBytesT"`
-	ContainerDiskWriteBytes     int64 `json:"cDiskWriteBytes"`
-	ContainerDiskWriteBytesT    int64 `json:"cDiskWriteBytesT"`
-	ContainerDiskSectorIO       int64 `json:"cDiskSectorIO"`
-	ContainerDiskSectorIOT      int64 `json:"cDiskSectorIOT"`
-	ContainerPgFault            int64 `json:"cPgFault"`
-	ContainerPgFaultT           int64 `json:"cPgFaultT"`
-	ContainerMajorPgFault       int64 `json:"cMajorPgFault"`
-	ContainerMajorPgFaultT      int64 `json:"cMajorPgFaultT"`
-	ContainerNumProcesses       int64 `json:"cNumProcesses"`
-	ContainerNumProcessesT      int64 `json:"cNumProcessesT"`
+	// Container metrics
+	ContainerNetworkBytesRecvd  int64  `json:"cNetworkBytesRecvd"`
+	ContainerNetworkBytesRecvdT int64  `json:"cNetworkBytesRecvdT"`
+	ContainerNetworkBytesSent   int64  `json:"cNetworkBytesSent"`
+	ContainerNetworkBytesSentT  int64  `json:"cNetworkBytesSentT"`
+	ContainerCPUTime            int64  `json:"cCpuTime"`
+	ContainerCPUTimeT           int64  `json:"cCpuTimeT"`
+	ContainerCPUTimeUserMode    int64  `json:"cCpuTimeUserMode"`
+	ContainerCPUTimeUserModeT   int64  `json:"cCpuTimeUserModeT"`
+	ContainerCPUTimeKernelMode  int64  `json:"cCpuTimeKernelMode"`
+	ContainerCPUTimeKernelModeT int64  `json:"cCpuTimeKernelModeT"`
+	ContainerMemoryUsed         int64  `json:"cMemoryUsed"`
+	ContainerMemoryUsedT        int64  `json:"cMemoryUsedT"`
+	ContainerMemoryMaxUsed      int64  `json:"cMemoryMaxUsed"`
+	ContainerMemoryMaxUsedT     int64  `json:"cMemoryMaxUsedT"`
+	ContainerDiskReadBytes      int64  `json:"cDiskReadBytes"`
+	ContainerDiskReadBytesT     int64  `json:"cDiskReadBytesT"`
+	ContainerDiskWriteBytes     int64  `json:"cDiskWriteBytes"`
+	ContainerDiskWriteBytesT    int64  `json:"cDiskWriteBytesT"`
+	ContainerDiskSectorIO       int64  `json:"cDiskSectorIO"`
+	ContainerDiskSectorIOT      int64  `json:"cDiskSectorIOT"`
+	ContainerPgFault            int64  `json:"cPgFault"`
+	ContainerPgFaultT           int64  `json:"cPgFaultT"`
+	ContainerMajorPgFault       int64  `json:"cMajorPgFault"`
+	ContainerMajorPgFaultT      int64  `json:"cMajorPgFaultT"`
+	ContainerNumProcesses       int64  `json:"cNumProcesses"`
+	ContainerNumProcessesT      int64  `json:"cNumProcessesT"`
+	ContainerPerCPUTimesJSON    string `json:"cCpuPerCpuJson,omitempty"`
+	ContainerPerCPUTimesT       int64  `json:"cCpuPerCpuT,omitempty"`
 
-	// Per-CPU container metrics - always stored as JSON string, never flattened
-	ContainerPerCPUTimesJSON string `json:"cCpuPerCpuJson,omitempty"`
-	ContainerPerCPUTimesT    int64  `json:"cCpuPerCpuT,omitempty"`
-
-	// NVIDIA
+	// NVIDIA GPU metrics (collected separately, flattened for export)
 	NvidiaGPUs []NvidiaGPUDynamic `json:"-"`
 
-	// vLLM
+	// vLLM inference server metrics
 	VLLMAvailable              bool    `json:"vllmAvailable"`
 	VLLMTimestamp              int64   `json:"vllmTimestamp"`
 	VLLMRequestsRunning        float64 `json:"vllmRequestsRunning"`
@@ -228,56 +302,265 @@ type DynamicMetrics struct {
 	VLLMLatencyDecodeCount     float64 `json:"vllmLatencyDecodeCount"`
 	VLLMHistogramsJSON         string  `json:"vllmHistogramsJson,omitempty"`
 
-	// Process metrics - stored as slice, flattened dynamically at export
-	// Exported as process{i}Pid, process{i}Name, process{i}CpuTimeUserMode, etc.
+	// Process metrics (collected separately, flattened for export)
 	Processes []ProcessMetrics `json:"-"`
 }
 
-// NvidiaGPUDynamic contains dynamic metrics for a single GPU
+// NvidiaGPUDynamic contains dynamic metrics for a single NVIDIA GPU
 type NvidiaGPUDynamic struct {
-	Index             int     `json:"index"`
-	UtilizationGPU    int64   `json:"utilizationGpu"`
-	UtilizationGPUT   int64   `json:"utilizationGpuT"`
-	UtilizationMem    int64   `json:"utilizationMem"`
-	UtilizationMemT   int64   `json:"utilizationMemT"`
-	MemoryUsedMb      int64   `json:"memoryUsedMb"`
-	MemoryUsedMbT     int64   `json:"memoryUsedMbT"`
-	MemoryFreeMb      int64   `json:"memoryFreeMb"`
-	MemoryFreeMbT     int64   `json:"memoryFreeMbT"`
-	Bar1UsedMb        int64   `json:"bar1UsedMb"`
-	Bar1UsedMbT       int64   `json:"bar1UsedMbT"`
-	TemperatureC      int64   `json:"temperatureC"`
-	TemperatureCT     int64   `json:"temperatureCT"`
-	FanSpeed          int64   `json:"fanSpeed"`
-	FanSpeedT         int64   `json:"fanSpeedT"`
-	ClockGraphicsMhz  int64   `json:"clockGraphicsMhz"`
-	ClockGraphicsMhzT int64   `json:"clockGraphicsMhzT"`
-	ClockSmMhz        int64   `json:"clockSmMhz"`
-	ClockSmMhzT       int64   `json:"clockSmMhzT"`
-	ClockMemMhz       int64   `json:"clockMemMhz"`
-	ClockMemMhzT      int64   `json:"clockMemMhzT"`
-	PcieTxKbps        int64   `json:"pcieTxKbps"`
-	PcieTxKbpsT       int64   `json:"pcieTxKbpsT"`
-	PcieRxKbps        int64   `json:"pcieRxKbps"`
-	PcieRxKbpsT       int64   `json:"pcieRxKbpsT"`
-	PowerDrawW        float64 `json:"powerDrawW"`
-	PowerDrawWT       int64   `json:"powerDrawWT"`
-	PerfState         string  `json:"perfState"`
-	PerfStateT        int64   `json:"perfStateT"`
-	ProcessCount      int64   `json:"processCount"`
-	ProcessCountT     int64   `json:"processCountT"`
-	// GPU processes kept as JSON within each GPU
-	ProcessesJSON string `json:"processesJson,omitempty"`
+	Index int `json:"index"`
+
+	// =========================================================================
+	// UTILIZATION METRICS
+	// =========================================================================
+
+	// Core utilization percentages (0-100)
+	UtilizationGPU     int64 `json:"utilizationGpu"`
+	UtilizationGPUT    int64 `json:"utilizationGpuT"`
+	UtilizationMemory  int64 `json:"utilizationMemory"`
+	UtilizationMemoryT int64 `json:"utilizationMemoryT"`
+
+	// Hardware encoder/decoder utilization (video workloads)
+	UtilizationEncoder      int64 `json:"utilizationEncoder"`
+	UtilizationEncoderT     int64 `json:"utilizationEncoderT"`
+	EncoderSamplingPeriodUs int64 `json:"encoderSamplingPeriodUs,omitempty"`
+	UtilizationDecoder      int64 `json:"utilizationDecoder"`
+	UtilizationDecoderT     int64 `json:"utilizationDecoderT"`
+	DecoderSamplingPeriodUs int64 `json:"decoderSamplingPeriodUs,omitempty"`
+
+	// JPEG engine utilization (Turing+)
+	UtilizationJpeg  int64 `json:"utilizationJpeg,omitempty"`
+	UtilizationJpegT int64 `json:"utilizationJpegT,omitempty"`
+
+	// Optical Flow Accelerator utilization (Turing+)
+	UtilizationOfa  int64 `json:"utilizationOfa,omitempty"`
+	UtilizationOfaT int64 `json:"utilizationOfaT,omitempty"`
+
+	// =========================================================================
+	// MEMORY METRICS
+	// =========================================================================
+
+	// Frame buffer memory (bytes)
+	MemoryUsedBytes  int64 `json:"memoryUsedBytes"`
+	MemoryUsedBytesT int64 `json:"memoryUsedBytesT"`
+	MemoryFreeBytes  int64 `json:"memoryFreeBytes"`
+	MemoryFreeBytesT int64 `json:"memoryFreeBytesT"`
+	MemoryTotalBytes int64 `json:"memoryTotalBytes"`
+
+	// Reserved memory breakdown (v2 API)
+	MemoryReservedBytes  int64 `json:"memoryReservedBytes,omitempty"`
+	MemoryReservedBytesT int64 `json:"memoryReservedBytesT,omitempty"`
+
+	// BAR1 memory (CPU-accessible GPU memory window)
+	Bar1UsedBytes  int64 `json:"bar1UsedBytes"`
+	Bar1UsedBytesT int64 `json:"bar1UsedBytesT"`
+	Bar1FreeBytes  int64 `json:"bar1FreeBytes"`
+	Bar1FreeBytesT int64 `json:"bar1FreeBytesT"`
+	Bar1TotalBytes int64 `json:"bar1TotalBytes"`
+
+	// =========================================================================
+	// TEMPERATURE METRICS (Celsius)
+	// =========================================================================
+
+	TemperatureGpuC     int64 `json:"temperatureGpuC"`
+	TemperatureGpuCT    int64 `json:"temperatureGpuCT"`
+	TemperatureMemoryC  int64 `json:"temperatureMemoryC,omitempty"`
+	TemperatureMemoryCT int64 `json:"temperatureMemoryCT,omitempty"`
+
+	// =========================================================================
+	// FAN METRICS
+	// =========================================================================
+
+	FanSpeedPercent  int64  `json:"fanSpeedPercent"`
+	FanSpeedPercentT int64  `json:"fanSpeedPercentT"`
+	FanSpeedsJSON    string `json:"fanSpeedsJson,omitempty"` // Per-fan speeds array
+
+	// =========================================================================
+	// CLOCK SPEED METRICS (MHz)
+	// =========================================================================
+
+	ClockGraphicsMhz  int64 `json:"clockGraphicsMhz"`
+	ClockGraphicsMhzT int64 `json:"clockGraphicsMhzT"`
+	ClockSmMhz        int64 `json:"clockSmMhz"`
+	ClockSmMhzT       int64 `json:"clockSmMhzT"`
+	ClockMemoryMhz    int64 `json:"clockMemoryMhz"`
+	ClockMemoryMhzT   int64 `json:"clockMemoryMhzT"`
+	ClockVideoMhz     int64 `json:"clockVideoMhz"`
+	ClockVideoMhzT    int64 `json:"clockVideoMhzT"`
+
+	// Application clocks (user-configured targets)
+	AppClockGraphicsMhz int64 `json:"appClockGraphicsMhz,omitempty"`
+	AppClockMemoryMhz   int64 `json:"appClockMemoryMhz,omitempty"`
+	AppClocksT          int64 `json:"appClocksT,omitempty"`
+
+	// =========================================================================
+	// PERFORMANCE STATE
+	// =========================================================================
+
+	// P-state (P0=highest performance, P15=lowest)
+	PerformanceState  int   `json:"performanceState"`
+	PerformanceStateT int64 `json:"performanceStateT"`
+
+	// =========================================================================
+	// POWER METRICS (milliwatts)
+	// =========================================================================
+
+	PowerUsageMw          int64 `json:"powerUsageMw"`
+	PowerUsageMwT         int64 `json:"powerUsageMwT"`
+	PowerLimitMw          int64 `json:"powerLimitMw"`
+	PowerLimitMwT         int64 `json:"powerLimitMwT"`
+	PowerEnforcedLimitMw  int64 `json:"powerEnforcedLimitMw"`
+	PowerEnforcedLimitMwT int64 `json:"powerEnforcedLimitMwT"`
+
+	// Cumulative energy consumption (millijoules since driver load)
+	EnergyConsumptionMj  int64 `json:"energyConsumptionMj"`
+	EnergyConsumptionMjT int64 `json:"energyConsumptionMjT"`
+
+	// =========================================================================
+	// PCIe METRICS
+	// =========================================================================
+
+	// Throughput (bytes/sec, converted from NVML KB/s)
+	PcieTxBytesPerSec  int64 `json:"pcieTxBytesPerSec"`
+	PcieTxBytesPerSecT int64 `json:"pcieTxBytesPerSecT"`
+	PcieRxBytesPerSec  int64 `json:"pcieRxBytesPerSec"`
+	PcieRxBytesPerSecT int64 `json:"pcieRxBytesPerSecT"`
+
+	// Current link configuration
+	PcieCurrentLinkGen    int   `json:"pcieCurrentLinkGen"`
+	PcieCurrentLinkGenT   int64 `json:"pcieCurrentLinkGenT"`
+	PcieCurrentLinkWidth  int   `json:"pcieCurrentLinkWidth"`
+	PcieCurrentLinkWidthT int64 `json:"pcieCurrentLinkWidthT"`
+
+	// PCIe error counters
+	PcieReplayCounter  int64 `json:"pcieReplayCounter"`
+	PcieReplayCounterT int64 `json:"pcieReplayCounterT"`
+
+	// =========================================================================
+	// THROTTLING / CLOCK EVENT REASONS (Critical for performance analysis)
+	// =========================================================================
+
+	// Raw bitmask of active throttle reasons
+	ClocksEventReasons  uint64 `json:"clocksEventReasons"`
+	ClocksEventReasonsT int64  `json:"clocksEventReasonsT"`
+
+	// Decoded human-readable throttle reasons
+	ThrottleReasonsActive []string `json:"throttleReasonsActive,omitempty"`
+
+	// Cumulative violation time (nanoseconds spent in throttled state)
+	ViolationPowerNs        int64 `json:"violationPowerNs"`
+	ViolationPowerNsT       int64 `json:"violationPowerNsT"`
+	ViolationThermalNs      int64 `json:"violationThermalNs"`
+	ViolationThermalNsT     int64 `json:"violationThermalNsT"`
+	ViolationReliabilityNs  int64 `json:"violationReliabilityNs,omitempty"`
+	ViolationReliabilityNsT int64 `json:"violationReliabilityNsT,omitempty"`
+	ViolationBoardLimitNs   int64 `json:"violationBoardLimitNs,omitempty"`
+	ViolationBoardLimitNsT  int64 `json:"violationBoardLimitNsT,omitempty"`
+	ViolationLowUtilNs      int64 `json:"violationLowUtilNs,omitempty"`
+	ViolationLowUtilNsT     int64 `json:"violationLowUtilNsT,omitempty"`
+	ViolationSyncBoostNs    int64 `json:"violationSyncBoostNs,omitempty"`
+	ViolationSyncBoostNsT   int64 `json:"violationSyncBoostNsT,omitempty"`
+
+	// =========================================================================
+	// ECC ERROR METRICS
+	// =========================================================================
+
+	// Volatile errors (since last driver load)
+	EccVolatileSbe  int64 `json:"eccVolatileSbe"` // Single-bit errors (corrected)
+	EccVolatileSbeT int64 `json:"eccVolatileSbeT"`
+	EccVolatileDbe  int64 `json:"eccVolatileDbe"` // Double-bit errors (uncorrected)
+	EccVolatileDbeT int64 `json:"eccVolatileDbeT"`
+
+	// Aggregate errors (lifetime)
+	EccAggregateSbe  int64 `json:"eccAggregateSbe"`
+	EccAggregateSbeT int64 `json:"eccAggregateSbeT"`
+	EccAggregateDbe  int64 `json:"eccAggregateDbe"`
+	EccAggregateDbeT int64 `json:"eccAggregateDbeT"`
+
+	// Memory page retirement status
+	RetiredPagesSbe int64 `json:"retiredPagesSbe,omitempty"`
+	RetiredPagesDbe int64 `json:"retiredPagesDbe,omitempty"`
+	RetiredPagesT   int64 `json:"retiredPagesT,omitempty"`
+	RetiredPending  bool  `json:"retiredPending,omitempty"`
+	RetiredPendingT int64 `json:"retiredPendingT,omitempty"`
+
+	// Remapped rows (Ampere+ HBM health)
+	RemappedRowsCorrectable   int64 `json:"remappedRowsCorrectable,omitempty"`
+	RemappedRowsUncorrectable int64 `json:"remappedRowsUncorrectable,omitempty"`
+	RemappedRowsPending       bool  `json:"remappedRowsPending,omitempty"`
+	RemappedRowsFailure       bool  `json:"remappedRowsFailure,omitempty"`
+	RemappedRowsT             int64 `json:"remappedRowsT,omitempty"`
+
+	// =========================================================================
+	// ENCODER/DECODER SESSION STATISTICS
+	// =========================================================================
+
+	// NVENC stats
+	EncoderSessionCount int   `json:"encoderSessionCount"`
+	EncoderAvgFps       int   `json:"encoderAvgFps"`
+	EncoderAvgLatencyUs int   `json:"encoderAvgLatencyUs"`
+	EncoderStatsT       int64 `json:"encoderStatsT"`
+
+	// Frame buffer capture stats
+	FbcSessionCount int   `json:"fbcSessionCount"`
+	FbcAvgFps       int   `json:"fbcAvgFps"`
+	FbcAvgLatencyUs int   `json:"fbcAvgLatencyUs"`
+	FbcStatsT       int64 `json:"fbcStatsT"`
+
+	// =========================================================================
+	// NVLINK METRICS (Multi-GPU)
+	// =========================================================================
+
+	NvLinkBandwidthJSON string `json:"nvlinkBandwidthJson,omitempty"`
+	NvLinkErrorsJSON    string `json:"nvlinkErrorsJson,omitempty"`
+
+	// =========================================================================
+	// RUNNING PROCESSES
+	// =========================================================================
+
+	ProcessCount           int64  `json:"processCount"`
+	ProcessCountT          int64  `json:"processCountT"`
+	ProcessesJSON          string `json:"processesJson,omitempty"`
+	ProcessUtilizationJSON string `json:"processUtilizationJson,omitempty"`
 }
 
-// GPUProcess represents a process using GPU memory
+// GPUProcess represents a process using GPU resources
 type GPUProcess struct {
-	PID          uint32 `json:"pid"`
-	Name         string `json:"name"`
-	UsedMemoryMb int64  `json:"usedMemoryMb"`
+	PID             uint32 `json:"pid"`
+	Name            string `json:"name"`
+	UsedMemoryBytes int64  `json:"usedMemoryBytes"`
+	Type            string `json:"type,omitempty"` // "compute", "graphics", "mps"
 }
 
-// ProcessMetrics contains metrics for a single process
+// GPUProcessUtilization represents per-process GPU utilization sample
+type GPUProcessUtilization struct {
+	PID         uint32 `json:"pid"`
+	SmUtil      int    `json:"smUtil"`
+	MemUtil     int    `json:"memUtil"`
+	EncUtil     int    `json:"encUtil"`
+	DecUtil     int    `json:"decUtil"`
+	TimestampUs int64  `json:"timestampUs"`
+}
+
+// NvLinkBandwidth represents NVLink throughput for a single link
+type NvLinkBandwidth struct {
+	Link         int   `json:"link"`
+	TxBytes      int64 `json:"txBytes"`
+	RxBytes      int64 `json:"rxBytes"`
+	ThroughputTx int64 `json:"throughputTx"` // bytes/sec
+	ThroughputRx int64 `json:"throughputRx"` // bytes/sec
+}
+
+// NvLinkErrors represents error counts for a single NVLink
+type NvLinkErrors struct {
+	Link          int   `json:"link"`
+	CrcErrors     int64 `json:"crcErrors"`
+	EccErrors     int64 `json:"eccErrors"`
+	ReplayErrors  int64 `json:"replayErrors"`
+	RecoveryCount int64 `json:"recoveryCount"`
+}
+
+// ProcessMetrics contains metrics for a single OS process
 type ProcessMetrics struct {
 	PID                          int64  `json:"pId"`
 	PIDT                         int64  `json:"pIdT"`
@@ -307,7 +590,7 @@ type ProcessMetrics struct {
 	ResidentSetSizeT             int64  `json:"pResidentSetSizeT"`
 }
 
-// VLLMHistograms holds all histogram data
+// VLLMHistograms holds histogram data for vLLM metrics
 type VLLMHistograms struct {
 	TokensPerStep           map[string]float64 `json:"tokensPerStep,omitempty"`
 	LatencyTtft             map[string]float64 `json:"latencyTtft,omitempty"`

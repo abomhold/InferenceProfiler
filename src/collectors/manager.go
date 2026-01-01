@@ -2,7 +2,6 @@ package collectors
 
 import (
 	"log"
-	"sync" // Added sync package
 
 	"github.com/google/uuid"
 )
@@ -77,31 +76,39 @@ func (cm *CollectorManager) CollectDynamicMetrics() *DynamicMetrics {
 	m := &DynamicMetrics{
 		Timestamp: GetTimestamp(),
 	}
-
-	var wg sync.WaitGroup
-
 	for _, collector := range cm.dynamicMetricsCollectors {
-		wg.Add(1)
-		// Launch goroutine
-		go func(c func(*DynamicMetrics)) {
-			defer wg.Done()
-			c(m)
-		}(collector)
+		collector(m)
 	}
-
-	// Wait for all collectors to finish populating 'm'
-	wg.Wait()
-
 	return m
 }
+
+//// CollectDynamicMetrics collects all dynamic metrics
+//func (cm *CollectorManager) CollectDynamicMetrics() *DynamicMetrics {
+//	m := &DynamicMetrics{
+//		Timestamp: GetTimestamp(),
+//	}
+//
+//	var wg sync.WaitGroup
+//
+//	for _, collector := range cm.dynamicMetricsCollectors {
+//		wg.Add(1)
+//		go func(c func(*DynamicMetrics)) {
+//			defer wg.Done()
+//			c(m)
+//		}(collector)
+//	}
+//
+//	wg.Wait()
+//
+//	return m
+//}
 
 // CollectStaticMetrics collects all static system information
 func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *StaticMetrics {
 	m := &StaticMetrics{
 		UUID: sessionUUID.String(),
 	}
-	// Static metrics are usually collected sequentially as they are done once at startup
-	// and often require order or are fast enough not to need complex concurrency.
+
 	for _, collector := range cm.staticMetricsCollectors {
 		collector(m)
 	}

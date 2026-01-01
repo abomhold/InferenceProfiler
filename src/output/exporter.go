@@ -488,7 +488,7 @@ func (e *Exporter) exportParquet(path string, records []map[string]interface{}) 
 // inferParquetType determines the parquet type for a Go value
 func inferParquetType(v interface{}) parquet.Node {
 	switch val := v.(type) {
-	case int, int32, int64:
+	case int, int32, int64, uint, uint32, uint64: // Added uint types
 		return parquet.Int(64)
 	case float64:
 		return parquet.Leaf(parquet.DoubleType)

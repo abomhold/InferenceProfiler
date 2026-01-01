@@ -11,7 +11,7 @@ DOCKER_FILE   := Dockerfile
 
 # Model Settings
 MODEL_ID      ?= meta-llama/Llama-3.2-1B-Instruct
-MODEL_DIR     ?= $(PWD)/model
+MODEL_DIR     ?= ./model
 
 .DELETE_ON_ERROR:
 .PHONY: all help build clean run docker-build docker-run docker-clean refresh test test-v test-cover bench bench-parse bench-collect get-model
