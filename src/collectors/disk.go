@@ -8,20 +8,30 @@ import (
 	"strings"
 )
 
-const (
-	SectorSize = 512
-	DiskRegex  = `^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$`
-)
+// DiskCollector collects disk I/O metrics from /proc/diskstats
+type DiskCollector struct {
+	BaseCollector
+	diskPattern *regexp.Regexp
+}
 
-// CollectDiskStatic populates static disk information
-func CollectDiskStatic(m *StaticMetrics) {
-	diskPattern := regexp.MustCompile(DiskRegex)
+// NewDiskCollector creates a new disk collector
+func NewDiskCollector() *DiskCollector {
+	return &DiskCollector{
+		diskPattern: regexp.MustCompile(DiskRegex),
+	}
+}
+
+func (c *DiskCollector) Name() string {
+	return "Disk"
+}
+
+func (c *DiskCollector) CollectStatic(m *StaticMetrics) {
 	entries, _ := os.ReadDir("/sys/class/block/")
 	var disks []DiskStatic
 
 	for _, entry := range entries {
 		devName := entry.Name()
-		if !diskPattern.MatchString(devName) {
+		if !c.diskPattern.MatchString(devName) {
 			continue
 		}
 
@@ -46,10 +56,8 @@ func CollectDiskStatic(m *StaticMetrics) {
 	}
 }
 
-// CollectDiskDynamic populates dynamic disk metrics
-func CollectDiskDynamic(m *DynamicMetrics) {
+func (c *DiskCollector) CollectDynamic(m *DynamicMetrics) {
 	lines, ts := ProbeFileLines("/proc/diskstats")
-	diskPattern := regexp.MustCompile(DiskRegex)
 
 	var readCount, mergedReads, sectorReads, readTimeMs int64
 	var writeCount, mergedWrites, sectorWrites, writeTimeMs int64
@@ -62,7 +70,7 @@ func CollectDiskDynamic(m *DynamicMetrics) {
 		}
 
 		devName := fields[2]
-		if !diskPattern.MatchString(devName) {
+		if !c.diskPattern.MatchString(devName) {
 			continue
 		}
 

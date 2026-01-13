@@ -7,36 +7,55 @@ import (
 	"syscall"
 )
 
-// CollectProcessesDynamic populates per-process metrics into the slice
-// Flattening to process{i}Field format happens at export time
-func CollectProcessesDynamic(m *DynamicMetrics) {
+// ProcessCollector collects per-process metrics from /proc/[pid]/*
+type ProcessCollector struct {
+	BaseCollector
+	pageSize int64
+}
+
+// NewProcessCollector creates a new process collector
+func NewProcessCollector() *ProcessCollector {
+	return &ProcessCollector{
+		pageSize: int64(syscall.Getpagesize()),
+	}
+}
+
+func (c *ProcessCollector) Name() string {
+	return "Process"
+}
+
+func (c *ProcessCollector) CollectStatic(m *StaticMetrics) {
+	// Process collector has no static metrics
+}
+
+func (c *ProcessCollector) CollectDynamic(m *DynamicMetrics) {
 	dirs, err := filepath.Glob("/proc/[0-9]*")
 	if err != nil {
 		return
 	}
 
-	pageSize := int64(syscall.Getpagesize())
-
 	for _, pidPath := range dirs {
-		collectSingleProc(m, pidPath, pageSize)
+		if proc := c.collectSingleProcess(pidPath); proc != nil {
+			m.Processes = append(m.Processes, *proc)
+		}
 	}
 }
 
-func collectSingleProc(m *DynamicMetrics, pidPath string, pageSize int64) {
+func (c *ProcessCollector) collectSingleProcess(pidPath string) *ProcessMetrics {
 	pid, err := strconv.ParseInt(filepath.Base(pidPath), 10, 64)
 	if err != nil {
-		return
+		return nil
 	}
 
 	statData, tStat := ProbeFile(filepath.Join(pidPath, "stat"))
 	rparenIndex := strings.LastIndex(statData, ")")
 	if rparenIndex == -1 || len(statData) < rparenIndex+3 {
-		return
+		return nil
 	}
 
 	statParts := strings.Fields(statData[rparenIndex+2:])
 	if len(statParts) < 40 {
-		return
+		return nil
 	}
 
 	cmdline, tCmd := ProbeFile(filepath.Join(pidPath, "cmdline"))
@@ -46,7 +65,7 @@ func collectSingleProc(m *DynamicMetrics, pidPath string, pageSize int64) {
 	var rssBytes int64
 	if parts := strings.Fields(statm); len(parts) >= 2 {
 		rssPages, _ := strconv.ParseInt(parts[1], 10, 64)
-		rssBytes = rssPages * pageSize
+		rssBytes = rssPages * c.pageSize
 	}
 
 	pName := status["Name"]
@@ -56,7 +75,7 @@ func collectSingleProc(m *DynamicMetrics, pidPath string, pageSize int64) {
 		}
 	}
 
-	proc := ProcessMetrics{
+	return &ProcessMetrics{
 		PID:                          pid,
 		PIDT:                         tStat,
 		Name:                         pName,
@@ -84,6 +103,4 @@ func collectSingleProc(m *DynamicMetrics, pidPath string, pageSize int64) {
 		ResidentSetSize:              rssBytes,
 		ResidentSetSizeT:             tStatm,
 	}
-
-	m.Processes = append(m.Processes, proc)
 }

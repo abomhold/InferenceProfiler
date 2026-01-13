@@ -11,14 +11,37 @@ import (
 	"time"
 )
 
-var vllmMetricsURL = getEnv("VLLM_METRICS_URL", "http://localhost:8000/metrics")
+// VLLMCollector collects vLLM inference server metrics via Prometheus endpoint
+type VLLMCollector struct {
+	BaseCollector
+	client     *http.Client
+	metricsURL string
+}
 
-// CollectVLLMDynamic scrapes and parses vLLM Prometheus metrics
-func CollectVLLMDynamic(m *DynamicMetrics) {
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+// NewVLLMCollector creates a new vLLM collector
+func NewVLLMCollector() *VLLMCollector {
+	url := os.Getenv("VLLM_METRICS_URL")
+	if url == "" {
+		url = "http://localhost:8000/metrics"
+	}
+	return &VLLMCollector{
+		client:     &http.Client{Timeout: 500 * time.Millisecond},
+		metricsURL: url,
+	}
+}
+
+func (c *VLLMCollector) Name() string {
+	return "vLLM"
+}
+
+func (c *VLLMCollector) CollectStatic(m *StaticMetrics) {
+	// vLLM has no static metrics
+}
+
+func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 	scrapeTime := GetTimestamp()
 
-	resp, err := client.Get(vllmMetricsURL)
+	resp, err := c.client.Get(c.metricsURL)
 	if err != nil {
 		m.VLLMAvailable = false
 		return
@@ -35,12 +58,11 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 
 	histograms := &VLLMHistograms{}
 
-	// Parse Prometheus text format directly
+	// Parse Prometheus text format
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 
-		// Skip empty lines and comments
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
@@ -53,7 +75,7 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 		// Strip "vllm:" prefix
 		name = strings.TrimPrefix(name, "vllm:")
 
-		// Route to appropriate handler based on suffix
+		// Route to appropriate handler
 		switch {
 		case strings.HasSuffix(name, "_bucket"):
 			baseName := strings.TrimSuffix(name, "_bucket")
@@ -69,7 +91,6 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 			setHistogramCount(m, baseName, value)
 
 		case strings.HasSuffix(name, "_total"):
-			// Counter with _total suffix
 			baseName := strings.TrimSuffix(name, "_total")
 			setGaugeOrCounter(m, baseName, value)
 
@@ -85,11 +106,9 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 
 // parseMetricLine parses a Prometheus metric line
 // Format: metric_name{label="value",label2="value2"} 123.45
-// Returns: name, labels map, value, success
 func parseMetricLine(line string) (string, map[string]string, float64, bool) {
 	labels := make(map[string]string)
 
-	// Find value (last space-separated field)
 	lastSpace := strings.LastIndex(line, " ")
 	if lastSpace == -1 {
 		return "", nil, 0, false
@@ -98,16 +117,13 @@ func parseMetricLine(line string) (string, map[string]string, float64, bool) {
 	valueStr := strings.TrimSpace(line[lastSpace+1:])
 	metricPart := strings.TrimSpace(line[:lastSpace])
 
-	// Parse value
 	value, err := strconv.ParseFloat(valueStr, 64)
 	if err != nil {
 		return "", nil, 0, false
 	}
 
-	// Check for labels
 	labelStart := strings.Index(metricPart, "{")
 	if labelStart == -1 {
-		// No labels
 		return metricPart, labels, value, true
 	}
 
@@ -130,7 +146,6 @@ func parseMetricLine(line string) (string, map[string]string, float64, bool) {
 		}
 		key := strings.TrimSpace(pair[:eqIdx])
 		val := strings.TrimSpace(pair[eqIdx+1:])
-		// Remove quotes
 		val = strings.Trim(val, "\"")
 		labels[key] = val
 	}
@@ -169,7 +184,6 @@ func splitLabels(s string) []string {
 }
 
 func addHistogramBucket(h *VLLMHistograms, name, le string, value float64) {
-	// Normalize le value
 	if le == "+Inf" {
 		le = "inf"
 	}
@@ -307,11 +321,4 @@ func sanitizeFloat(v float64) float64 {
 		return 0
 	}
 	return v
-}
-
-func getEnv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
 }

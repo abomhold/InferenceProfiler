@@ -7,10 +7,21 @@ import (
 	"strings"
 )
 
-const LoopbackInterface = "lo"
+// NetworkCollector collects network metrics from /proc/net/dev
+type NetworkCollector struct {
+	BaseCollector
+}
 
-// CollectNetworkStatic populates static network information
-func CollectNetworkStatic(m *StaticMetrics) {
+// NewNetworkCollector creates a new network collector
+func NewNetworkCollector() *NetworkCollector {
+	return &NetworkCollector{}
+}
+
+func (c *NetworkCollector) Name() string {
+	return "Network"
+}
+
+func (c *NetworkCollector) CollectStatic(m *StaticMetrics) {
 	interfaces, _ := os.ReadDir("/sys/class/net/")
 	var netInterfaces []NetworkInterfaceStatic
 
@@ -49,12 +60,12 @@ func CollectNetworkStatic(m *StaticMetrics) {
 	}
 }
 
-// CollectNetworkDynamic populates dynamic network metrics
-func CollectNetworkDynamic(m *DynamicMetrics) {
+func (c *NetworkCollector) CollectDynamic(m *DynamicMetrics) {
 	lines, ts := ProbeFileLines("/proc/net/dev")
 	var bRecv, pRecv, eRecv, dRecv int64
 	var bSent, pSent, eSent, dSent int64
 
+	// Skip header lines (first 2 lines)
 	for i := 2; i < len(lines); i++ {
 		line := lines[i]
 		if !strings.Contains(line, ":") {

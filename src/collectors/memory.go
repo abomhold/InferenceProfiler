@@ -6,15 +6,27 @@ import (
 	"strings"
 )
 
-// CollectMemoryStatic populates static memory information
-func CollectMemoryStatic(m *StaticMetrics) {
+// MemoryCollector collects memory metrics from /proc/meminfo and /proc/vmstat
+type MemoryCollector struct {
+	BaseCollector
+}
+
+// NewMemoryCollector creates a new memory collector
+func NewMemoryCollector() *MemoryCollector {
+	return &MemoryCollector{}
+}
+
+func (c *MemoryCollector) Name() string {
+	return "Memory"
+}
+
+func (c *MemoryCollector) CollectStatic(m *StaticMetrics) {
 	memInfo, _ := getMeminfo()
 	m.MemoryTotalBytes = memInfo["MemTotal"]
 	m.SwapTotalBytes = memInfo["SwapTotal"]
 }
 
-// CollectMemoryDynamic populates dynamic memory metrics
-func CollectMemoryDynamic(m *DynamicMetrics) {
+func (c *MemoryCollector) CollectDynamic(m *DynamicMetrics) {
 	memInfo, tMem := getMeminfo()
 	pgFault, pgMajFault, tVmstat := getPageFaults()
 
@@ -70,7 +82,7 @@ func getMeminfo() (map[string]int64, int64) {
 		v = strings.TrimSpace(v)
 		val, err := strconv.ParseInt(v, 10, 64)
 		if err == nil {
-			processed[k] = val * 1024
+			processed[k] = val * 1024 // Convert kB to bytes
 		}
 	}
 	return processed, ts

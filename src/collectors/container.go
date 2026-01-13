@@ -9,41 +9,57 @@ import (
 	"strings"
 )
 
-const CgroupDir = "/sys/fs/cgroup"
-
-// CollectContainerStatic populates static container information
-func CollectContainerStatic(m *StaticMetrics) {
-	if !isCgroupDir() {
-		return
-	}
-	m.ContainerID = getContainerID()
-	m.ContainerNumCPUs = int64(runtime.NumCPU())
-	m.CgroupVersion = getCgroupVersion()
+// ContainerCollector collects container/cgroup metrics
+type ContainerCollector struct {
+	BaseCollector
+	cgroupVersion int64
 }
 
-// CollectContainerDynamic populates dynamic container metrics
-func CollectContainerDynamic(m *DynamicMetrics) {
+// NewContainerCollector creates a new container collector
+// Returns nil if cgroup directory doesn't exist
+func NewContainerCollector() *ContainerCollector {
 	if !isCgroupDir() {
-		return
+		log.Println("WARNING: Container collector disabled - cgroup directory not found")
+		return nil
 	}
+	return &ContainerCollector{
+		cgroupVersion: getCgroupVersion(),
+	}
+}
 
+func (c *ContainerCollector) Name() string {
+	return "Container"
+}
+
+func (c *ContainerCollector) CollectStatic(m *StaticMetrics) {
+	m.ContainerID = getContainerID()
+	m.ContainerNumCPUs = int64(runtime.NumCPU())
+	m.CgroupVersion = c.cgroupVersion
+}
+
+func (c *ContainerCollector) CollectDynamic(m *DynamicMetrics) {
+	// Network stats (common to both versions)
 	netRecv, netSent, tNet := getContainerNetStats()
 	m.ContainerNetworkBytesRecvd = netRecv
 	m.ContainerNetworkBytesRecvdT = tNet
 	m.ContainerNetworkBytesSent = netSent
 	m.ContainerNetworkBytesSentT = tNet
 
-	switch getCgroupVersion() {
+	// Version-specific metrics
+	switch c.cgroupVersion {
 	case 1:
-		collectContainerV1(m)
+		c.collectV1(m)
 	case 2:
-		collectContainerV2(m)
+		c.collectV2(m)
 	}
 }
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
 func isCgroupDir() bool {
 	if _, err := os.Stat(CgroupDir); os.IsNotExist(err) {
-		log.Println("Cgroup directory not found: " + CgroupDir)
 		return false
 	}
 	return true
@@ -92,8 +108,11 @@ func getContainerNetStats() (int64, int64, int64) {
 	return recv, sent, ts
 }
 
-// collectContainerV1 collects cgroup v1 specific metrics
-func collectContainerV1(m *DynamicMetrics) {
+// =============================================================================
+// Cgroup v1 Collection
+// =============================================================================
+
+func (c *ContainerCollector) collectV1(m *DynamicMetrics) {
 	cpuPath := filepath.Join(CgroupDir, "cpuacct")
 	memPath := filepath.Join(CgroupDir, "memory")
 	blkioPath := filepath.Join(CgroupDir, "blkio")
@@ -102,8 +121,6 @@ func collectContainerV1(m *DynamicMetrics) {
 	// CPU metrics
 	cpuUsage, tCpu := ProbeFileInt(filepath.Join(cpuPath, "cpuacct.usage"))
 	cpuStat, tCpuStat := ProbeFileKV(filepath.Join(cpuPath, "cpuacct.stat"), " ")
-
-	// Per-CPU times (serialized as JSON)
 	perCpuJSON, tPerCpu := getPerCPUTimesV1(cpuPath)
 
 	// Memory metrics
@@ -144,7 +161,6 @@ func collectContainerV1(m *DynamicMetrics) {
 	m.ContainerNumProcessesT = tProcs
 }
 
-// getPerCPUTimesV1 reads per-CPU times from cpuacct.usage_percpu and returns as JSON
 func getPerCPUTimesV1(cpuPath string) (string, int64) {
 	content, ts := ProbeFile(filepath.Join(cpuPath, "cpuacct.usage_percpu"))
 	if content == "" {
@@ -155,7 +171,6 @@ func getPerCPUTimesV1(cpuPath string) (string, int64) {
 	for _, f := range fields {
 		times = append(times, parseInt64(f))
 	}
-	// Serialize to JSON
 	if len(times) > 0 {
 		data, _ := json.Marshal(times)
 		return string(data), ts
@@ -163,7 +178,6 @@ func getPerCPUTimesV1(cpuPath string) (string, int64) {
 	return "", ts
 }
 
-// getBlkioSectorsV1 reads total sector IO from blkio.sectors
 func getBlkioSectorsV1(blkioPath string) (int64, int64) {
 	var total int64
 	lines, ts := ProbeFileLines(filepath.Join(blkioPath, "blkio.sectors"))
@@ -176,9 +190,7 @@ func getBlkioSectorsV1(blkioPath string) (int64, int64) {
 	return total, ts
 }
 
-// getProcessCountV1 counts processes in the cgroup
 func getProcessCountV1(pidsPath string) (int64, int64) {
-	// Try pids.current first (if pids controller available)
 	if count, ts := ProbeFileInt(filepath.Join(pidsPath, "pids.current")); count > 0 {
 		return count, ts
 	}
@@ -206,8 +218,11 @@ func getBlkioV1() (int64, int64, int64) {
 	return r, w, ts
 }
 
-// collectContainerV2 collects cgroup v2 specific metrics
-func collectContainerV2(m *DynamicMetrics) {
+// =============================================================================
+// Cgroup v2 Collection
+// =============================================================================
+
+func (c *ContainerCollector) collectV2(m *DynamicMetrics) {
 	cpuStats, tCpu := ProbeFileKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
 	memUsage, tMem := ProbeFileInt(filepath.Join(CgroupDir, "memory.current"))
 	memPeak, tPeak := ProbeFileInt(filepath.Join(CgroupDir, "memory.peak"))
@@ -215,7 +230,7 @@ func collectContainerV2(m *DynamicMetrics) {
 	dr, dw, tIO := getIOStatV2()
 	numProcs, tProcs := ProbeFileInt(filepath.Join(CgroupDir, "pids.current"))
 
-	m.ContainerCPUTime = parseInt64(cpuStats["usage_usec"]) * 1000
+	m.ContainerCPUTime = parseInt64(cpuStats["usage_usec"]) * 1000 // Convert to ns
 	m.ContainerCPUTimeT = tCpu
 	m.ContainerCPUTimeUserMode = parseInt64(cpuStats["user_usec"]) / 10000
 	m.ContainerCPUTimeUserModeT = tCpu
@@ -235,7 +250,6 @@ func collectContainerV2(m *DynamicMetrics) {
 	m.ContainerDiskWriteBytesT = tIO
 	m.ContainerNumProcesses = numProcs
 	m.ContainerNumProcessesT = tProcs
-	// Note: cgroup v2 doesn't have per-CPU breakdown or sector IO equivalent
 }
 
 func getIOStatV2() (int64, int64, int64) {

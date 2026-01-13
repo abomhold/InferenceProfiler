@@ -10,29 +10,35 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// CollectCPUStatic populates static CPU information
-func CollectCPUStatic(m *StaticMetrics) {
+// CPUCollector collects CPU metrics from /proc/stat and related sources
+type CPUCollector struct {
+	BaseCollector
+}
+
+// NewCPUCollector creates a new CPU collector
+func NewCPUCollector() *CPUCollector {
+	return &CPUCollector{}
+}
+
+func (c *CPUCollector) Name() string {
+	return "CPU"
+}
+
+func (c *CPUCollector) CollectStatic(m *StaticMetrics) {
 	m.VMID = getVMID()
 	m.BootTime = getBootTime()
 	m.CPUType = getCPUType()
 	m.NumProcessors = runtime.NumCPU()
+	m.CPUCache = getCPUCache()
 
-	// Collect kernel time synchronization status
-	synced, offset, maxErr := getNTPInfo()
-	m.TimeSynced = synced
-	m.TimeOffsetSeconds = offset
-	m.TimeMaxErrorSeconds = maxErr
-
-	// CPU cache info
-	cache := getCPUCache()
-	m.CPUCache = cache
+	// Time synchronization from adjtimex syscall
+	m.TimeSynced, m.TimeOffsetSeconds, m.TimeMaxErrorSeconds = getNTPInfo()
 
 	// Kernel info
 	getKernelInfo(m)
 }
 
-// CollectCPUDynamic populates dynamic CPU metrics
-func CollectCPUDynamic(m *DynamicMetrics) {
+func (c *CPUCollector) CollectDynamic(m *DynamicMetrics) {
 	// /proc/stat metrics
 	statMetrics, tStat := getProcStat()
 	m.CPUTimeUserMode = statMetrics["user"]
@@ -63,6 +69,10 @@ func CollectCPUDynamic(m *DynamicMetrics) {
 	m.CPUMhz, m.CPUMhzT = getCPUFreq()
 }
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
 func getCPUType() string {
 	lines, _ := ProbeFileLines("/proc/cpuinfo")
 	for _, line := range lines {
@@ -80,7 +90,6 @@ func getCPUCache() string {
 	result := make(map[string]int64)
 	seen := make(map[string]bool)
 
-	// Glob all cache indices
 	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
 	for _, dir := range dirs {
 		level, _ := ProbeFile(filepath.Join(dir, "level"))
@@ -88,7 +97,7 @@ func getCPUCache() string {
 		sizeStr, _ := ProbeFile(filepath.Join(dir, "size"))
 		shared, _ := ProbeFile(filepath.Join(dir, "shared_cpu_map"))
 
-		// Generate a unique ID to prevent double counting shared caches
+		// Generate unique ID to prevent double counting shared caches
 		cacheID := fmt.Sprintf("L%s-%s-%s", level, cType, shared)
 		if seen[cacheID] || level == "" || sizeStr == "" {
 			continue
@@ -99,18 +108,20 @@ func getCPUCache() string {
 		var size int64
 		var unit rune
 		fmt.Sscanf(sizeStr, "%d%c", &size, &unit)
-		if unit == 'K' {
+		switch unit {
+		case 'K':
 			size *= 1024
-		} else if unit == 'M' {
+		case 'M':
 			size *= 1024 * 1024
 		}
 
 		// Determine suffix for L1 (Data vs Instruction)
 		suffix := ""
 		if level == "1" {
-			if cType == "Data" {
+			switch cType {
+			case "Data":
 				suffix = "d"
-			} else if cType == "Instruction" {
+			case "Instruction":
 				suffix = "i"
 			}
 		}
@@ -118,9 +129,8 @@ func getCPUCache() string {
 		result["L"+level+suffix] += size
 	}
 
-	// Format into a sorted, readable string
+	// Format into sorted, readable string
 	var parts []string
-	// Define explicit order for consistency
 	order := []string{"L1d", "L1i", "L2", "L3", "L4"}
 
 	for _, label := range order {
@@ -128,23 +138,23 @@ func getCPUCache() string {
 			var formattedSize string
 			if size >= 1048576 { // >= 1MB
 				formattedSize = fmt.Sprintf("%dM", size/1048576)
-			} else { // KB
+			} else {
 				formattedSize = fmt.Sprintf("%dK", size/1024)
 			}
 			parts = append(parts, fmt.Sprintf("%s:%s", label, formattedSize))
 		}
 	}
 
-	// Check for any odd keys not in our standard order (fallback)
+	// Check for any keys not in standard order
 	for k, size := range result {
-		isOrdered := false
+		found := false
 		for _, o := range order {
 			if k == o {
-				isOrdered = true
+				found = true
 				break
 			}
 		}
-		if !isOrdered {
+		if !found {
 			parts = append(parts, fmt.Sprintf("%s:%d", k, size))
 		}
 	}
@@ -170,6 +180,7 @@ func getKernelInfo(m *StaticMetrics) {
 		}
 		return unix.ByteSliceToString(b)
 	}
+
 	m.KernelInfo = fmt.Sprintf("%s %s %s %s %s",
 		toString(uname.Sysname),
 		toString(uname.Nodename),
@@ -291,23 +302,17 @@ func getCPUFreq() (float64, int64) {
 func getNTPInfo() (synced bool, offset float64, maxErr float64) {
 	tx := &unix.Timex{}
 
-	// Mode 0 (sets no bits) allows us to read the state without changing it
 	state, err := unix.Adjtimex(tx)
 	if err != nil {
 		return false, 0, 0
 	}
 
 	// TIME_ERROR (5) indicates the clock is not synchronized
-	// TIME_OK (0), TIME_INS (1), TIME_DEL (2), TIME_OOP (3), TIME_WAIT (4) are valid
 	isSynced := state != unix.TIME_ERROR
 
-	// tx.Offset is in microseconds. Convert to Seconds.
-	// This represents the time difference between the kernel clock and the reference.
-	offsetSeconds := float64(tx.Offset) / 1000000.0
-
-	// tx.Maxerror is in microseconds.
-	// This represents the maximum error inherent in the measurement.
-	maxErrorSeconds := float64(tx.Maxerror) / 1000000.0
+	// tx.Offset is in microseconds, convert to seconds
+	offsetSeconds := float64(tx.Offset) / 1_000_000.0
+	maxErrorSeconds := float64(tx.Maxerror) / 1_000_000.0
 
 	return isSynced, offsetSeconds, maxErrorSeconds
 }
