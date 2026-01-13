@@ -33,6 +33,10 @@ func main() {
 	noCleanup := flag.Bool("no-cleanup", false, "Disable deleting intermediary snapshot files after final export")
 	stream := flag.Bool("stream", false, "Stream mode: write directly to output file")
 
+	// Graph generation flags
+	generateGraphs := flag.Bool("graphs", true, "Generate HTML graphs after profiling")
+	graphOnly := flag.String("graph-only", "", "Generate graphs from existing output file (skips profiling)")
+
 	// Collector toggles
 	noCPU := flag.Bool("no-cpu", false, "Disable CPU metrics collection")
 	noMemory := flag.Bool("no-memory", false, "Disable memory metrics collection")
@@ -46,6 +50,23 @@ func main() {
 
 	flag.Parse()
 	args := flag.Args()
+
+	// -------------------------------------------------------------------------
+	// Graph-only mode: generate graphs from existing file and exit
+	// -------------------------------------------------------------------------
+	if *graphOnly != "" {
+		log.Printf("Generating graphs from: %s", *graphOnly)
+
+		if err := output.GenerateGraphsFromOutputFile(*graphOnly); err != nil {
+			log.Fatalf("Error generating graphs: %v", err)
+		}
+		log.Println("Done.")
+		return
+	}
+
+	// -------------------------------------------------------------------------
+	// Normal profiling mode
+	// -------------------------------------------------------------------------
 
 	// Validate format
 	validFormats := map[string]bool{"jsonl": true, "parquet": true, "csv": true, "tsv": true}
@@ -64,6 +85,9 @@ func main() {
 	log.Printf("Flatten:      %v", !*noFlatten)
 	if !*stream {
 		log.Printf("Cleanup:      %v", !*noCleanup)
+	}
+	if *generateGraphs {
+		log.Printf("Graphs:       enabled")
 	}
 
 	// Build collector config
@@ -228,6 +252,15 @@ func main() {
 				}
 			}
 		}
+
+		// Generate graphs if requested
+		if *generateGraphs {
+			log.Println("Generating graphs...")
+			if err := exp.ExportGraphs(); err != nil {
+				log.Printf("Error generating graphs: %v", err)
+			}
+		}
+
 		close(done)
 	}()
 

@@ -20,15 +20,7 @@ RUN pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
 
 COPY --from=builder /app/profiler /usr/local/bin/profiler
 RUN mkdir -p /profiler-output
+ENTRYPOINT ["/usr/local/bin/profiler","--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "-t", "100", "-f", "parquet", "--stream", "--"]
 
-ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "1", "-f", "parquet"]
-
-CMD ["python3", "-c", \
-     "from vllm import LLM, SamplingParams; \
-      llm = LLM(model='/app/model/', \
-                gpu_memory_utilization=0.8, \
-                max_model_len=2048, \
-                dtype='bfloat16'); \
-      sampling_params = SamplingParams(max_tokens=512); \
-      prompts = ['Explain the difference between TCP and UDP.'] * 200; \
-      print(llm.generate(prompts, sampling_params))"]
+# Workload: 'vllm' is now in the global PATH
+CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]

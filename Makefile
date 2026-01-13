@@ -88,9 +88,14 @@ docker-run: docker-build ##@ Run container (Mounts $(MODEL_DIR) if it exists)
 
 test-vllm: ##@ Send test request to local vllm server
 	@echo "--- Testing vllm Server ---"
-	curl http://localhost:8000/v1/chat/completions \
-	   -H "Content-Type: application/json" \
-	   -d '{ "messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 100}'
+	while true; do \
+        curl -sN http://localhost:8000/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -d '{"messages": [{"role": "user", "content": "Explain the difference between TCP and UDP."}], "max_tokens": 512, "stream": true}' ; \
+        echo ; \
+        sleep 0.5 ; \
+    done
+
 
 clean: ##@ Remove all artifacts and docker images
 	@echo "--- Cleaning Artifacts ---"

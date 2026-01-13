@@ -19,11 +19,13 @@ type StaticMetrics struct {
 	BootTime int64  `json:"vBootTime"`
 
 	// CPU static info
-	NumProcessors int    `json:"vNumProcessors"`
-	CPUType       string `json:"vCpuType"`
-	CPUCache      string `json:"vCpuCache"`
-	KernelInfo    string `json:"vKernelInfo"`
-
+	NumProcessors       int     `json:"vNumProcessors"`
+	CPUType             string  `json:"vCpuType"`
+	CPUCache            string  `json:"vCpuCache"`
+	KernelInfo          string  `json:"vKernelInfo"`
+	TimeSynced          bool    `json:"vTimeSynced"`
+	TimeOffsetSeconds   float64 `json:"vTimeOffsetSeconds"`
+	TimeMaxErrorSeconds float64 `json:"vTimeMaxErrorSeconds"`
 	// Memory static info
 	MemoryTotalBytes int64 `json:"vMemoryTotalBytes"`
 	SwapTotalBytes   int64 `json:"vSwapTotalBytes"`

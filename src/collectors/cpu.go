@@ -17,6 +17,12 @@ func CollectCPUStatic(m *StaticMetrics) {
 	m.CPUType = getCPUType()
 	m.NumProcessors = runtime.NumCPU()
 
+	// Collect kernel time synchronization status
+	synced, offset, maxErr := getNTPInfo()
+	m.TimeSynced = synced
+	m.TimeOffsetSeconds = offset
+	m.TimeMaxErrorSeconds = maxErr
+
 	// CPU cache info
 	cache := getCPUCache()
 	m.CPUCache = cache
@@ -279,4 +285,29 @@ func getCPUFreq() (float64, int64) {
 		}
 	}
 	return 0.0, ts
+}
+
+// getNTPInfo performs the adjtimex syscall to get kernel clock status
+func getNTPInfo() (synced bool, offset float64, maxErr float64) {
+	tx := &unix.Timex{}
+
+	// Mode 0 (sets no bits) allows us to read the state without changing it
+	state, err := unix.Adjtimex(tx)
+	if err != nil {
+		return false, 0, 0
+	}
+
+	// TIME_ERROR (5) indicates the clock is not synchronized
+	// TIME_OK (0), TIME_INS (1), TIME_DEL (2), TIME_OOP (3), TIME_WAIT (4) are valid
+	isSynced := state != unix.TIME_ERROR
+
+	// tx.Offset is in microseconds. Convert to Seconds.
+	// This represents the time difference between the kernel clock and the reference.
+	offsetSeconds := float64(tx.Offset) / 1000000.0
+
+	// tx.Maxerror is in microseconds.
+	// This represents the maximum error inherent in the measurement.
+	maxErrorSeconds := float64(tx.Maxerror) / 1000000.0
+
+	return isSynced, offsetSeconds, maxErrorSeconds
 }

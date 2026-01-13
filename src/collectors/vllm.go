@@ -1,53 +1,23 @@
 package collectors
 
 import (
+	"bufio"
 	"encoding/json"
-	"fmt"
 	"math"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
-
-	dto "github.com/prometheus/client_model/go"
-	"github.com/prometheus/common/expfmt"
 )
 
 var vllmMetricsURL = getEnv("VLLM_METRICS_URL", "http://localhost:8000/metrics")
 
-// Metric name mappings from Prometheus names to our struct fields
-var metricMappings = map[string]string{
-	"num_requests_running":           "RequestsRunning",
-	"num_requests_waiting":           "RequestsWaiting",
-	"engine_sleep_state":             "EngineSleepState",
-	"num_preemptions":                "PreemptionsTotal",
-	"kv_cache_usage_perc":            "KvCacheUsagePercent",
-	"prefix_cache_hits":              "PrefixCacheHits",
-	"prefix_cache_queries":           "PrefixCacheQueries",
-	"mm_cache_hits":                  "MultimodalCacheHits",
-	"mm_cache_queries":               "MultimodalCacheQueries",
-	"request_success":                "RequestsFinishedTotal",
-	"corrupted_requests":             "RequestsCorruptedTotal",
-	"prompt_tokens":                  "TokensPromptTotal",
-	"generation_tokens":              "TokensGenerationTotal",
-	"time_to_first_token_seconds":    "LatencyTtft",
-	"e2e_request_latency_seconds":    "LatencyE2e",
-	"request_queue_time_seconds":     "LatencyQueue",
-	"request_inference_time_seconds": "LatencyInference",
-	"request_prefill_time_seconds":   "LatencyPrefill",
-	"request_decode_time_seconds":    "LatencyDecode",
-	"inter_token_latency_seconds":    "LatencyInterToken",
-	"request_prompt_tokens":          "ReqSizePromptTokens",
-	"request_generation_tokens":      "ReqSizeGenerationTokens",
-	"iteration_tokens_total":         "TokensPerStep",
-	"request_params_max_tokens":      "ReqParamsMaxTokens",
-	"request_params_n":               "ReqParamsN",
-}
-
-// CollectVLLMDynamic populates vLLM metrics
+// CollectVLLMDynamic scrapes and parses vLLM Prometheus metrics
 func CollectVLLMDynamic(m *DynamicMetrics) {
 	client := &http.Client{Timeout: 500 * time.Millisecond}
 	scrapeTime := GetTimestamp()
+
 	resp, err := client.Get(vllmMetricsURL)
 	if err != nil {
 		m.VLLMAvailable = false
@@ -55,8 +25,7 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 	}
 	defer resp.Body.Close()
 
-	families, err := (&expfmt.TextParser{}).TextToMetricFamilies(resp.Body)
-	if err != nil {
+	if resp.StatusCode != http.StatusOK {
 		m.VLLMAvailable = false
 		return
 	}
@@ -66,163 +35,274 @@ func CollectVLLMDynamic(m *DynamicMetrics) {
 
 	histograms := &VLLMHistograms{}
 
-	for name, mf := range families {
-		baseName := strings.TrimPrefix(name, "vllm:")
-		mapping, ok := metricMappings[baseName]
+	// Parse Prometheus text format directly
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		name, labels, value, ok := parseMetricLine(line)
 		if !ok {
 			continue
 		}
 
-		for _, metric := range mf.GetMetric() {
-			// Handle histogram metrics
-			if h := metric.GetHistogram(); h != nil {
-				sum := sanitize(h.GetSampleSum())
-				count := float64(h.GetSampleCount())
-				buckets := extractBuckets(h)
+		// Strip "vllm:" prefix
+		name = strings.TrimPrefix(name, "vllm:")
 
-				setHistogramValues(m, histograms, mapping, sum, count, buckets)
-				continue
-			}
+		// Route to appropriate handler based on suffix
+		switch {
+		case strings.HasSuffix(name, "_bucket"):
+			baseName := strings.TrimSuffix(name, "_bucket")
+			le := labels["le"]
+			addHistogramBucket(histograms, baseName, le, value)
 
-			// Handle summary metrics
-			if s := metric.GetSummary(); s != nil {
-				sum := sanitize(s.GetSampleSum())
-				count := float64(s.GetSampleCount())
-				setSummaryValues(m, mapping, sum, count)
-				continue
-			}
+		case strings.HasSuffix(name, "_sum"):
+			baseName := strings.TrimSuffix(name, "_sum")
+			setHistogramSum(m, baseName, value)
 
-			// Handle gauge/counter metrics
-			val := getValue(metric)
-			setGaugeValue(m, mapping, sanitize(val))
+		case strings.HasSuffix(name, "_count"):
+			baseName := strings.TrimSuffix(name, "_count")
+			setHistogramCount(m, baseName, value)
+
+		case strings.HasSuffix(name, "_total"):
+			// Counter with _total suffix
+			baseName := strings.TrimSuffix(name, "_total")
+			setGaugeOrCounter(m, baseName, value)
+
+		default:
+			setGaugeOrCounter(m, name, value)
 		}
 	}
 
-	// Serialize histograms to JSON
 	if data, err := json.Marshal(histograms); err == nil && string(data) != "{}" {
 		m.VLLMHistogramsJSON = string(data)
 	}
 }
 
-func extractBuckets(h *dto.Histogram) map[string]float64 {
-	buckets := make(map[string]float64)
-	for _, b := range h.GetBucket() {
-		le := b.GetUpperBound()
-		key := "inf"
-		if !math.IsInf(le, 1) {
-			key = fmt.Sprintf("%g", le)
+// parseMetricLine parses a Prometheus metric line
+// Format: metric_name{label="value",label2="value2"} 123.45
+// Returns: name, labels map, value, success
+func parseMetricLine(line string) (string, map[string]string, float64, bool) {
+	labels := make(map[string]string)
+
+	// Find value (last space-separated field)
+	lastSpace := strings.LastIndex(line, " ")
+	if lastSpace == -1 {
+		return "", nil, 0, false
+	}
+
+	valueStr := strings.TrimSpace(line[lastSpace+1:])
+	metricPart := strings.TrimSpace(line[:lastSpace])
+
+	// Parse value
+	value, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return "", nil, 0, false
+	}
+
+	// Check for labels
+	labelStart := strings.Index(metricPart, "{")
+	if labelStart == -1 {
+		// No labels
+		return metricPart, labels, value, true
+	}
+
+	name := metricPart[:labelStart]
+	labelEnd := strings.LastIndex(metricPart, "}")
+	if labelEnd == -1 || labelEnd <= labelStart {
+		return "", nil, 0, false
+	}
+
+	// Parse labels
+	labelStr := metricPart[labelStart+1 : labelEnd]
+	for _, pair := range splitLabels(labelStr) {
+		pair = strings.TrimSpace(pair)
+		if pair == "" {
+			continue
 		}
-		buckets[key] = float64(b.GetCumulativeCount())
+		eqIdx := strings.Index(pair, "=")
+		if eqIdx == -1 {
+			continue
+		}
+		key := strings.TrimSpace(pair[:eqIdx])
+		val := strings.TrimSpace(pair[eqIdx+1:])
+		// Remove quotes
+		val = strings.Trim(val, "\"")
+		labels[key] = val
 	}
-	return buckets
+
+	return name, labels, value, true
 }
 
-func setHistogramValues(m *DynamicMetrics, h *VLLMHistograms, mapping string, sum, count float64, buckets map[string]float64) {
-	switch mapping {
-	case "LatencyTtft":
-		m.VLLMLatencyTtftSum = sum
-		m.VLLMLatencyTtftCount = count
-		h.LatencyTtft = buckets
-	case "LatencyE2e":
-		m.VLLMLatencyE2eSum = sum
-		m.VLLMLatencyE2eCount = count
-		h.LatencyE2e = buckets
-	case "LatencyQueue":
-		m.VLLMLatencyQueueSum = sum
-		m.VLLMLatencyQueueCount = count
-		h.LatencyQueue = buckets
-	case "LatencyInference":
-		m.VLLMLatencyInferenceSum = sum
-		m.VLLMLatencyInferenceCount = count
-		h.LatencyInference = buckets
-	case "LatencyPrefill":
-		m.VLLMLatencyPrefillSum = sum
-		m.VLLMLatencyPrefillCount = count
-		h.LatencyPrefill = buckets
-	case "LatencyDecode":
-		m.VLLMLatencyDecodeSum = sum
-		m.VLLMLatencyDecodeCount = count
-		h.LatencyDecode = buckets
-	case "LatencyInterToken":
-		// No flattened fields for inter-token, just histogram
-		h.LatencyInterToken = buckets
-	case "ReqSizePromptTokens":
-		h.ReqSizePromptTokens = buckets
-	case "ReqSizeGenerationTokens":
-		h.ReqSizeGenerationTokens = buckets
-	case "TokensPerStep":
-		h.TokensPerStep = buckets
-	case "ReqParamsMaxTokens":
-		h.ReqParamsMaxTokens = buckets
-	case "ReqParamsN":
-		h.ReqParamsN = buckets
+// splitLabels splits label string handling quoted commas
+func splitLabels(s string) []string {
+	var result []string
+	var current strings.Builder
+	inQuotes := false
+
+	for _, c := range s {
+		switch c {
+		case '"':
+			inQuotes = !inQuotes
+			current.WriteRune(c)
+		case ',':
+			if inQuotes {
+				current.WriteRune(c)
+			} else {
+				result = append(result, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteRune(c)
+		}
+	}
+
+	if current.Len() > 0 {
+		result = append(result, current.String())
+	}
+
+	return result
+}
+
+func addHistogramBucket(h *VLLMHistograms, name, le string, value float64) {
+	// Normalize le value
+	if le == "+Inf" {
+		le = "inf"
+	}
+
+	switch name {
+	case "time_to_first_token_seconds":
+		if h.LatencyTtft == nil {
+			h.LatencyTtft = make(map[string]float64)
+		}
+		h.LatencyTtft[le] = value
+	case "e2e_request_latency_seconds":
+		if h.LatencyE2e == nil {
+			h.LatencyE2e = make(map[string]float64)
+		}
+		h.LatencyE2e[le] = value
+	case "request_queue_time_seconds":
+		if h.LatencyQueue == nil {
+			h.LatencyQueue = make(map[string]float64)
+		}
+		h.LatencyQueue[le] = value
+	case "request_inference_time_seconds":
+		if h.LatencyInference == nil {
+			h.LatencyInference = make(map[string]float64)
+		}
+		h.LatencyInference[le] = value
+	case "request_prefill_time_seconds":
+		if h.LatencyPrefill == nil {
+			h.LatencyPrefill = make(map[string]float64)
+		}
+		h.LatencyPrefill[le] = value
+	case "request_decode_time_seconds":
+		if h.LatencyDecode == nil {
+			h.LatencyDecode = make(map[string]float64)
+		}
+		h.LatencyDecode[le] = value
+	case "inter_token_latency_seconds":
+		if h.LatencyInterToken == nil {
+			h.LatencyInterToken = make(map[string]float64)
+		}
+		h.LatencyInterToken[le] = value
+	case "request_prompt_tokens":
+		if h.ReqSizePromptTokens == nil {
+			h.ReqSizePromptTokens = make(map[string]float64)
+		}
+		h.ReqSizePromptTokens[le] = value
+	case "request_generation_tokens":
+		if h.ReqSizeGenerationTokens == nil {
+			h.ReqSizeGenerationTokens = make(map[string]float64)
+		}
+		h.ReqSizeGenerationTokens[le] = value
+	case "iteration_tokens":
+		if h.TokensPerStep == nil {
+			h.TokensPerStep = make(map[string]float64)
+		}
+		h.TokensPerStep[le] = value
+	case "request_params_max_tokens":
+		if h.ReqParamsMaxTokens == nil {
+			h.ReqParamsMaxTokens = make(map[string]float64)
+		}
+		h.ReqParamsMaxTokens[le] = value
+	case "request_params_n":
+		if h.ReqParamsN == nil {
+			h.ReqParamsN = make(map[string]float64)
+		}
+		h.ReqParamsN[le] = value
 	}
 }
 
-func setSummaryValues(m *DynamicMetrics, mapping string, sum, count float64) {
-	switch mapping {
-	case "LatencyTtft":
-		m.VLLMLatencyTtftSum = sum
-		m.VLLMLatencyTtftCount = count
-	case "LatencyE2e":
-		m.VLLMLatencyE2eSum = sum
-		m.VLLMLatencyE2eCount = count
-	case "LatencyQueue":
-		m.VLLMLatencyQueueSum = sum
-		m.VLLMLatencyQueueCount = count
-	case "LatencyInference":
-		m.VLLMLatencyInferenceSum = sum
-		m.VLLMLatencyInferenceCount = count
-	case "LatencyPrefill":
-		m.VLLMLatencyPrefillSum = sum
-		m.VLLMLatencyPrefillCount = count
-	case "LatencyDecode":
-		m.VLLMLatencyDecodeSum = sum
-		m.VLLMLatencyDecodeCount = count
+func setHistogramSum(m *DynamicMetrics, name string, value float64) {
+	value = sanitizeFloat(value)
+	switch name {
+	case "time_to_first_token_seconds":
+		m.VLLMLatencyTtftSum = value
+	case "e2e_request_latency_seconds":
+		m.VLLMLatencyE2eSum = value
+	case "request_queue_time_seconds":
+		m.VLLMLatencyQueueSum = value
+	case "request_inference_time_seconds":
+		m.VLLMLatencyInferenceSum = value
+	case "request_prefill_time_seconds":
+		m.VLLMLatencyPrefillSum = value
+	case "request_decode_time_seconds":
+		m.VLLMLatencyDecodeSum = value
 	}
 }
 
-func setGaugeValue(m *DynamicMetrics, mapping string, val float64) {
-	switch mapping {
-	case "RequestsRunning":
-		m.VLLMRequestsRunning = val
-	case "RequestsWaiting":
-		m.VLLMRequestsWaiting = val
-	case "EngineSleepState":
-		m.VLLMEngineSleepState = val
-	case "PreemptionsTotal":
-		m.VLLMPreemptionsTotal = val
-	case "KvCacheUsagePercent":
-		m.VLLMKvCacheUsagePercent = val
-	case "PrefixCacheHits":
-		m.VLLMPrefixCacheHits = val
-	case "PrefixCacheQueries":
-		m.VLLMPrefixCacheQueries = val
-	case "RequestsFinishedTotal":
-		m.VLLMRequestsFinishedTotal = val
-	case "RequestsCorruptedTotal":
-		m.VLLMRequestsCorruptedTotal = val
-	case "TokensPromptTotal":
-		m.VLLMTokensPromptTotal = val
-	case "TokensGenerationTotal":
-		m.VLLMTokensGenerationTotal = val
+func setHistogramCount(m *DynamicMetrics, name string, value float64) {
+	value = sanitizeFloat(value)
+	switch name {
+	case "time_to_first_token_seconds":
+		m.VLLMLatencyTtftCount = value
+	case "e2e_request_latency_seconds":
+		m.VLLMLatencyE2eCount = value
+	case "request_queue_time_seconds":
+		m.VLLMLatencyQueueCount = value
+	case "request_inference_time_seconds":
+		m.VLLMLatencyInferenceCount = value
+	case "request_prefill_time_seconds":
+		m.VLLMLatencyPrefillCount = value
+	case "request_decode_time_seconds":
+		m.VLLMLatencyDecodeCount = value
 	}
 }
 
-func getValue(m *dto.Metric) float64 {
-	if c := m.GetCounter(); c != nil {
-		return c.GetValue()
+func setGaugeOrCounter(m *DynamicMetrics, name string, value float64) {
+	value = sanitizeFloat(value)
+	switch name {
+	case "num_requests_running":
+		m.VLLMRequestsRunning = value
+	case "num_requests_waiting":
+		m.VLLMRequestsWaiting = value
+	case "engine_sleep_state":
+		m.VLLMEngineSleepState = value
+	case "num_preemptions":
+		m.VLLMPreemptionsTotal = value
+	case "kv_cache_usage_perc":
+		m.VLLMKvCacheUsagePercent = value
+	case "prefix_cache_hits":
+		m.VLLMPrefixCacheHits = value
+	case "prefix_cache_queries":
+		m.VLLMPrefixCacheQueries = value
+	case "request_success":
+		m.VLLMRequestsFinishedTotal = value
+	case "corrupted_requests":
+		m.VLLMRequestsCorruptedTotal = value
+	case "prompt_tokens":
+		m.VLLMTokensPromptTotal = value
+	case "generation_tokens":
+		m.VLLMTokensGenerationTotal = value
 	}
-	if g := m.GetGauge(); g != nil {
-		return g.GetValue()
-	}
-	if u := m.GetUntyped(); u != nil {
-		return u.GetValue()
-	}
-	return 0
 }
 
-func sanitize(v float64) float64 {
+func sanitizeFloat(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0
 	}
