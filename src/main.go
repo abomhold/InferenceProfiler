@@ -27,7 +27,7 @@ func main() {
 	// 1. Configuration & Flags
 	// -------------------------------------------------------------------------
 	outputDir := flag.String("o", "./profiler-output", "Output directory for logs")
-	intervalArg := flag.Int("t", 1, "Sampling interval in milliseconds")
+	intervalArg := flag.Int("t", 100, "Sampling interval in milliseconds")
 	format := flag.String("f", "jsonl", "Export format: jsonl, parquet, csv, tsv")
 	noFlatten := flag.Bool("no-flatten", false, "Disable flattening nested data (GPUs, processes) to columns")
 	noCleanup := flag.Bool("no-cleanup", false, "Disable deleting intermediary snapshot files after final export")
