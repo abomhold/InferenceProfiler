@@ -1,0 +1,153 @@
+--- Running All Benchmarks ---
+go test -bench=. -benchmem ./...
+?   	InferenceProfiler/src	[no test files]
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/collectors
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCollectMemoryDynamic-32                    	   12895	     94976 ns/op	   44709 B/op	     155 allocs/op
+BenchmarkNvidiaCollector_CollectNvidiaDynamic-32    	      19	  62888508 ns/op	   61429 B/op	     320 allocs/op
+BenchmarkCollectVLLMDynamic-32                      	    5805	    193255 ns/op	   10456 B/op	     132 allocs/op
+BenchmarkCollectCPUDynamic-32                       	     741	   1578937 ns/op	  319955 B/op	    2423 allocs/op
+BenchmarkCollectDiskDynamic-32                      	   19705	     61596 ns/op	   31088 B/op	     234 allocs/op
+BenchmarkCollectNetworkDynamic-32                   	   20146	     58486 ns/op	    7352 B/op	      22 allocs/op
+BenchmarkCollectContainerDynamic-32                 	    6954	    158987 ns/op	   38824 B/op	     190 allocs/op
+BenchmarkCollectProcessesDynamic-32                 	      28	  36809521 ns/op	12638517 B/op	   58727 allocs/op
+BenchmarkCollectAllDynamic-32                       	      12	 104051164 ns/op	13128770 B/op	   61824 allocs/op
+PASS
+ok  	InferenceProfiler/src/collectors	14.872s
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/output
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkStreamingJSONL-32                  	   16738	     72613 ns/op	   33228 B/op	     590 allocs/op
+BenchmarkStreamingParquet-32                	   25401	     46702 ns/op	   34470 B/op	     446 allocs/op
+BenchmarkStreamingCSV-32                    	   27583	     43183 ns/op	   25112 B/op	     303 allocs/op
+BenchmarkBatchJSONL-32                      	    6207	    196178 ns/op	   77765 B/op	    1350 allocs/op
+BenchmarkFlattenMetrics_Simple-32           	   37224	     32598 ns/op	   22368 B/op	     299 allocs/op
+BenchmarkFlattenMetrics_WithGPUs-32         	   20910	     58274 ns/op	   48722 B/op	     605 allocs/op
+BenchmarkFlattenMetrics_WithProcesses-32    	    3628	    337149 ns/op	  403985 B/op	    3317 allocs/op
+BenchmarkToJSONMode_WithGPUs-32             	   30576	     38068 ns/op	   28920 B/op	     303 allocs/op
+BenchmarkToJSONMode_WithProcesses-32        	   10000	    107282 ns/op	  140375 B/op	     303 allocs/op
+PASS
+ok  	InferenceProfiler/src/output	13.770s
+--- Running All Benchmarks ---
+go test -bench=. -benchmem ./...
+?   	InferenceProfiler/src	[no test files]
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/collectors
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCollectMemoryDynamic-32                    	   12670	     94469 ns/op	   44684 B/op	     155 allocs/op
+BenchmarkNvidiaCollector_CollectNvidiaDynamic-32    	      18	  62901924 ns/op	   61467 B/op	     319 allocs/op
+BenchmarkCollectVLLMDynamic-32                      	    6135	    198256 ns/op	   10456 B/op	     132 allocs/op
+BenchmarkCollectCPUDynamic-32                       	     703	   1656626 ns/op	  319936 B/op	    2423 allocs/op
+BenchmarkCollectDiskDynamic-32                      	   18627	     65338 ns/op	   31088 B/op	     234 allocs/op
+BenchmarkCollectNetworkDynamic-32                   	   19386	     62213 ns/op	    7352 B/op	      22 allocs/op
+BenchmarkCollectContainerDynamic-32                 	    7654	    155165 ns/op	   38824 B/op	     190 allocs/op
+BenchmarkCollectProcessesDynamic-32                 	      31	  37313288 ns/op	12655842 B/op	   58816 allocs/op
+BenchmarkCollectAllDynamic-32                       	      10	 108188879 ns/op	13146514 B/op	   61913 allocs/op
+PASS
+ok  	InferenceProfiler/src/collectors	15.915s
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/output
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkStreamingJSONL-32                  	   16555	     70642 ns/op	   33234 B/op	     590 allocs/op
+BenchmarkStreamingParquet-32                	   24388	     46827 ns/op	   34536 B/op	     446 allocs/op
+BenchmarkStreamingCSV-32                    	   26844	     43072 ns/op	   25113 B/op	     303 allocs/op
+BenchmarkBatchJSONL-32                      	    5562	    197595 ns/op	   77759 B/op	    1350 allocs/op
+BenchmarkFlattenMetrics_Simple-32           	   35157	     32931 ns/op	   22368 B/op	     299 allocs/op
+BenchmarkFlattenMetrics_WithGPUs-32         	   20264	     58907 ns/op	   48722 B/op	     605 allocs/op
+BenchmarkFlattenMetrics_WithProcesses-32    	    3564	    340365 ns/op	  403977 B/op	    3317 allocs/op
+BenchmarkToJSONMode_WithGPUs-32             	   31638	     38273 ns/op	   28924 B/op	     303 allocs/op
+BenchmarkToJSONMode_WithProcesses-32        	    9946	    109020 ns/op	  140299 B/op	     303 allocs/op
+PASS
+ok  	InferenceProfiler/src/output	13.531s
+--- Running All Benchmarks ---
+go test -bench=. -benchmem ./...
+?   	InferenceProfiler/src	[no test files]
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/collectors
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCollectMemoryDynamic-32                    	   12130	     97693 ns/op	   44732 B/op	     155 allocs/op
+BenchmarkNvidiaCollector_CollectNvidiaDynamic-32    	      19	  60838820 ns/op	   61177 B/op	     319 allocs/op
+BenchmarkCollectVLLMDynamic-32                      	    5890	    198934 ns/op	   10457 B/op	     132 allocs/op
+BenchmarkCollectCPUDynamic-32                       	     720	   1672998 ns/op	  320004 B/op	    2423 allocs/op
+BenchmarkCollectDiskDynamic-32                      	   17931	     63743 ns/op	   31088 B/op	     234 allocs/op
+BenchmarkCollectNetworkDynamic-32                   	   19472	     61993 ns/op	    7352 B/op	      22 allocs/op
+BenchmarkCollectContainerDynamic-32                 	    7730	    156819 ns/op	   38824 B/op	     190 allocs/op
+BenchmarkCollectProcessesDynamic-32                 	      30	  38013427 ns/op	12694612 B/op	   59012 allocs/op
+BenchmarkCollectAllDynamic-32                       	      10	 108041999 ns/op	13182827 B/op	   62091 allocs/op
+PASS
+ok  	InferenceProfiler/src/collectors	15.977s
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/output
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkStreamingJSONL-32                  	   16332	     73294 ns/op	   33225 B/op	     590 allocs/op
+BenchmarkStreamingParquet-32                	   25219	     45781 ns/op	   34481 B/op	     446 allocs/op
+BenchmarkStreamingCSV-32                    	   27145	     44383 ns/op	   25113 B/op	     303 allocs/op
+BenchmarkBatchJSONL-32                      	    5714	    199670 ns/op	   77753 B/op	    1350 allocs/op
+BenchmarkFlattenMetrics_Simple-32           	   36231	     32586 ns/op	   22368 B/op	     299 allocs/op
+BenchmarkFlattenMetrics_WithGPUs-32         	   20344	     58048 ns/op	   48723 B/op	     605 allocs/op
+BenchmarkFlattenMetrics_WithProcesses-32    	    3579	    335771 ns/op	  403985 B/op	    3317 allocs/op
+BenchmarkToJSONMode_WithGPUs-32             	   30759	     38601 ns/op	   28927 B/op	     303 allocs/op
+BenchmarkToJSONMode_WithProcesses-32        	    8950	    113041 ns/op	  140514 B/op	     303 allocs/op
+PASS
+ok  	InferenceProfiler/src/output	13.543s
+--- Running All Benchmarks ---
+go test -bench=. -benchmem ./...
+?   	InferenceProfiler/src	[no test files]
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/collectors
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCollectMemoryDynamic-32                    	   12667	     94695 ns/op	   44749 B/op	     155 allocs/op
+BenchmarkNvidiaCollector_CollectNvidiaDynamic-32    	      18	  64857535 ns/op	   61333 B/op	     319 allocs/op
+BenchmarkCollectVLLMDynamic-32                      	    6036	    196720 ns/op	   10458 B/op	     132 allocs/op
+BenchmarkCollectCPUDynamic-32                       	     680	   1580269 ns/op	  319967 B/op	    2423 allocs/op
+BenchmarkCollectDiskDynamic-32                      	   18907	     64061 ns/op	   31087 B/op	     234 allocs/op
+BenchmarkCollectNetworkDynamic-32                   	   19273	     60627 ns/op	    7352 B/op	      22 allocs/op
+BenchmarkCollectContainerDynamic-32                 	    7671	    148033 ns/op	   38824 B/op	     190 allocs/op
+BenchmarkCollectProcessesDynamic-32                 	      33	  35917263 ns/op	12691285 B/op	   58994 allocs/op
+BenchmarkCollectAllDynamic-32                       	      10	 104184022 ns/op	13180355 B/op	   62091 allocs/op
+PASS
+ok  	InferenceProfiler/src/collectors	15.853s
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/output
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkStreamingJSONL-32                  	   16496	     71396 ns/op	   33223 B/op	     590 allocs/op
+BenchmarkStreamingParquet-32                	   25196	     44423 ns/op	   34483 B/op	     446 allocs/op
+BenchmarkStreamingCSV-32                    	   28190	     41821 ns/op	   25112 B/op	     303 allocs/op
+BenchmarkBatchJSONL-32                      	    6717	    189887 ns/op	   77780 B/op	    1350 allocs/op
+BenchmarkFlattenMetrics_Simple-32           	   37374	     31517 ns/op	   22368 B/op	     299 allocs/op
+BenchmarkFlattenMetrics_WithGPUs-32         	   21135	     56583 ns/op	   48722 B/op	     605 allocs/op
+BenchmarkFlattenMetrics_WithProcesses-32    	    3477	    325484 ns/op	  403987 B/op	    3317 allocs/op
+BenchmarkToJSONMode_WithGPUs-32             	   32437	     36896 ns/op	   28925 B/op	     303 allocs/op
+BenchmarkToJSONMode_WithProcesses-32        	    9697	    105673 ns/op	  140808 B/op	     303 allocs/op
+PASS
+ok  	InferenceProfiler/src/output	13.479s
+--- Running All Benchmarks ---
+go test -bench=. -benchmem ./...
+?   	InferenceProfiler/src	[no test files]
+goos: linux
+goarch: amd64
+pkg: InferenceProfiler/src/collectors
+cpu: AMD Ryzen 9 5950X 16-Core Processor            
+BenchmarkCollectMemoryDynamic-32                    	   13165	     87063 ns/op	   42629 B/op	     150 allocs/op
+BenchmarkNvidiaCollector_CollectNvidiaDynamic-32    	      20	  54596324 ns/op	   62474 B/op	     326 allocs/op
+BenchmarkCollectVLLMDynamic-32                      	    5872	    184999 ns/op	   10408 B/op	     131 allocs/op
+BenchmarkCollectCPUDynamic-32                       	     760	   1575570 ns/op	  319865 B/op	    2423 allocs/op
+BenchmarkCollectDiskDynamic-32                      	   23536	     49761 ns/op	   14574 B/op	      51 allocs/op
+BenchmarkCollectNetworkDynamic-32                   	   20050	     59093 ns/op	    7352 B/op	      22 allocs/op
+BenchmarkCollectContainerDynamic-32                 	    8010	    133377 ns/op	   33768 B/op	     179 allocs/op
+BenchmarkCollectProcessesDynamic-32                 	      37	  31197846 ns/op	11046218 B/op	   55811 allocs/op
+BenchmarkCollectAllDynamic-32                       	      13	  88681000 ns/op	11514740 B/op	   58709 allocs/op
+PASS
+ok  	InferenceProfiler/src/collectors	14.390s
+?   	InferenceProfiler/src/config	[no test files]
+?   	InferenceProfiler/src/output	[no test files]
+?   	InferenceProfiler/src/profiler	[no test files]
