@@ -20,7 +20,5 @@ RUN pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
 
 COPY --from=builder /app/profiler /usr/local/bin/profiler
 RUN mkdir -p /profiler-output
-ENTRYPOINT ["/usr/local/bin/profiler","--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "-t", "100", "-f", "parquet", "--stream", "--"]
-
-# Workload: 'vllm' is now in the global PATH
+ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "100", "-f", "csv", "--stream", "--"]
 CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]
