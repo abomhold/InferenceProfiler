@@ -1,6 +1,6 @@
 // Package profiler provides the main orchestration for system profiling.
 // It coordinates configuration, collection, export, and signal handling.
-package main
+package profiler
 
 import (
 	"context"
@@ -238,7 +238,7 @@ func (p *Profiler) setupSignalHandling(parent context.Context) (context.Context,
 // generateGraphs creates HTML visualization from collected data
 func (p *Profiler) generateGraphs() error {
 	outputPath := p.exporter.OutputPath()
-	graphPath := filepath.Join(p.cfg.OutputDir, fmt.Sprintf("report_%s.html", p.exporter.SessionUUID()))
+	//graphPath := filepath.Join(p.cfg.OutputDir, fmt.Sprintf("report_%s.html", p.exporter.SessionUUID()))
 
 	// Load records from output file
 	loader, err := output.NewRecordLoader(outputPath)
@@ -255,7 +255,8 @@ func (p *Profiler) generateGraphs() error {
 		return fmt.Errorf("no records to generate graphs from")
 	}
 
-	return output.GenerateHTML(graphPath, p.exporter.SessionUUID().String(), p.staticMetrics, records)
+	//return output.GenerateHTML(graphPath, p.exporter.SessionUUID().String(), p.staticMetrics, records)
+	return output.GenerateGraphsFromOutputFile(p.exporter.OutputPath())
 }
 
 // printStartupInfo logs profiler configuration at startup
@@ -270,8 +271,8 @@ func (p *Profiler) printStartupInfo() {
 		formatCollectorList(p.manager.CollectorNames()))
 
 	if p.staticMetrics != nil {
-		log.Printf("Host: %s (%s)", p.staticMetrics.Hostname, p.staticMetrics.Hostname)
-		log.Printf("CPUs: %d x %s", p.staticMetrics.NumProcessors, p.staticMetrics.CPUType)
+		log.Printf("Kernel: %s", p.staticMetrics.KernelInfo)
+		log.Printf("CPU: %s", p.staticMetrics.CPUType)
 	}
 }
 
@@ -286,7 +287,7 @@ func (p *Profiler) printSummary() {
 
 	if p.cfg.GenerateGraphs {
 		log.Printf("Report: %s", filepath.Join(p.cfg.OutputDir,
-			fmt.Sprintf("report_%s.html", p.exporter.SessionUUID())))
+			fmt.Sprintf("%s.html", p.exporter.SessionUUID())))
 	}
 }
 

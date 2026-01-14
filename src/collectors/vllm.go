@@ -58,7 +58,6 @@ func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 
 	histograms := &VLLMHistograms{}
 
-	// Parse Prometheus text format
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -75,7 +74,6 @@ func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 		// Strip "vllm:" prefix
 		name = strings.TrimPrefix(name, "vllm:")
 
-		// Route to appropriate handler
 		switch {
 		case strings.HasSuffix(name, "_bucket"):
 			baseName := strings.TrimSuffix(name, "_bucket")
@@ -99,9 +97,30 @@ func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 		}
 	}
 
-	if data, err := json.Marshal(histograms); err == nil && string(data) != "{}" {
-		m.VLLMHistogramsJSON = string(data)
+	// Marshal histograms to JSON - always set (even if empty object)
+	if data, err := json.Marshal(histograms); err == nil {
+		jsonStr := string(data)
+		// Only set if we have actual histogram data (not just "{}")
+		if jsonStr != "{}" && hasHistogramData(histograms) {
+			m.VLLMHistogramsJSON = jsonStr
+		}
 	}
+}
+
+// hasHistogramData checks if any histogram has data
+func hasHistogramData(h *VLLMHistograms) bool {
+	return len(h.LatencyTtft) > 0 ||
+		len(h.LatencyE2e) > 0 ||
+		len(h.LatencyQueue) > 0 ||
+		len(h.LatencyInference) > 0 ||
+		len(h.LatencyPrefill) > 0 ||
+		len(h.LatencyDecode) > 0 ||
+		len(h.LatencyInterToken) > 0 ||
+		len(h.TokensPerStep) > 0 ||
+		len(h.ReqSizePromptTokens) > 0 ||
+		len(h.ReqSizeGenerationTokens) > 0 ||
+		len(h.ReqParamsMaxTokens) > 0 ||
+		len(h.ReqParamsN) > 0
 }
 
 // parseMetricLine parses a Prometheus metric line

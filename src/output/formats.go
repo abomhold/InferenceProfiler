@@ -5,38 +5,23 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"sort"
 	"strings"
 
-	"github.com/xitongsys/parquet-go-source/local"
-	"github.com/xitongsys/parquet-go/reader"
-	"github.com/xitongsys/parquet-go/writer"
+	"github.com/parquet-go/parquet-go"
 )
 
 // FormatWriter defines the interface for writing records in different formats.
-// Implementations handle format-specific initialization, record writing, and cleanup.
 type FormatWriter interface {
-	// Init initializes the writer with the output path and schema (column names).
-	// For formats that require upfront schema definition (CSV, Parquet), the schema
-	// determines column order. For schema-less formats (JSONL), schema may be ignored.
 	Init(path string, schema []string) error
-
-	// Write writes a single record to the output.
-	// The record is a map of column names to values.
 	Write(record map[string]interface{}) error
-
-	// Close finalizes the output and releases resources.
-	// Must be called to ensure all data is flushed.
 	Close() error
-
-	// Extension returns the file extension for this format (e.g., ".jsonl", ".parquet")
 	Extension() string
 }
 
 // NewFormatWriter creates a FormatWriter for the specified format.
-// Supported formats: "jsonl", "parquet", "csv", "tsv"
-// Returns an error for unknown formats.
 func NewFormatWriter(format string) (FormatWriter, error) {
 	switch strings.ToLower(format) {
 	case "jsonl":
@@ -53,15 +38,13 @@ func NewFormatWriter(format string) (FormatWriter, error) {
 }
 
 // =============================================================================
-// JSONL Writer - JSON Lines format (one JSON object per line)
+// JSONL Writer
 // =============================================================================
 
-// JSONLWriter writes records as newline-delimited JSON (JSON Lines format).
-// Each record is written as a single-line JSON object.
 type JSONLWriter struct {
 	file   *os.File
 	writer *bufio.Writer
-	schema []string // stored for consistent key ordering
+	schema []string
 }
 
 func (w *JSONLWriter) Init(path string, schema []string) error {
@@ -76,7 +59,6 @@ func (w *JSONLWriter) Init(path string, schema []string) error {
 }
 
 func (w *JSONLWriter) Write(record map[string]interface{}) error {
-	// Use schema order if available, otherwise sort keys for deterministic output
 	var orderedRecord map[string]interface{}
 	if len(w.schema) > 0 {
 		orderedRecord = make(map[string]interface{}, len(w.schema))
@@ -117,16 +99,14 @@ func (w *JSONLWriter) Extension() string {
 }
 
 // =============================================================================
-// CSV/TSV Writer - Delimited text format
+// CSV/TSV Writer
 // =============================================================================
 
-// CSVWriter writes records as CSV or TSV (delimiter-configurable).
-// First row contains column headers; subsequent rows contain values.
 type CSVWriter struct {
-	file      *os.File
-	writer    *csv.Writer
-	schema    []string
-	delimiter rune
+	file          *os.File
+	writer        *csv.Writer
+	schema        []string
+	delimiter     rune
 	headerWritten bool
 }
 
@@ -144,7 +124,6 @@ func (w *CSVWriter) Init(path string, schema []string) error {
 }
 
 func (w *CSVWriter) Write(record map[string]interface{}) error {
-	// Write header on first record
 	if !w.headerWritten {
 		if err := w.writer.Write(w.schema); err != nil {
 			return fmt.Errorf("failed to write CSV header: %w", err)
@@ -152,7 +131,6 @@ func (w *CSVWriter) Write(record map[string]interface{}) error {
 		w.headerWritten = true
 	}
 
-	// Build row in schema order
 	row := make([]string, len(w.schema))
 	for i, key := range w.schema {
 		if val, ok := record[key]; ok {
@@ -185,7 +163,6 @@ func (w *CSVWriter) Extension() string {
 	return ".csv"
 }
 
-// formatCSVValue converts a value to its CSV string representation
 func formatCSVValue(v interface{}) string {
 	switch val := v.(type) {
 	case nil:
@@ -193,12 +170,6 @@ func formatCSVValue(v interface{}) string {
 	case string:
 		return val
 	case float64:
-		// Handle special float values
-		if val != val { // NaN
-			return ""
-		}
-		return fmt.Sprintf("%v", val)
-	case float32:
 		if val != val { // NaN
 			return ""
 		}
@@ -209,63 +180,45 @@ func formatCSVValue(v interface{}) string {
 }
 
 // =============================================================================
-// Parquet Writer - Columnar format for analytics
+// Parquet Writer (Segmentio Implementation)
 // =============================================================================
 
-// ParquetWriter writes records in Apache Parquet format.
-// Uses a dynamic schema based on the first record's structure.
 type ParquetWriter struct {
-	path       string
-	schema     []string
-	pw         *writer.JSONWriter
-	localFile  *local.LocalFile
-	records    []map[string]interface{} // buffer for batch writing
-	batchSize  int
-	schemaJSON string
+	file        *os.File
+	writer      *parquet.GenericWriter[any]
+	schemaKeys  []string
+	initialized bool
 }
 
 func (w *ParquetWriter) Init(path string, schema []string) error {
-	w.path = path
-	w.schema = schema
-	w.batchSize = 1000 // Write in batches for efficiency
-	w.records = make([]map[string]interface{}, 0, w.batchSize)
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("failed to create parquet file: %w", err)
+	}
+	w.file = f
+	w.schemaKeys = schema
+	w.initialized = false
 	return nil
 }
 
 func (w *ParquetWriter) Write(record map[string]interface{}) error {
-	// Initialize writer on first record (we need data to infer types)
-	if w.pw == nil {
-		if err := w.initParquetWriter(record); err != nil {
+	if !w.initialized {
+		if err := w.initWriter(record); err != nil {
 			return err
 		}
 	}
-
-	// Add to buffer
-	w.records = append(w.records, record)
-
-	// Flush if batch is full
-	if len(w.records) >= w.batchSize {
-		return w.flushBatch()
-	}
-	return nil
+	_, err := w.writer.Write([]any{record})
+	return err
 }
 
 func (w *ParquetWriter) Close() error {
-	// Flush remaining records
-	if len(w.records) > 0 {
-		if err := w.flushBatch(); err != nil {
-			return err
+	if w.writer != nil {
+		if err := w.writer.Close(); err != nil {
+			return fmt.Errorf("failed to close parquet writer: %w", err)
 		}
 	}
-
-	if w.pw != nil {
-		if err := w.pw.WriteStop(); err != nil {
-			return fmt.Errorf("failed to finalize parquet: %w", err)
-		}
-	}
-
-	if w.localFile != nil {
-		return w.localFile.Close()
+	if w.file != nil {
+		return w.file.Close()
 	}
 	return nil
 }
@@ -274,95 +227,43 @@ func (w *ParquetWriter) Extension() string {
 	return ".parquet"
 }
 
-// initParquetWriter creates the parquet writer with schema inferred from the first record
-func (w *ParquetWriter) initParquetWriter(sample map[string]interface{}) error {
-	// Build parquet schema from schema order and sample values
-	schema := w.buildParquetSchema(sample)
-	w.schemaJSON = schema
-
-	// Create local file
-	var err error
-	w.localFile, err = local.NewLocalFileWriter(w.path)
-	if err != nil {
-		return fmt.Errorf("failed to create parquet file: %w", err)
+func (w *ParquetWriter) initWriter(sample map[string]interface{}) error {
+	fields := make(map[string]parquet.Node)
+	for _, name := range w.schemaKeys {
+		val := sample[name]
+		fields[name] = parquet.Optional(inferParquetNode(val))
 	}
-
-	// Create JSON writer (easier than native parquet for dynamic schemas)
-	w.pw, err = writer.NewJSONWriter(schema, w.localFile, 4) // 4 = compression codec (snappy)
-	if err != nil {
-		return fmt.Errorf("failed to create parquet writer: %w", err)
-	}
-
+	schema := parquet.NewSchema("metrics", parquet.Group(fields))
+	w.writer = parquet.NewGenericWriter[any](w.file, schema)
+	w.initialized = true
 	return nil
 }
 
-// buildParquetSchema generates a parquet schema JSON from the schema and sample record
-func (w *ParquetWriter) buildParquetSchema(sample map[string]interface{}) string {
-	var fields []string
+// inferParquetNode maps Go values to Parquet Nodes
+func inferParquetNode(v interface{}) parquet.Node {
 
-	for _, key := range w.schema {
-		val := sample[key]
-		parquetType := inferParquetType(val)
-		
-		// Parquet field definition
-		field := fmt.Sprintf(`{"Tag": "name=%s, type=%s, repetitiontype=OPTIONAL"}`, key, parquetType)
-		fields = append(fields, field)
-	}
-
-	return fmt.Sprintf(`{"Tag": "name=metrics, repetitiontype=REQUIRED", "Fields": [%s]}`, 
-		strings.Join(fields, ", "))
-}
-
-// inferParquetType maps Go types to Parquet types
-func inferParquetType(v interface{}) string {
+	var t parquet.Type
 	switch v.(type) {
 	case int, int32, int64:
-		return "INT64"
+		t = parquet.Int64Type
 	case float32, float64:
-		return "DOUBLE"
+		t = parquet.DoubleType
 	case bool:
-		return "BOOLEAN"
-	case string:
-		return "BYTE_ARRAY, convertedtype=UTF8"
+		t = parquet.BooleanType
 	default:
-		// Default to string for unknown types
-		return "BYTE_ARRAY, convertedtype=UTF8"
+		return parquet.String()
 	}
-}
-
-// flushBatch writes buffered records to the parquet file
-func (w *ParquetWriter) flushBatch() error {
-	for _, record := range w.records {
-		// Convert record to JSON for the JSON writer
-		data, err := json.Marshal(record)
-		if err != nil {
-			return fmt.Errorf("failed to marshal record for parquet: %w", err)
-		}
-		
-		if err := w.pw.Write(string(data)); err != nil {
-			return fmt.Errorf("failed to write parquet record: %w", err)
-		}
-	}
-	
-	// Clear buffer
-	w.records = w.records[:0]
-	return nil
+	return parquet.Leaf(t)
 }
 
 // =============================================================================
-// Record Loader Interface - For reading existing data files
+// Record Loader Interface
 // =============================================================================
 
-// RecordLoader defines the interface for reading records from files.
-// Used for graph generation from existing data files.
 type RecordLoader interface {
-	// Load reads all records from the specified path.
-	// Returns records as a slice of maps, where each map represents one row.
 	Load(path string) ([]map[string]interface{}, error)
 }
 
-// NewRecordLoader creates a RecordLoader based on file extension.
-// Supported extensions: .jsonl, .parquet, .csv, .tsv
 func NewRecordLoader(path string) (RecordLoader, error) {
 	ext := strings.ToLower(getFileExtension(path))
 	switch ext {
@@ -379,7 +280,6 @@ func NewRecordLoader(path string) (RecordLoader, error) {
 	}
 }
 
-// getFileExtension returns the file extension including the dot
 func getFileExtension(path string) string {
 	for i := len(path) - 1; i >= 0; i-- {
 		if path[i] == '.' {
@@ -407,8 +307,6 @@ func (l *JSONLLoader) Load(path string) ([]map[string]interface{}, error) {
 
 	var records []map[string]interface{}
 	scanner := bufio.NewScanner(f)
-	
-	// Increase buffer size for large lines
 	buf := make([]byte, 0, 1024*1024)
 	scanner.Buffer(buf, 10*1024*1024)
 
@@ -427,11 +325,7 @@ func (l *JSONLLoader) Load(path string) ([]map[string]interface{}, error) {
 		records = append(records, record)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("error reading file: %w", err)
-	}
-
-	return records, nil
+	return records, scanner.Err()
 }
 
 // =============================================================================
@@ -453,18 +347,19 @@ func (l *CSVLoader) Load(path string) ([]map[string]interface{}, error) {
 	reader.Comma = l.delimiter
 	reader.LazyQuotes = true
 
-	// Read header
 	header, err := reader.Read()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CSV header: %w", err)
 	}
 
-	// Read all rows
 	var records []map[string]interface{}
 	for {
 		row, err := reader.Read()
 		if err != nil {
-			break // EOF or error
+			if err == io.EOF {
+				break
+			}
+			return nil, err
 		}
 
 		record := make(map[string]interface{}, len(header))
@@ -479,29 +374,21 @@ func (l *CSVLoader) Load(path string) ([]map[string]interface{}, error) {
 	return records, nil
 }
 
-// parseCSVValue attempts to parse a CSV value as a number, falling back to string
 func parseCSVValue(s string) interface{} {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return nil
 	}
-
-	// Try integer first
 	var intVal int64
 	if _, err := fmt.Sscanf(s, "%d", &intVal); err == nil {
-		// Check it's actually an integer (no decimal point)
 		if !strings.Contains(s, ".") {
 			return intVal
 		}
 	}
-
-	// Try float
 	var floatVal float64
 	if _, err := fmt.Sscanf(s, "%f", &floatVal); err == nil {
 		return floatVal
 	}
-
-	// Return as string
 	return s
 }
 
@@ -512,50 +399,94 @@ func parseCSVValue(s string) interface{} {
 type ParquetLoader struct{}
 
 func (l *ParquetLoader) Load(path string) ([]map[string]interface{}, error) {
-	fr, err := local.NewLocalFileReader(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open parquet file: %w", err)
 	}
-	defer fr.Close()
+	defer f.Close()
 
-	// Use JSON reader for flexibility with unknown schemas
-	pr, err := reader.NewParquetReader(fr, nil, 4)
+	info, err := f.Stat()
 	if err != nil {
-		return nil, fmt.Errorf("failed to create parquet reader: %w", err)
+		return nil, fmt.Errorf("failed to stat file: %w", err)
 	}
-	defer pr.ReadStop()
 
-	numRows := int(pr.GetNumRows())
-	records := make([]map[string]interface{}, 0, numRows)
+	pf, err := parquet.OpenFile(f, info.Size())
+	if err != nil {
+		return nil, fmt.Errorf("failed to open parquet file: %w", err)
+	}
 
-	// Read in batches
-	batchSize := 1000
-	for {
-		rows, err := pr.ReadByNumber(batchSize)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read parquet rows: %w", err)
-		}
-		if len(rows) == 0 {
-			break
-		}
+	// Dynamic row reading: inspect schema to find column names
+	schema := pf.Schema()
+	columnPaths := schema.Columns()
 
-		for _, row := range rows {
-			// Row comes as interface{}, convert to map
-			if rowMap, ok := row.(map[string]interface{}); ok {
-				records = append(records, rowMap)
+	// Convert column paths to dot-delimited strings for map keys
+	colNames := make([]string, len(columnPaths))
+	for i, colPath := range columnPaths {
+		colNames[i] = strings.Join(colPath, ".")
+	}
+
+	var records []map[string]interface{}
+
+	// Iterate through row groups
+	for _, rowGroup := range pf.RowGroups() {
+		rows := rowGroup.Rows()
+		buffer := make([]parquet.Row, 100)
+
+		for {
+			n, err := rows.ReadRows(buffer)
+			if n == 0 && err != nil {
+				if err == io.EOF {
+					break
+				}
+				rows.Close()
+				return nil, err
+			}
+
+			for i := 0; i < n; i++ {
+				row := buffer[i]
+				record := make(map[string]interface{})
+				for _, v := range row {
+					colIdx := v.Column()
+					if colIdx >= 0 && colIdx < len(colNames) {
+						record[colNames[colIdx]] = convertParquetValue(v)
+					}
+				}
+				records = append(records, record)
+			}
+
+			if err == io.EOF {
+				break
 			}
 		}
+		rows.Close()
 	}
 
 	return records, nil
+}
+
+func convertParquetValue(v parquet.Value) interface{} {
+	switch v.Kind() {
+	case parquet.Boolean:
+		return v.Boolean()
+	case parquet.Int32:
+		return int64(v.Int32())
+	case parquet.Int64:
+		return v.Int64()
+	case parquet.Float:
+		return float64(v.Float())
+	case parquet.Double:
+		return v.Double()
+	case parquet.ByteArray, parquet.FixedLenByteArray:
+		return v.String()
+	default:
+		return v.String()
+	}
 }
 
 // =============================================================================
 // Helper: Extract Schema from Records
 // =============================================================================
 
-// ExtractSchema extracts a sorted list of all unique keys from a set of records.
-// This is useful for building CSV headers or parquet schemas from data.
 func ExtractSchema(records []map[string]interface{}) []string {
 	keySet := make(map[string]struct{})
 	for _, record := range records {

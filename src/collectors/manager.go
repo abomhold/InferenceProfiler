@@ -4,20 +4,9 @@ import (
 	"log"
 
 	"github.com/google/uuid"
-)
 
-// CollectorConfig controls which collectors are enabled
-type CollectorConfig struct {
-	CPU         bool
-	Memory      bool
-	Disk        bool
-	Network     bool
-	Container   bool
-	Processes   bool
-	Nvidia      bool
-	NvidiaProcs bool
-	VLLM        bool
-}
+	"InferenceProfiler/src/config"
+)
 
 // CollectorManager aggregates and orchestrates all collectors
 type CollectorManager struct {
@@ -25,7 +14,7 @@ type CollectorManager struct {
 }
 
 // NewCollectorManager creates a new collector manager with the specified configuration
-func NewCollectorManager(cfg CollectorConfig) *CollectorManager {
+func NewCollectorManager(cfg config.CollectorConfig) *CollectorManager {
 	cm := &CollectorManager{
 		collectors: make([]Collector, 0, 9), // Pre-allocate for typical case
 	}

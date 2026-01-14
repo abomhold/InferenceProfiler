@@ -227,14 +227,14 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) Nvi
 	}
 
 	// Encoder
-	if cap, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_H264); errors.Is(ret, nvml.SUCCESS) {
-		gpu.EncoderCapacityH264 = int(cap)
+	if capa, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_H264); errors.Is(ret, nvml.SUCCESS) {
+		gpu.EncoderCapacityH264 = capa
 	}
-	if cap, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_HEVC); errors.Is(ret, nvml.SUCCESS) {
-		gpu.EncoderCapacityHEVC = int(cap)
+	if capa, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_HEVC); errors.Is(ret, nvml.SUCCESS) {
+		gpu.EncoderCapacityHEVC = capa
 	}
-	if cap, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_AV1); errors.Is(ret, nvml.SUCCESS) {
-		gpu.EncoderCapacityAV1 = int(cap)
+	if capa, ret := device.GetEncoderCapacity(nvml.ENCODER_QUERY_AV1); errors.Is(ret, nvml.SUCCESS) {
+		gpu.EncoderCapacityAV1 = capa
 	}
 
 	// NVLink count
@@ -394,14 +394,14 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) Nv
 		gpu.ClockVideoMhzT = ts
 	}
 
-	if gfxClock, ret := device.GetApplicationsClock(nvml.CLOCK_GRAPHICS); errors.Is(ret, nvml.SUCCESS) {
-		ts := GetTimestamp()
-		gpu.AppClockGraphicsMhz = int64(gfxClock)
-		gpu.AppClocksT = ts
-	}
-	if memClock, ret := device.GetApplicationsClock(nvml.CLOCK_MEM); errors.Is(ret, nvml.SUCCESS) {
-		gpu.AppClockMemoryMhz = int64(memClock)
-	}
+	//if gfxClock, ret := device.GetApplicationsClock(nvml.CLOCK_GRAPHICS); errors.Is(ret, nvml.SUCCESS) {
+	//	ts := GetTimestamp()
+	//	gpu.AppClockGraphicsMhz = int64(gfxClock)
+	//	gpu.AppClocksT = ts
+	//}
+	//if memClock, ret := device.GetApplicationsClock(nvml.CLOCK_MEM); errors.Is(ret, nvml.SUCCESS) {
+	//	gpu.AppClockMemoryMhz = int64(memClock)
+	//}
 
 	// Performance state
 	if pstate, ret := device.GetPerformanceState(); errors.Is(ret, nvml.SUCCESS) {
@@ -459,17 +459,16 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) Nv
 		gpu.PcieReplayCounterT = ts
 	}
 
-	// Throttling
+	// Throttling - just store raw bitmask, no decoding
 	if reasons, ret := device.GetCurrentClocksEventReasons(); errors.Is(ret, nvml.SUCCESS) {
 		ts := GetTimestamp()
 		gpu.ClocksEventReasons = reasons
 		gpu.ClocksEventReasonsT = ts
-		gpu.ThrottleReasonsActive = decodeThrottleReasons(reasons)
 	}
 
 	n.collectViolationStatus(device, &gpu)
 	n.collectEccErrors(device, &gpu)
-	n.collectEncoderStats(device, &gpu)
+	//n.collectEncoderStats(device, &gpu)
 	n.collectNvLinkMetrics(device, &gpu)
 
 	if n.collectProcs {
@@ -513,16 +512,6 @@ func (n *NvidiaCollector) collectViolationStatus(device nvml.Device, gpu *Nvidia
 }
 
 func (n *NvidiaCollector) collectEccErrors(device nvml.Device, gpu *NvidiaGPUDynamic) {
-	if count, ret := device.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.VOLATILE_ECC); errors.Is(ret, nvml.SUCCESS) {
-		ts := GetTimestamp()
-		gpu.EccVolatileSbe = int64(count)
-		gpu.EccVolatileSbeT = ts
-	}
-	if count, ret := device.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_UNCORRECTED, nvml.VOLATILE_ECC); errors.Is(ret, nvml.SUCCESS) {
-		ts := GetTimestamp()
-		gpu.EccVolatileDbe = int64(count)
-		gpu.EccVolatileDbeT = ts
-	}
 	if count, ret := device.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC); errors.Is(ret, nvml.SUCCESS) {
 		ts := GetTimestamp()
 		gpu.EccAggregateSbe = int64(count)
@@ -560,23 +549,23 @@ func (n *NvidiaCollector) collectEccErrors(device nvml.Device, gpu *NvidiaGPUDyn
 	}
 }
 
-func (n *NvidiaCollector) collectEncoderStats(device nvml.Device, gpu *NvidiaGPUDynamic) {
-	if sessionCount, avgFps, avgLatency, ret := device.GetEncoderStats(); errors.Is(ret, nvml.SUCCESS) {
-		ts := GetTimestamp()
-		gpu.EncoderSessionCount = int(sessionCount)
-		gpu.EncoderAvgFps = int(avgFps)
-		gpu.EncoderAvgLatencyUs = int(avgLatency)
-		gpu.EncoderStatsT = ts
-	}
-
-	if stats, ret := device.GetFBCStats(); errors.Is(ret, nvml.SUCCESS) {
-		ts := GetTimestamp()
-		gpu.FbcSessionCount = int(stats.SessionsCount)
-		gpu.FbcAvgFps = int(stats.AverageFPS)
-		gpu.FbcAvgLatencyUs = int(stats.AverageLatency)
-		gpu.FbcStatsT = ts
-	}
-}
+//func (n *NvidiaCollector) collectEncoderStats(device nvml.Device, gpu *NvidiaGPUDynamic) {
+//	if sessionCount, avgFps, avgLatency, ret := device.GetEncoderStats(); errors.Is(ret, nvml.SUCCESS) {
+//		ts := GetTimestamp()
+//		gpu.EncoderSessionCount = int(sessionCount)
+//		gpu.EncoderAvgFps = int(avgFps)
+//		gpu.EncoderAvgLatencyUs = int(avgLatency)
+//		gpu.EncoderStatsT = ts
+//	}
+//
+//	if stats, ret := device.GetFBCStats(); errors.Is(ret, nvml.SUCCESS) {
+//		ts := GetTimestamp()
+//		gpu.FbcSessionCount = int(stats.SessionsCount)
+//		gpu.FbcAvgFps = int(stats.AverageFPS)
+//		gpu.FbcAvgLatencyUs = int(stats.AverageLatency)
+//		gpu.FbcStatsT = ts
+//	}
+//}
 
 func (n *NvidiaCollector) collectNvLinkMetrics(device nvml.Device, gpu *NvidiaGPUDynamic) {
 	var bandwidths []NvLinkBandwidth
@@ -707,40 +696,6 @@ func getProcessName(pid int) string {
 		return content
 	}
 	return "unknown"
-}
-
-func decodeThrottleReasons(reasons uint64) []string {
-	const (
-		reasonGpuIdle              uint64 = 0x0000000000000001
-		reasonAppClocksSetting     uint64 = 0x0000000000000002
-		reasonSwPowerCap           uint64 = 0x0000000000000004
-		reasonHwSlowdown           uint64 = 0x0000000000000008
-		reasonSyncBoost            uint64 = 0x0000000000000010
-		reasonSwThermalSlowdown    uint64 = 0x0000000000000020
-		reasonHwThermalSlowdown    uint64 = 0x0000000000000040
-		reasonHwPowerBrakeSlowdown uint64 = 0x0000000000000080
-		reasonDisplayClockSetting  uint64 = 0x0000000000000100
-	)
-
-	reasonMap := map[uint64]string{
-		reasonGpuIdle:              "GpuIdle",
-		reasonAppClocksSetting:     "AppClocksSetting",
-		reasonSwPowerCap:           "SwPowerCap",
-		reasonHwSlowdown:           "HwSlowdown",
-		reasonSyncBoost:            "SyncBoost",
-		reasonSwThermalSlowdown:    "SwThermalSlowdown",
-		reasonHwThermalSlowdown:    "HwThermalSlowdown",
-		reasonHwPowerBrakeSlowdown: "HwPowerBrakeSlowdown",
-		reasonDisplayClockSetting:  "DisplayClockSetting",
-	}
-
-	var active []string
-	for mask, name := range reasonMap {
-		if reasons&mask != 0 {
-			active = append(active, name)
-		}
-	}
-	return active
 }
 
 func archToString(arch nvml.DeviceArchitecture) string {

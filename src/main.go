@@ -1,6 +1,7 @@
 package main
 
 import (
+	"InferenceProfiler/src/profiler"
 	"context"
 	"fmt"
 	"log"
@@ -8,7 +9,6 @@ import (
 
 	"InferenceProfiler/src/config"
 	"InferenceProfiler/src/output"
-	"InferenceProfiler/src/profiler"
 )
 
 func main() {
@@ -55,11 +55,11 @@ func generateGraphsOnly(cfg *config.Config) error {
 		return fmt.Errorf("graph-only mode requires -i <input file>")
 	}
 
-	outputPath, err := output.GenerateHTMLFromFile(cfg.InputFile, cfg.OutputDir)
+	err := output.GenerateGraphsFromOutputFile(cfg.InputFile)
 	if err != nil {
 		return fmt.Errorf("failed to generate graphs: %w", err)
 	}
 
-	log.Printf("Generated report: %s", outputPath)
+	//log.Printf("Generated report: %s", outputPath)
 	return nil
 }

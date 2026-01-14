@@ -20,9 +20,12 @@ func FlattenMetrics(m *collectors.DynamicMetrics) []map[string]interface{} {
 	delete(base, "NvidiaGPUs")
 	delete(base, "Processes")
 
+	// Always include histogram JSON field for schema consistency
+	// (parquet schema is fixed at first record, so field must always be present)
+	base["vllmHistogramsJson"] = m.VLLMHistogramsJSON
+
 	// If no GPUs, return single record
 	if len(m.NvidiaGPUs) == 0 {
-		// Still include process metrics if available
 		if len(m.Processes) > 0 {
 			flattenProcesses(base, m.Processes)
 		}
@@ -37,10 +40,9 @@ func FlattenMetrics(m *collectors.DynamicMetrics) []map[string]interface{} {
 		// Add GPU index
 		record["gpuIndex"] = i
 
-		// Flatten GPU metrics with "gpu" prefix
-		flattenGPU(record, &gpu, "gpu")
+		prefix := fmt.Sprintf("nvidia%d", i)
+		flattenGPU(record, &gpu, prefix)
 
-		// Add process metrics (same for all GPUs)
 		if len(m.Processes) > 0 {
 			flattenProcesses(record, m.Processes)
 		}
@@ -85,8 +87,10 @@ func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic,
 				for j := 0; j < value.Len(); j++ {
 					nvlink := value.Index(j).Interface().(collectors.NvLinkBandwidth)
 					linkPrefix := fmt.Sprintf("%sNvLink%d", prefix, j)
-					record[linkPrefix+"RxKB"] = nvlink.RxKB
-					record[linkPrefix+"TxKB"] = nvlink.TxKB
+					record[linkPrefix+"TxBytes"] = nvlink.TxBytes
+					record[linkPrefix+"RxBytes"] = nvlink.RxBytes
+					record[linkPrefix+"ThroughputTx"] = nvlink.ThroughputTx
+					record[linkPrefix+"ThroughputRx"] = nvlink.ThroughputRx
 				}
 			}
 			continue
@@ -96,10 +100,10 @@ func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic,
 				for j := 0; j < value.Len(); j++ {
 					nvlink := value.Index(j).Interface().(collectors.NvLinkErrors)
 					linkPrefix := fmt.Sprintf("%sNvLink%d", prefix, j)
-					record[linkPrefix+"CRCErrors"] = nvlink.CRCErrors
-					record[linkPrefix+"ECCErrors"] = nvlink.ECCErrors
+					record[linkPrefix+"CrcErrors"] = nvlink.CrcErrors
+					record[linkPrefix+"EccErrors"] = nvlink.EccErrors
 					record[linkPrefix+"ReplayErrors"] = nvlink.ReplayErrors
-					record[linkPrefix+"RecoveryErrors"] = nvlink.RecoveryErrors
+					record[linkPrefix+"RecoveryCount"] = nvlink.RecoveryCount
 				}
 			}
 			continue
@@ -122,27 +126,29 @@ func flattenProcesses(record map[string]interface{}, procs []collectors.ProcessM
 		}
 
 		prefix := fmt.Sprintf("proc%d", i)
-		record[prefix+"Pid"] = proc.PID
-		record[prefix+"CpuTimeUser"] = proc.CPUTimeUser
-		record[prefix+"CpuTimeUserT"] = proc.CPUTimeUserT
-		record[prefix+"CpuTimeSystem"] = proc.CPUTimeSystem
-		record[prefix+"CpuTimeSystemT"] = proc.CPUTimeSystemT
-		record[prefix+"NumThreads"] = proc.NumThreads
-		record[prefix+"NumThreadsT"] = proc.NumThreadsT
-		record[prefix+"VoluntaryCtxSwitches"] = proc.VoluntaryCtxSwitches
-		record[prefix+"VoluntaryCtxSwitchesT"] = proc.VoluntaryCtxSwitchesT
-		record[prefix+"NonVoluntaryCtxSwitches"] = proc.NonVoluntaryCtxSwitches
-		record[prefix+"NonVoluntaryCtxSwitchesT"] = proc.NonVoluntaryCtxSwitchesT
-		record[prefix+"DelayBlkIO"] = proc.DelayBlkIO
-		record[prefix+"DelayBlkIOT"] = proc.DelayBlkIOT
-		record[prefix+"DelaySwapin"] = proc.DelaySwapin
-		record[prefix+"DelaySwapinT"] = proc.DelaySwapinT
-		record[prefix+"DelayFreepages"] = proc.DelayFreepages
-		record[prefix+"DelayFreepagesT"] = proc.DelayFreepagesT
-		record[prefix+"MemoryRSS"] = proc.MemoryRSS
-		record[prefix+"MemoryRSST"] = proc.MemoryRSST
-		record[prefix+"MemoryVMS"] = proc.MemoryVMS
-		record[prefix+"MemoryVMST"] = proc.MemoryVMST
+
+		// Use reflection to iterate over all fields
+		v := reflect.ValueOf(proc)
+		t := v.Type()
+
+		for j := 0; j < v.NumField(); j++ {
+			field := t.Field(j)
+			value := v.Field(j)
+
+			// Get JSON tag name or use field name
+			jsonTag := field.Tag.Get("json")
+			if jsonTag == "-" {
+				continue
+			}
+			name := strings.Split(jsonTag, ",")[0]
+			if name == "" {
+				name = field.Name
+			}
+
+			// Add field with prefix
+			key := prefix + capitalize(name)
+			record[key] = value.Interface()
+		}
 	}
 }
 

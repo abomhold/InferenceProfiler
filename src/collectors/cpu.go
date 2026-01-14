@@ -30,16 +30,11 @@ func (c *CPUCollector) CollectStatic(m *StaticMetrics) {
 	m.CPUType = getCPUType()
 	m.NumProcessors = runtime.NumCPU()
 	m.CPUCache = getCPUCache()
-
-	// Time synchronization from adjtimex syscall
 	m.TimeSynced, m.TimeOffsetSeconds, m.TimeMaxErrorSeconds = getNTPInfo()
-
-	// Kernel info
 	getKernelInfo(m)
 }
 
 func (c *CPUCollector) CollectDynamic(m *DynamicMetrics) {
-	// /proc/stat metrics
 	statMetrics, tStat := getProcStat()
 	m.CPUTimeUserMode = statMetrics["user"]
 	m.CPUTimeUserModeT = tStat
@@ -61,17 +56,11 @@ func (c *CPUCollector) CollectDynamic(m *DynamicMetrics) {
 	m.CPUTimeT = tStat
 	m.CPUContextSwitches = statMetrics["ctxt"]
 	m.CPUContextSwitchesT = tStat
-
-	// Load average
 	m.LoadAvg, m.LoadAvgT = getLoadAvg()
-
-	// CPU frequency
 	m.CPUMhz, m.CPUMhzT = getCPUFreq()
 }
 
-// =============================================================================
 // Helper Functions
-// =============================================================================
 
 func getCPUType() string {
 	lines, _ := ProbeFileLines("/proc/cpuinfo")
@@ -307,10 +296,7 @@ func getNTPInfo() (synced bool, offset float64, maxErr float64) {
 		return false, 0, 0
 	}
 
-	// TIME_ERROR (5) indicates the clock is not synchronized
 	isSynced := state != unix.TIME_ERROR
-
-	// tx.Offset is in microseconds, convert to seconds
 	offsetSeconds := float64(tx.Offset) / 1_000_000.0
 	maxErrorSeconds := float64(tx.Maxerror) / 1_000_000.0
 

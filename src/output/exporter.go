@@ -16,26 +16,17 @@ import (
 // It supports both streaming mode (write directly to final format) and
 // batch mode (collect snapshots, then convert).
 type Exporter struct {
-	// Configuration
-	outputDir   string
-	sessionUUID uuid.UUID
-	format      string
-	flatten     bool
-	streaming   bool
-
-	// Output paths
-	finalPath   string
-	snapshotDir string
-
-	// Writer (for streaming mode)
-	writer FormatWriter
-	schema []string
-
-	// Batch mode state
+	outputDir     string
+	sessionUUID   uuid.UUID
+	format        string
+	flatten       bool
+	streaming     bool
+	finalPath     string
+	snapshotDir   string
+	writer        FormatWriter
+	schema        []string
 	snapshotCount int
-
-	// Thread safety
-	mu sync.Mutex
+	mu            sync.Mutex
 }
 
 // ExporterOption configures an Exporter
@@ -84,7 +75,7 @@ func NewExporter(outputDir string, sessionUUID uuid.UUID, opts ...ExporterOption
 	}
 
 	// Setup paths
-	e.finalPath = filepath.Join(outputDir, fmt.Sprintf("metrics_%s%s", sessionUUID.String(), extensionForFormat(e.format)))
+	e.finalPath = filepath.Join(outputDir, fmt.Sprintf("%s%s", sessionUUID.String(), extensionForFormat(e.format)))
 	e.snapshotDir = filepath.Join(outputDir, "snapshots")
 
 	// Initialize based on mode
@@ -125,7 +116,7 @@ func (e *Exporter) SessionUUID() uuid.UUID {
 // WriteStaticMetrics writes static metrics to a JSON file.
 // Called once at the start of profiling.
 func (e *Exporter) WriteStaticMetrics(metrics *collectors.StaticMetrics) error {
-	path := filepath.Join(e.outputDir, fmt.Sprintf("static_%s.json", e.sessionUUID.String()))
+	path := filepath.Join(e.outputDir, fmt.Sprintf("%s.json", e.sessionUUID.String()))
 
 	data, err := json.MarshalIndent(metrics, "", "  ")
 	if err != nil {

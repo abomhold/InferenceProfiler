@@ -1,9 +1,18 @@
 package collectors
 
 import (
+	"io"
+	"log"
 	"os"
 	"testing"
+
+	"InferenceProfiler/src/config"
 )
+
+func init() {
+	// Disable logging during benchmarks to prevent "Registered collector" spam
+	log.SetOutput(io.Discard)
+}
 
 // ============================================================================
 // Dynamic Collection Benchmarks (using CollectorManager)
@@ -15,7 +24,7 @@ func BenchmarkCollectMemoryDynamic(b *testing.B) {
 	}
 
 	// Configure Manager with ONLY Memory enabled
-	cfg := CollectorConfig{Memory: true}
+	cfg := config.CollectorConfig{Memory: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -27,7 +36,7 @@ func BenchmarkCollectMemoryDynamic(b *testing.B) {
 
 func BenchmarkNvidiaCollector_CollectNvidiaDynamic(b *testing.B) {
 	// Configure Manager with ONLY Nvidia enabled
-	cfg := CollectorConfig{
+	cfg := config.CollectorConfig{
 		Nvidia:      true,
 		NvidiaProcs: true, // Enable processes if that was the intent of the original test
 	}
@@ -36,7 +45,8 @@ func BenchmarkNvidiaCollector_CollectNvidiaDynamic(b *testing.B) {
 	defer cm.Close()
 
 	// Check if Nvidia init actually succeeded, otherwise skip
-	if cm.nvidia == nil {
+	// Note: checking length because NewCollectorManager initializes the slice
+	if len(cm.collectors) == 0 {
 		b.Skip("Skipping: Nvidia collector could not be initialized")
 	}
 
@@ -47,7 +57,7 @@ func BenchmarkNvidiaCollector_CollectNvidiaDynamic(b *testing.B) {
 }
 
 func BenchmarkCollectVLLMDynamic(b *testing.B) {
-	cfg := CollectorConfig{VLLM: true}
+	cfg := config.CollectorConfig{VLLM: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -62,7 +72,7 @@ func BenchmarkCollectCPUDynamic(b *testing.B) {
 		b.Skip("Skipping: /proc/stat not available")
 	}
 
-	cfg := CollectorConfig{CPU: true}
+	cfg := config.CollectorConfig{CPU: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -77,7 +87,7 @@ func BenchmarkCollectDiskDynamic(b *testing.B) {
 		b.Skip("Skipping: /proc/diskstats not available")
 	}
 
-	cfg := CollectorConfig{Disk: true}
+	cfg := config.CollectorConfig{Disk: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -92,7 +102,7 @@ func BenchmarkCollectNetworkDynamic(b *testing.B) {
 		b.Skip("Skipping: /proc/net/dev not available")
 	}
 
-	cfg := CollectorConfig{Network: true}
+	cfg := config.CollectorConfig{Network: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -107,7 +117,7 @@ func BenchmarkCollectContainerDynamic(b *testing.B) {
 		b.Skip("Skipping: /sys/fs/cgroup not available")
 	}
 
-	cfg := CollectorConfig{Container: true}
+	cfg := config.CollectorConfig{Container: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -122,7 +132,7 @@ func BenchmarkCollectProcessesDynamic(b *testing.B) {
 		b.Skip("Skipping: /proc/[pid]/stat not available")
 	}
 
-	cfg := CollectorConfig{Processes: true}
+	cfg := config.CollectorConfig{Processes: true}
 	cm := NewCollectorManager(cfg)
 	defer cm.Close()
 
@@ -143,7 +153,7 @@ func BenchmarkCollectAllDynamic(b *testing.B) {
 
 	// Enable everything (except Nvidia/VLLM if hardware isn't guaranteed present,
 	// adjust as needed for your specific benchmark env)
-	cfg := CollectorConfig{
+	cfg := config.CollectorConfig{
 		CPU:       true,
 		Memory:    true,
 		Disk:      true,
