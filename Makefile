@@ -65,21 +65,27 @@ bench,: ##@ Run all benchmarks with comma formatting
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem -run=^$$ ./... | python3 -c "import re,sys;[print(re.sub(r'(\d)(?=(\d{3})+(?!\d))',r'\1,',l),end='')for l in sys.stdin]"
 
-bench-hf: build ##@ Compare sequential vs concurrent with hyperfine
+bench-hf: build ## Compare sequential vs concurrent with hyperfine
 	@echo "--- Hyperfine Comparison ---"
-	hyperfine --style full --export-markdown /dev/stdout --warmup 10 \
+	@hyperfine --style none --export-csv /dev/stdout --warmup 10 \
 		'./$(GO_BINARY) ss' \
 		'./$(GO_BINARY) ss --concurrent' \
 		'./$(GO_BINARY) ss --static' \
 		'./$(GO_BINARY) ss --static --concurrent' \
 		'./$(GO_BINARY) ss --dynamic' \
 		'./$(GO_BINARY) ss --dynamic --concurrent' \
-		'./$(GO_BINARY) ss --dynamic --no-procs' \
-		'./$(GO_BINARY) ss --dynamic --no-procs --concurrent' \
-		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs' \
-		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs --concurrent' \
-		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia' \
-		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia --concurrent'
+		2>/dev/null | column -t -s,
+#		'./$(GO_BINARY) ss --dynamic --no-procs' \
+#		'./$(GO_BINARY) ss --dynamic --no-procs --concurrent' \
+#		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs' \
+#		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs --concurrent' \
+#		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia' \
+#		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia --concurrent' \
+         #		| python3 -c "import sys \
+#					  lines=[l for l in sys.stdin.readlines() if ':---' not in l] \
+#					  rows=[[c.strip() for c in l.split('|')[1:-1]] for l in lines if '|' in l] \
+#					  widths=[max(len(r[i]) for r in rows) for i in range(len(rows[0]))] if rows else [] \
+#					  [print('| '+' | '.join(c.strip().ljust(w) for c,w in zip(l.split('|')[1:-1],widths))+' |') if '|' in l else print(l.rstrip()) for l in lines]"
 
 docker-build: ##@ Build Docker image (profile mode)
 	@echo "--- Building Docker Image ---"
