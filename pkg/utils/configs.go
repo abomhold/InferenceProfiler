@@ -21,6 +21,8 @@ type Config struct {
 	OutputFile          string
 	DisableFlatten      bool
 	Interval            int
+	Duration            int // Duration in ms for delta mode (0 = use interval for profiler, or wait for command/signal)
+	Delta               bool
 	Batch               bool
 	Stream              bool
 	Cleanup             bool
@@ -53,6 +55,8 @@ func GetFlags(fs *flag.FlagSet, cfg *Config) func() {
 	fs.StringVar(&cfg.Format, "format", cfg.Format, "Output format")
 	fs.StringVar(&cfg.OutputFile, "output", "", "Output file path")
 	fs.IntVar(&cfg.Interval, "interval", cfg.Interval, "Collection interval (ms)")
+	fs.IntVar(&cfg.Duration, "duration", 0, "Duration in ms for delta mode (0 = continuous or wait for command)")
+	fs.BoolVar(&cfg.Delta, "delta", false, "Delta mode: capture initial and final snapshots, output difference")
 	fs.IntVar(&cfg.Port, "port", cfg.Port, "HTTP server port")
 	fs.BoolVar(&cfg.Batch, "batch", false, "Batch mode")
 	fs.BoolVar(&cfg.Stream, "stream", false, "Stream mode")

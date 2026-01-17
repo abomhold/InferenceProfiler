@@ -4,12 +4,14 @@ import (
 	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
-	"golang.org/x/sys/unix"
+	"github.com/beevik/ntp"
 )
 
 const (
@@ -153,36 +155,33 @@ func getCPUCache() string {
 }
 
 func getKernelInfo() string {
-	var uname unix.Utsname
-	if err := unix.Uname(&uname); err != nil {
+	out, err := exec.Command("uname", "-a").Output()
+	if err != nil {
 		return ""
 	}
-	toString := func(data any) string {
-		var b []byte
-		switch v := data.(type) {
-		case [65]int8:
-			for _, c := range v {
-				b = append(b, byte(c))
-			}
-		case [65]uint8:
-			b = v[:]
-		}
-		return unix.ByteSliceToString(b)
-	}
-	return fmt.Sprintf("%s %s %s %s %s",
-		toString(uname.Sysname), toString(uname.Nodename),
-		toString(uname.Release), toString(uname.Version), toString(uname.Machine))
+	return strings.TrimSpace(string(out))
 }
 
+// Replace the entire getNTPInfo and all helper functions (getLinuxNTPInfo, etc)
+// with this single function.
 func getNTPInfo() (bool, float64, float64) {
-	tx := &unix.Timex{}
-	state, err := unix.Adjtimex(tx)
+	opts := ntp.QueryOptions{
+		Timeout: 5 * time.Second,
+	}
+
+	response, err := ntp.QueryWithOptions("pool.ntp.org", opts)
 	if err != nil {
 		return false, 0, 0
 	}
-	return state != unix.TIME_ERROR,
-		float64(tx.Offset) / 1_000_000.0,
-		float64(tx.Maxerror) / 1_000_000.0
+
+	if response.Stratum == 0 || response.Stratum >= 16 {
+		return false, 0, 0
+	}
+
+	offset := response.ClockOffset.Seconds()
+	maxErr := (response.RootDelay.Seconds() / 2) + response.RootDispersion.Seconds()
+
+	return true, offset, maxErr
 }
 
 func getLoadAvg() (float64, int64) {

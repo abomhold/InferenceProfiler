@@ -50,7 +50,11 @@ func Profile(args []string) {
 		timestamp := time.Now().Format("20060102_150405")
 		cmdName := filepath.Base(cmdArgs[0])
 		ext := exporting.GetExtension(cfg.Format)
-		cfg.OutputFile = fmt.Sprintf("profile_%s_%s%s", cmdName, timestamp, ext)
+		mode := "profile"
+		if cfg.Delta {
+			mode = "delta"
+		}
+		cfg.OutputFile = fmt.Sprintf("%s_%s_%s%s", mode, cmdName, timestamp, ext)
 	}
 
 	manager := collecting.NewManager(cfg)
@@ -69,7 +73,17 @@ func Profile(args []string) {
 
 	log.Printf("Profiling command: %v", cmdArgs)
 	log.Printf("Output: %s", cfg.OutputFile)
+	if cfg.Delta {
+		log.Printf("Mode: delta (initial + final snapshot)")
+	}
 
+	// Delta mode: take initial snapshot, run command, take final snapshot
+	if cfg.Delta {
+		profileDeltaMode(manager, cfg, targetCmd)
+		return
+	}
+
+	// Regular continuous profiling during command execution
 	if err := targetCmd.Start(); err != nil {
 		log.Fatalf("Failed to start command: %v", err)
 	}
@@ -93,6 +107,53 @@ func Profile(args []string) {
 
 	cancel()
 	<-done
+
+	log.Printf("Command completed in %v", elapsed)
+
+	if cmdErr != nil {
+		log.Printf("Command exited with error: %v", cmdErr)
+	}
+
+	if cfg.Graphs {
+		generateGraphs(cfg.OutputFile, cfg.GraphDir)
+	}
+}
+
+func profileDeltaMode(manager *collecting.Manager, cfg *utils.Config, targetCmd *exec.Cmd) {
+	// Take initial snapshot before command starts
+	log.Println("Capturing initial snapshot...")
+	initialDynamic := &collecting.DynamicMetrics{}
+	initialRecord := manager.CollectDynamic(initialDynamic)
+	if !cfg.DisableFlatten {
+		initialRecord = exporting.FlattenRecord(initialRecord)
+	}
+	startTime := time.Now()
+
+	// Start command
+	if err := targetCmd.Start(); err != nil {
+		log.Fatalf("Failed to start command: %v", err)
+	}
+
+	// Wait for command to complete
+	cmdErr := targetCmd.Wait()
+	elapsed := time.Since(startTime)
+
+	// Take final snapshot after command completes
+	log.Println("Capturing final snapshot...")
+	finalDynamic := &collecting.DynamicMetrics{}
+	finalRecord := manager.CollectDynamic(finalDynamic)
+	if !cfg.DisableFlatten {
+		finalRecord = exporting.FlattenRecord(finalRecord)
+	}
+
+	// Calculate delta
+	deltaRecord := exporting.DeltaRecord(initialRecord, finalRecord, elapsed.Milliseconds())
+
+	// Write output
+	log.Printf("Writing delta record to %s...", cfg.OutputFile)
+	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}, nil); err != nil {
+		log.Fatalf("Failed to write delta record: %v", err)
+	}
 
 	log.Printf("Command completed in %v", elapsed)
 
