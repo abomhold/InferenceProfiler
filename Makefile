@@ -67,9 +67,19 @@ bench,: ##@ Run all benchmarks with comma formatting
 
 bench-hf: build ##@ Compare sequential vs concurrent with hyperfine
 	@echo "--- Hyperfine Comparison ---"
-	hyperfine --warmup 3 \
-		'./$(GO_BINARY) snapshot -dynamic -no-process' \
-		'./$(GO_BINARY) snapshot -dynamic -no-process -concurrent'
+	hyperfine --style full --export-markdown /dev/stdout --warmup 10 \
+		'./$(GO_BINARY) ss' \
+		'./$(GO_BINARY) ss --concurrent' \
+		'./$(GO_BINARY) ss --static' \
+		'./$(GO_BINARY) ss --static --concurrent' \
+		'./$(GO_BINARY) ss --dynamic' \
+		'./$(GO_BINARY) ss --dynamic --concurrent' \
+		'./$(GO_BINARY) ss --dynamic --no-procs' \
+		'./$(GO_BINARY) ss --dynamic --no-procs --concurrent' \
+		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs' \
+		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs --concurrent' \
+		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia' \
+		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia --concurrent'
 
 docker-build: ##@ Build Docker image (profile mode)
 	@echo "--- Building Docker Image ---"
