@@ -1,5 +1,5 @@
 // Package probing provides utilities for reading system files.
-package probing
+package utils
 
 import (
 	"os"

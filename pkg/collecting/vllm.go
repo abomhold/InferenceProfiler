@@ -1,15 +1,14 @@
-package collectors
+package collecting
 
 import (
+	"InferenceProfiler/pkg/utils"
 	"bufio"
 	"encoding/json"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-
-	"InferenceProfiler/pkg/config"
-	"InferenceProfiler/pkg/probing"
 )
 
 type VLLMCollector struct {
@@ -18,10 +17,12 @@ type VLLMCollector struct {
 }
 
 func NewVLLMCollector() *VLLMCollector {
-	endpoint := os.Getenv(config.VLLMEnvVar)
+	endpoint := os.Getenv(utils.VLLMEnvVar)
 	if endpoint == "" {
-		endpoint = config.DefaultVLLMEndpoint
+		endpoint = utils.DefaultVLLMEndpoint
 	}
+
+	log.Printf("vLLM collector: endpoint=%s", endpoint)
 
 	return &VLLMCollector{
 		endpoint: endpoint,
@@ -35,10 +36,11 @@ func (c *VLLMCollector) Close() error { return nil }
 func (c *VLLMCollector) CollectStatic(m *StaticMetrics) {}
 
 func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
-	ts := probing.GetTimestamp()
+	ts := utils.GetTimestamp()
 
 	resp, err := c.client.Get(c.endpoint)
 	if err != nil {
+		// vLLM endpoint not available - this is expected if vLLM isn't running
 		return
 	}
 	defer resp.Body.Close()
@@ -64,7 +66,7 @@ func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 		}
 
 		name := parts[0]
-		value := probing.ParseFloat64(parts[1])
+		value := utils.ParseFloat64(parts[1])
 
 		switch {
 		case name == "vllm:num_requests_running":

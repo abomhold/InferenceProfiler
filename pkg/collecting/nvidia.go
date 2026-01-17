@@ -1,14 +1,12 @@
-package collectors
+package collecting
 
 import (
+	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
 	"time"
-
-	"InferenceProfiler/pkg/config"
-	"InferenceProfiler/pkg/probing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
@@ -212,7 +210,7 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 	}
 
 	nvlinkCount := 0
-	for link := 0; link < config.MaxNvLinks; link++ {
+	for link := 0; link < utils.MaxNvLinks; link++ {
 		if _, ret := device.GetNvLinkState(link); errors.Is(ret, nvml.SUCCESS) {
 			nvlinkCount++
 		} else {
@@ -399,7 +397,7 @@ func (n *NvidiaCollector) collectNvLinkMetrics(device nvml.Device, gpu *GPUDynam
 	var bandwidths []NvLinkBandwidth
 	var linkErrors []NvLinkErrors
 
-	for link := 0; link < config.MaxNvLinks; link++ {
+	for link := 0; link < utils.MaxNvLinks; link++ {
 		state, ret := device.GetNvLinkState(link)
 		if !errors.Is(ret, nvml.SUCCESS) || state != nvml.FEATURE_ENABLED {
 			break
@@ -508,7 +506,7 @@ func (n *NvidiaCollector) collectGPUProcesses(device nvml.Device, gpu *GPUDynami
 }
 
 func getProcessName(pid int) string {
-	val, _, _ := probing.File(fmt.Sprintf("/proc/%d/comm", pid))
+	val, _, _ := utils.File(fmt.Sprintf("/proc/%d/comm", pid))
 	return val
 }
 

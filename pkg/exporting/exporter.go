@@ -6,15 +6,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"InferenceProfiler/pkg/formatting"
 )
 
 // Exporter handles writing metrics to various output formats.
 type Exporter struct {
 	path   string
 	format string
-	writer formatting.Writer
+	writer Writer
 }
 
 // NewExporter creates a new exporter for the given path and format.
@@ -28,7 +26,7 @@ func NewExporter(path, format string) (*Exporter, error) {
 	}
 
 	// Get format handler
-	f, ok := formatting.Get(format)
+	f, ok := Get(format)
 	if !ok {
 		return nil, fmt.Errorf("unsupported format: %s", format)
 	}
@@ -62,14 +60,14 @@ func (e *Exporter) Format() string {
 }
 
 // Write writes a single record, flattening any deferred slice data.
-func (e *Exporter) Write(record formatting.Record) error {
-	return e.writer.Write(formatting.FlattenRecord(record))
+func (e *Exporter) Write(record Record) error {
+	return e.writer.Write(FlattenRecord(record))
 }
 
 // WriteBatch writes multiple records, flattening each.
-func (e *Exporter) WriteBatch(records []formatting.Record) error {
+func (e *Exporter) WriteBatch(records []Record) error {
 	for i, r := range records {
-		if err := e.writer.Write(formatting.FlattenRecord(r)); err != nil {
+		if err := e.writer.Write(FlattenRecord(r)); err != nil {
 			return fmt.Errorf("failed to write record %d: %w", i, err)
 		}
 	}
@@ -87,7 +85,7 @@ func (e *Exporter) Close() error {
 }
 
 // WriteStatic writes static metrics to a separate JSON file.
-func (e *Exporter) WriteStatic(record formatting.Record) error {
+func (e *Exporter) WriteStatic(record Record) error {
 	dir := filepath.Dir(e.path)
 	base := filepath.Base(e.path)
 	ext := filepath.Ext(base)

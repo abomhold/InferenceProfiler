@@ -1,4 +1,4 @@
-package formatting
+package exporting
 
 import (
 	"encoding/csv"

@@ -1,14 +1,13 @@
-package collectors
+package collecting
 
 import (
+	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
-
-	"InferenceProfiler/pkg/probing"
 
 	"golang.org/x/sys/unix"
 )
@@ -51,7 +50,7 @@ func (c *CPUCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, tStat, _ := probing.FileLines(procStat)
+	lines, tStat, _ := utils.FileLines(procStat)
 	mult := int64(nanosecondsPerSec / jiffiesPerSecond)
 
 	for _, line := range lines {
@@ -61,26 +60,26 @@ func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
 		}
 
 		if fields[0] == "cpu" && len(fields) >= 9 {
-			d.CPUTimeUserMode = probing.ParseInt64(fields[1]) * mult
+			d.CPUTimeUserMode = utils.ParseInt64(fields[1]) * mult
 			d.CPUTimeUserModeT = tStat
-			d.CPUNice = probing.ParseInt64(fields[2]) * mult
+			d.CPUNice = utils.ParseInt64(fields[2]) * mult
 			d.CPUNiceT = tStat
-			d.CPUTimeKernelMode = probing.ParseInt64(fields[3]) * mult
+			d.CPUTimeKernelMode = utils.ParseInt64(fields[3]) * mult
 			d.CPUTimeKernelModeT = tStat
-			d.CPUIdleTime = probing.ParseInt64(fields[4]) * mult
+			d.CPUIdleTime = utils.ParseInt64(fields[4]) * mult
 			d.CPUIdleTimeT = tStat
-			d.CPUTimeIOWait = probing.ParseInt64(fields[5]) * mult
+			d.CPUTimeIOWait = utils.ParseInt64(fields[5]) * mult
 			d.CPUTimeIOWaitT = tStat
-			d.CPUTimeIntSrvc = probing.ParseInt64(fields[6]) * mult
+			d.CPUTimeIntSrvc = utils.ParseInt64(fields[6]) * mult
 			d.CPUTimeIntSrvcT = tStat
-			d.CPUTimeSoftIntSrvc = probing.ParseInt64(fields[7]) * mult
+			d.CPUTimeSoftIntSrvc = utils.ParseInt64(fields[7]) * mult
 			d.CPUTimeSoftIntSrvcT = tStat
-			d.CPUSteal = probing.ParseInt64(fields[8]) * mult
+			d.CPUSteal = utils.ParseInt64(fields[8]) * mult
 			d.CPUStealT = tStat
 			d.CPUTime = d.CPUTimeUserMode + d.CPUTimeKernelMode
 			d.CPUTimeT = tStat
 		} else if fields[0] == "ctxt" && len(fields) >= 2 {
-			d.CPUContextSwitches = probing.ParseInt64(fields[1])
+			d.CPUContextSwitches = utils.ParseInt64(fields[1])
 			d.CPUContextSwitchesT = tStat
 		}
 	}
@@ -90,7 +89,7 @@ func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
 }
 
 func getCPUType() string {
-	lines, _, _ := probing.FileLines(procCPUInfo)
+	lines, _, _ := utils.FileLines(procCPUInfo)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "model name") {
 			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
@@ -107,10 +106,10 @@ func getCPUCache() string {
 
 	dirs, _ := filepath.Glob(filepath.Join(sysCPUPath, "cpu*/cache/index*"))
 	for _, dir := range dirs {
-		level, _, _ := probing.File(filepath.Join(dir, "level"))
-		cType, _, _ := probing.File(filepath.Join(dir, "type"))
-		sizeStr, _, _ := probing.File(filepath.Join(dir, "size"))
-		shared, _, _ := probing.File(filepath.Join(dir, "shared_cpu_map"))
+		level, _, _ := utils.File(filepath.Join(dir, "level"))
+		cType, _, _ := utils.File(filepath.Join(dir, "type"))
+		sizeStr, _, _ := utils.File(filepath.Join(dir, "size"))
+		shared, _, _ := utils.File(filepath.Join(dir, "shared_cpu_map"))
 
 		cacheID := fmt.Sprintf("L%s-%s-%s", level, cType, shared)
 		if seen[cacheID] || level == "" || sizeStr == "" {
@@ -187,20 +186,20 @@ func getNTPInfo() (bool, float64, float64) {
 }
 
 func getLoadAvg() (float64, int64) {
-	val, ts, _ := probing.File(procLoadavg)
+	val, ts, _ := utils.File(procLoadavg)
 	if parts := strings.Fields(val); len(parts) > 0 {
-		return probing.ParseFloat64(parts[0]), ts
+		return utils.ParseFloat64(parts[0]), ts
 	}
 	return 0.0, ts
 }
 
 func getCPUFreq() (float64, int64) {
-	ts := probing.GetTimestamp()
+	ts := utils.GetTimestamp()
 	files, err := filepath.Glob(filepath.Join(sysCPUPath, "cpu*/cpufreq/scaling_cur_freq"))
 	if err == nil && len(files) > 0 {
 		var total, count int64
 		for _, f := range files {
-			if val, _, err := probing.FileInt(f); err == nil && val > 0 {
+			if val, _, err := utils.FileInt(f); err == nil && val > 0 {
 				total += val
 				count++
 			}
@@ -210,11 +209,11 @@ func getCPUFreq() (float64, int64) {
 		}
 	}
 
-	lines, ts, _ := probing.FileLines(procCPUInfo)
+	lines, ts, _ := utils.FileLines(procCPUInfo)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "cpu MHz") {
 			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
-				return probing.ParseFloat64(parts[1]), ts
+				return utils.ParseFloat64(parts[1]), ts
 			}
 		}
 	}
@@ -233,14 +232,14 @@ func (c *MemoryCollector) Name() string { return "Memory" }
 func (c *MemoryCollector) Close() error { return nil }
 
 func (c *MemoryCollector) CollectStatic(s *StaticMetrics) {
-	lines, _, _ := probing.FileLines(procMeminfo)
+	lines, _, _ := utils.FileLines(procMeminfo)
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
-		val := probing.ParseInt64(strings.Fields(parts[1])[0]) * 1024
+		val := utils.ParseInt64(strings.Fields(parts[1])[0]) * 1024
 
 		switch key {
 		case "MemTotal":
@@ -252,7 +251,7 @@ func (c *MemoryCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := probing.FileLines(procMeminfo)
+	lines, ts, _ := utils.FileLines(procMeminfo)
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 2)
 		if len(parts) != 2 {
@@ -263,7 +262,7 @@ func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
 		if len(fields) == 0 {
 			continue
 		}
-		val := probing.ParseInt64(fields[0]) * 1024
+		val := utils.ParseInt64(fields[0]) * 1024
 
 		switch key {
 		case "MemTotal":
@@ -290,7 +289,7 @@ func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
 		d.MemoryPercentT = ts
 	}
 
-	vmLines, vmTs, _ := probing.FileLines(procVmstat)
+	vmLines, vmTs, _ := utils.FileLines(procVmstat)
 	for _, line := range vmLines {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
@@ -298,9 +297,9 @@ func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
 		}
 		switch fields[0] {
 		case "pgfault":
-			d.MemoryPgFault, d.MemoryPgFaultT = probing.ParseInt64(fields[1]), vmTs
+			d.MemoryPgFault, d.MemoryPgFaultT = utils.ParseInt64(fields[1]), vmTs
 		case "pgmajfault":
-			d.MemoryMajorPageFault, d.MemoryMajorPageFaultT = probing.ParseInt64(fields[1]), vmTs
+			d.MemoryMajorPageFault, d.MemoryMajorPageFaultT = utils.ParseInt64(fields[1]), vmTs
 		}
 	}
 }
@@ -333,13 +332,13 @@ func (c *DiskCollector) CollectStatic(s *StaticMetrics) {
 		}
 
 		di := diskInfo{Name: name}
-		if model, _, _ := probing.File(filepath.Join(entry, "device/model")); model != "" {
+		if model, _, _ := utils.File(filepath.Join(entry, "device/model")); model != "" {
 			di.Model = model
 		}
-		if size, _, err := probing.FileInt(filepath.Join(entry, "size")); err == nil {
+		if size, _, err := utils.FileInt(filepath.Join(entry, "size")); err == nil {
 			di.Size = size * 512
 		}
-		if rot, _, _ := probing.File(filepath.Join(entry, "queue/rotational")); rot == "1" {
+		if rot, _, _ := utils.File(filepath.Join(entry, "queue/rotational")); rot == "1" {
 			di.Rotational = true
 		}
 		disks = append(disks, di)
@@ -352,7 +351,7 @@ func (c *DiskCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *DiskCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := probing.FileLines(procDiskstats)
+	lines, ts, _ := utils.FileLines(procDiskstats)
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 14 {
@@ -364,17 +363,17 @@ func (c *DiskCollector) CollectDynamic(d *DynamicMetrics) {
 			continue
 		}
 
-		d.DiskSuccessfulReads += probing.ParseInt64(fields[3])
-		d.DiskMergedReads += probing.ParseInt64(fields[4])
-		d.DiskSectorReads += probing.ParseInt64(fields[5])
-		d.DiskReadTime += probing.ParseInt64(fields[6])
-		d.DiskSuccessfulWrites += probing.ParseInt64(fields[7])
-		d.DiskMergedWrites += probing.ParseInt64(fields[8])
-		d.DiskSectorWrites += probing.ParseInt64(fields[9])
-		d.DiskWriteTime += probing.ParseInt64(fields[10])
-		d.DiskIOInProgress += probing.ParseInt64(fields[11])
-		d.DiskIOTime += probing.ParseInt64(fields[12])
-		d.DiskWeightedIOTime += probing.ParseInt64(fields[13])
+		d.DiskSuccessfulReads += utils.ParseInt64(fields[3])
+		d.DiskMergedReads += utils.ParseInt64(fields[4])
+		d.DiskSectorReads += utils.ParseInt64(fields[5])
+		d.DiskReadTime += utils.ParseInt64(fields[6])
+		d.DiskSuccessfulWrites += utils.ParseInt64(fields[7])
+		d.DiskMergedWrites += utils.ParseInt64(fields[8])
+		d.DiskSectorWrites += utils.ParseInt64(fields[9])
+		d.DiskWriteTime += utils.ParseInt64(fields[10])
+		d.DiskIOInProgress += utils.ParseInt64(fields[11])
+		d.DiskIOTime += utils.ParseInt64(fields[12])
+		d.DiskWeightedIOTime += utils.ParseInt64(fields[13])
 	}
 
 	d.DiskReadBytes = d.DiskSectorReads * 512
@@ -423,13 +422,13 @@ func (c *NetworkCollector) CollectStatic(s *StaticMetrics) {
 		}
 
 		info := ifaceInfo{Name: name}
-		if mac, _, _ := probing.File(filepath.Join(entry, "address")); mac != "" && mac != "00:00:00:00:00:00" {
+		if mac, _, _ := utils.File(filepath.Join(entry, "address")); mac != "" && mac != "00:00:00:00:00:00" {
 			info.MAC = mac
 		}
-		if mtu, _, err := probing.FileInt(filepath.Join(entry, "mtu")); err == nil {
+		if mtu, _, err := utils.FileInt(filepath.Join(entry, "mtu")); err == nil {
 			info.MTU = mtu
 		}
-		if speed, _, err := probing.FileInt(filepath.Join(entry, "speed")); err == nil && speed > 0 {
+		if speed, _, err := utils.FileInt(filepath.Join(entry, "speed")); err == nil && speed > 0 {
 			info.Speed = speed
 		}
 		ifaces = append(ifaces, info)
@@ -442,7 +441,7 @@ func (c *NetworkCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *NetworkCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := probing.FileLines(procNetDev)
+	lines, ts, _ := utils.FileLines(procNetDev)
 	for _, line := range lines {
 		if !strings.Contains(line, ":") {
 			continue
@@ -462,14 +461,14 @@ func (c *NetworkCollector) CollectDynamic(d *DynamicMetrics) {
 			continue
 		}
 
-		d.NetworkBytesRecvd += probing.ParseInt64(fields[0])
-		d.NetworkPacketsRecvd += probing.ParseInt64(fields[1])
-		d.NetworkErrorsRecvd += probing.ParseInt64(fields[2])
-		d.NetworkDropsRecvd += probing.ParseInt64(fields[3])
-		d.NetworkBytesSent += probing.ParseInt64(fields[8])
-		d.NetworkPacketsSent += probing.ParseInt64(fields[9])
-		d.NetworkErrorsSent += probing.ParseInt64(fields[10])
-		d.NetworkDropsSent += probing.ParseInt64(fields[11])
+		d.NetworkBytesRecvd += utils.ParseInt64(fields[0])
+		d.NetworkPacketsRecvd += utils.ParseInt64(fields[1])
+		d.NetworkErrorsRecvd += utils.ParseInt64(fields[2])
+		d.NetworkDropsRecvd += utils.ParseInt64(fields[3])
+		d.NetworkBytesSent += utils.ParseInt64(fields[8])
+		d.NetworkPacketsSent += utils.ParseInt64(fields[9])
+		d.NetworkErrorsSent += utils.ParseInt64(fields[10])
+		d.NetworkDropsSent += utils.ParseInt64(fields[11])
 	}
 
 	d.NetworkBytesRecvdT = ts

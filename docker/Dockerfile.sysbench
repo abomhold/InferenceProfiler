@@ -1,20 +1,23 @@
-# Build
-FROM golang:1.25 AS builder
-WORKDIR /profiler
-COPY ./src ./src
-COPY go.mod .
-COPY Makefile .
-RUN CGO_ENABLED=1 GOOS=linux make build
+# Build profiler
+FROM golang:1.22 AS builder
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o infprofiler .
 
-# Setup
+# Runtime with sysbench
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-RUN mkdir -p /profiler-output
-COPY --from=builder /profiler/bin/profiler /usr/local/bin/profiler
-ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "1", "--stream", "--no-procs"]
 
-# User
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends sysbench \
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sysbench \
     && rm -rf /var/lib/apt/lists/*
-CMD ["sysbench", "--test=cpu", "--cpu-max-prime=1000000", "--max-requests=400", "run"]
+
+COPY --from=builder /build/infprofiler /usr/local/bin/infprofiler
+RUN mkdir -p /output
+WORKDIR /app
+
+# Profile sysbench CPU test (no GPU/vLLM)
+ENTRYPOINT ["infprofiler", "profile", "-no-nvidia", "-no-vllm", "-dir", "/output", "-format", "parquet", "--"]
+CMD ["sysbench", "cpu", "--threads=4", "--time=30", "run"]

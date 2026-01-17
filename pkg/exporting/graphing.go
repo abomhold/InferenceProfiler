@@ -1,5 +1,5 @@
 // Package graphing provides visualization generation for profiler metrics.
-package graphing
+package exporting
 
 import (
 	"encoding/json"
@@ -10,8 +10,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-
-	"InferenceProfiler/pkg/formatting"
 
 	"gonum.org/v1/plot"
 	"gonum.org/v1/plot/plotter"
@@ -28,7 +26,7 @@ const (
 type Generator struct {
 	inputPath string
 	outputDir string
-	records   []formatting.Record
+	records   []Record
 }
 
 // NewGenerator creates a new graph generator.
@@ -48,7 +46,7 @@ func NewGenerator(inputPath, outputDir, _ string) (*Generator, error) {
 
 // Generate creates PNG visualizations in the output directory.
 func (g *Generator) Generate() error {
-	records, err := formatting.LoadRecords(g.inputPath)
+	records, err := LoadRecords(g.inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to load records: %w", err)
 	}
@@ -61,7 +59,7 @@ func (g *Generator) Generate() error {
 
 	// Sort records by timestamp
 	sort.Slice(g.records, func(i, j int) bool {
-		return formatting.ToFloat(g.records[i]["timestamp"]) < formatting.ToFloat(g.records[j]["timestamp"])
+		return ToFloat(g.records[i]["timestamp"]) < ToFloat(g.records[j]["timestamp"])
 	})
 
 	// Create output directory
@@ -232,7 +230,7 @@ type Histogram struct {
 }
 
 // buildSeries extracts numeric columns into time series with deltas.
-func buildSeries(records []formatting.Record) []*Series {
+func buildSeries(records []Record) []*Series {
 	cols := make(map[string]bool)
 	for _, r := range records {
 		for k, v := range r {
@@ -242,7 +240,7 @@ func buildSeries(records []formatting.Record) []*Series {
 				strings.HasSuffix(k, "JSON") {
 				continue
 			}
-			if _, ok := formatting.ToFloatOk(v); ok {
+			if _, ok := ToFloatOk(v); ok {
 				cols[k] = true
 			}
 		}
@@ -254,13 +252,13 @@ func buildSeries(records []formatting.Record) []*Series {
 	}
 
 	for _, r := range records {
-		fallbackTs := int64(formatting.ToFloat(r["timestamp"]))
+		fallbackTs := int64(ToFloat(r["timestamp"]))
 
 		for col := range cols {
 			s := seriesMap[col]
-			if v, ok := formatting.ToFloatOk(r[col]); ok {
+			if v, ok := ToFloatOk(r[col]); ok {
 				ts := fallbackTs
-				if metricTs, ok := formatting.ToFloatOk(r[col+"T"]); ok && metricTs > 0 {
+				if metricTs, ok := ToFloatOk(r[col+"T"]); ok && metricTs > 0 {
 					ts = int64(metricTs)
 				}
 				s.Timestamps = append(s.Timestamps, ts)
@@ -287,7 +285,7 @@ func buildSeries(records []formatting.Record) []*Series {
 }
 
 // buildHistograms extracts vLLM histogram data.
-func buildHistograms(records []formatting.Record) []*Histogram {
+func buildHistograms(records []Record) []*Histogram {
 	// First pass: collect all histogram names and bucket labels
 	histBuckets := make(map[string]map[string]bool)
 
@@ -333,7 +331,7 @@ func buildHistograms(records []formatting.Record) []*Histogram {
 	lastValues := make(map[string]map[string]float64)
 
 	for _, r := range records {
-		ts := int64(formatting.ToFloat(r["timestamp"]))
+		ts := int64(ToFloat(r["timestamp"]))
 
 		jsonStr := getHistogramJSON(r)
 		var currentData map[string]map[string]float64
@@ -377,7 +375,7 @@ func buildHistograms(records []formatting.Record) []*Histogram {
 	return result
 }
 
-func getHistogramJSON(r formatting.Record) string {
+func getHistogramJSON(r Record) string {
 	keys := []string{
 		"vllmHistogramsJson",
 		"VLLMHistogramsJSON",

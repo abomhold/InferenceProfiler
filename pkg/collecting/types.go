@@ -1,12 +1,12 @@
 // Package collectors provides metric collection functionality.
-package collectors
+package collecting
 
 // StaticMetrics contains all static system information collected once at startup.
 type StaticMetrics struct {
-	UUID     string `json:"uuid"`
-	VMID     string `json:"vId"`
-	Hostname string `json:"vHostname"`
-	BootTime int64  `json:"vBootTime"`
+	UUID     string `json:"uuid,omitempty"`
+	VMID     string `json:"vId,omitempty"`
+	Hostname string `json:"vHostname,omitempty"`
+	BootTime int64  `json:"vBootTime,omitempty"`
 
 	NumProcessors       int     `json:"vNumProcessors"`
 	CPUType             string  `json:"vCpuType"`

@@ -1,7 +1,9 @@
 package main
 
-import "InferenceProfiler/pkg/commands"
+import (
+	"InferenceProfiler/pkg/cmd"
+)
 
 func main() {
-	commands.Execute()
+	cmd.Execute()
 }

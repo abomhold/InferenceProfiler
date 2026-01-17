@@ -2,7 +2,7 @@ PROJECT_NAME  := infprofiler
 SRC_DIR       := .
 BIN_DIR       := bin
 OUTPUT_DIR    := ./output
-BINARY_NAME   := infprofiler
+BINARY_NAME   := infpro
 GO_BINARY     := $(BIN_DIR)/$(BINARY_NAME)
 GO_MAIN       := $(SRC_DIR)/main.go
 DOCKER_IMAGE  := $(PROJECT_NAME)
@@ -19,7 +19,7 @@ BUILD_FLAGS   := -ldflags "$(LDFLAGS)"
 
 .DELETE_ON_ERROR:
 .PHONY: all help build clean run snapshot serve test test-v test-cover \
-        bench bench-collectors bench-probing bench-vm bench-manager \
+        bench bench-collecting bench-utils bench-manager \
         docker-build docker-run docker-clean refresh get-model test-vllm
 
 all: build
@@ -29,10 +29,6 @@ help: ##@ Show this help message
 	@echo ''
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?##@ "} /^[a-zA-Z0-9_-]+:.*?##@ / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-
-# ============================================================================
-# Development
-# ============================================================================
 
 refresh: ##@ Tidy modules, format and vet source code
 	@echo "--- Refreshing Source Code ---"
@@ -45,42 +41,16 @@ build: ##@ Compile Go binary
 	@mkdir -p $(BIN_DIR)
 	go build $(BUILD_FLAGS) -o $(GO_BINARY) $(GO_MAIN)
 
-build-dev: ##@ Build without optimizations (faster compile)
-	@mkdir -p $(BIN_DIR)
-	go build -o $(GO_BINARY) $(GO_MAIN)
-
 install: build ##@ Install binary to GOPATH/bin
 	go install $(BUILD_FLAGS)
 
 clean: ##@ Remove build artifacts
 	@echo "--- Cleaning ---"
-	rm -rf $(BIN_DIR) $(OUTPUT_DIR) coverage.out coverage.html *.parquet *.jsonl
-
-# ============================================================================
-# Run Commands
-# ============================================================================
+	rm -rf $(BIN_DIR) $(OUTPUT_DIR) coverage.out coverage.html *.parquet *.jsonl *.prof
 
 run: build ##@ Run continuous profiler (Ctrl+C to stop)
 	@mkdir -p $(OUTPUT_DIR)
-	./$(GO_BINARY) profiler -o $(OUTPUT_DIR) --format parquet
-
-snapshot: build ##@ Capture single metrics snapshot
-	./$(GO_BINARY) snapshot
-
-snapshot-json: build ##@ Capture snapshot and save to JSON
-	@mkdir -p $(OUTPUT_DIR)
-	./$(GO_BINARY) snapshot -o $(OUTPUT_DIR)/snapshot.json
-
-serve: build ##@ Run HTTP metrics server on :8080
-	./$(GO_BINARY) serve --addr :8080
-
-profile-cmd: build ##@ Profile a command (usage: make profile-cmd CMD="sleep 5")
-	@mkdir -p $(OUTPUT_DIR)
-	./$(GO_BINARY) profile -o $(OUTPUT_DIR) -- $(CMD)
-
-# ============================================================================
-# Testing
-# ============================================================================
+	./$(GO_BINARY) profiler -dir $(OUTPUT_DIR) -format parquet
 
 test: ##@ Run all unit tests
 	@echo "--- Running Tests ---"
@@ -90,60 +60,49 @@ test-v: ##@ Run tests with verbose output
 	@echo "--- Running Tests (verbose) ---"
 	go test -v ./...
 
-test-cover: ##@ Run tests with coverage report
-	@echo "--- Running Tests with Coverage ---"
-	go test -coverprofile=coverage.out ./...
-	go tool cover -html=coverage.out -o coverage.html
-	@echo "Coverage report: coverage.html"
-
-test-race: ##@ Run tests with race detector
-	go test -race ./...
-
-# ============================================================================
-# Benchmarks
-# ============================================================================
-
 bench: ##@ Run all benchmarks
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem -run=^$$ ./...
 
-bench-short: ##@ Run benchmarks (shorter, 1s each)
-	go test -bench=. -benchmem -benchtime=1s -run=^$$ ./...
+bench,: ##@ Run all benchmarks
+	@echo "--- Running All Benchmarks ---"
+	go test -bench=. -benchmem -run=^$$ ./... | sed -E ':a;s/([0-9])([0-9]{3})($|[^0-9])/\1,\2\3/;ta'
 
-bench-collectors: ##@ Run collector benchmarks
-	@echo "--- Collector Benchmarks ---"
-	go test -bench=. -benchmem -run=^$$ ./pkg/collectors/
+bench-hf: build ##@ Compare sequential vs concurrent with hyperfine
+	@echo "--- Hyperfine Comparison ---"
+	hyperfine --warmup 3 \
+		'./$(GO_BINARY) snapshot -dynamic -no-process' \
+		'./$(GO_BINARY) snapshot -dynamic -no-process -concurrent'
 
-bench-probing: ##@ Run probing/file I/O benchmarks
-	@echo "--- Probing Benchmarks ---"
-	go test -bench=. -benchmem -run=^$$ ./pkg/probing/
-
-bench-vm: ##@ Run VM collector benchmarks only
-	go test -bench=BenchmarkIsolated -benchmem -run=^$$ ./pkg/collectors/
-
-bench-manager: ##@ Run manager benchmarks
-	go test -bench=BenchmarkManager -benchmem -run=^$$ ./pkg/collectors/
-
-bench-cpu: ##@ Profile CPU during benchmark
-	go test -bench=BenchmarkManager_CollectDynamic_All -benchmem -cpuprofile=cpu.prof -run=^$$ ./pkg/collectors/
-	@echo "View with: go tool pprof cpu.prof"
-
-bench-mem: ##@ Profile memory during benchmark
-	go test -bench=BenchmarkManager_CollectDynamic_All -benchmem -memprofile=mem.prof -run=^$$ ./pkg/collectors/
-	@echo "View with: go tool pprof mem.prof"
-
-# ============================================================================
-# Docker
-# ============================================================================
-
-docker-build: ##@ Build Docker image
+docker-build: ##@ Build Docker image (profile mode)
 	@echo "--- Building Docker Image ---"
 	docker build --progress=plain \
 		-f $(DOCKER_FILE) \
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		.
 
-docker-run: docker-build ##@ Run container with GPU support
+docker-build-serve: ##@ Build Docker image (serve mode - profiler HTTP server)
+	@echo "--- Building Docker Image (serve mode) ---"
+	docker build --progress=plain \
+		-f docker/Dockerfile.vllm.serve \
+		-t $(DOCKER_IMAGE):serve \
+		.
+
+docker-build-run: ##@ Build Docker image (batch vLLM run)
+	@echo "--- Building Docker Image (run mode) ---"
+	docker build --progress=plain \
+		-f docker/Dockerfile.vllm.run \
+		-t $(DOCKER_IMAGE):run \
+		.
+
+docker-build-sysbench: ##@ Build Docker image (sysbench CPU test)
+	@echo "--- Building Docker Image (sysbench) ---"
+	docker build --progress=plain \
+		-f docker/Dockerfile.sysbench \
+		-t $(DOCKER_IMAGE):sysbench \
+		.
+
+docker-run: docker-build ##@ Run container with GPU support (profile mode)
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
 	@if [ -d "$(MODEL_DIR)" ]; then \
@@ -151,7 +110,7 @@ docker-run: docker-build ##@ Run container with GPU support
 		docker run --rm \
 			--gpus all \
 			-p "8000:8000" \
-			-v $(OUTPUT_DIR):/profiler-output \
+			-v $(OUTPUT_DIR):/output \
 			-v $(MODEL_DIR):/app/model \
 			$(DOCKER_IMAGE):$(DOCKER_TAG); \
 	else \
@@ -159,16 +118,41 @@ docker-run: docker-build ##@ Run container with GPU support
 		docker run --rm \
 			--gpus all \
 			-p "8000:8000" \
-			-v $(OUTPUT_DIR):/profiler-output \
+			-v $(OUTPUT_DIR):/output \
 			$(DOCKER_IMAGE):$(DOCKER_TAG); \
 	fi
 
-docker-clean: ##@ Remove Docker image
-	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
+docker-run-serve: docker-build-serve ##@ Run serve mode (profiler on :8081, vLLM on :8000)
+	@echo "--- Running Docker Container (serve mode) ---"
+	@if [ -d "$(MODEL_DIR)" ]; then \
+		echo "Mounting model from $(MODEL_DIR)..."; \
+		docker run --rm \
+			--gpus all \
+			-p "8000:8000" \
+			-p "8081:8081" \
+			-v $(MODEL_DIR):/app/model \
+			$(DOCKER_IMAGE):serve; \
+	else \
+		echo "No local model at $(MODEL_DIR). Running without mount..."; \
+		docker run --rm \
+			--gpus all \
+			-p "8000:8000" \
+			-p "8081:8081" \
+			$(DOCKER_IMAGE):serve; \
+	fi
 
-# ============================================================================
-# Utilities
-# ============================================================================
+docker-run-sysbench: docker-build-sysbench ##@ Run sysbench CPU profiling
+	@echo "--- Running Docker Container (sysbench) ---"
+	@mkdir -p $(OUTPUT_DIR)
+	docker run --rm \
+		-v $(OUTPUT_DIR):/output \
+		$(DOCKER_IMAGE):sysbench
+
+docker-clean: ##@ Remove Docker images
+	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
+	docker rmi $(DOCKER_IMAGE):serve || true
+	docker rmi $(DOCKER_IMAGE):run || true
+	docker rmi $(DOCKER_IMAGE):sysbench || true
 
 get-model: ##@ Download HuggingFace model
 	@echo "--- Downloading Model: $(MODEL_ID) ---"
@@ -186,8 +170,9 @@ test-vllm: ##@ Send test requests to local vLLM server
 		sleep 0.5; \
 	done
 
-loc: ##@ Count lines of code
-	@find . -name '*.go' -not -path './vendor/*' | xargs wc -l | tail -1
-
-deps: ##@ Show module dependencies
-	go mod graph | head -20
+test-profiler: ##@ Test profiler HTTP server endpoints
+	@echo "--- Testing Profiler Server ---"
+	@echo "Static:"
+	@curl -s http://localhost:8081/static | head -20
+	@echo "\nDynamic:"
+	@curl -s http://localhost:8081/dynamic | head -20

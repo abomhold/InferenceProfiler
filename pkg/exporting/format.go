@@ -1,5 +1,5 @@
 // Package formatting provides unified read/write interfaces for data formats.
-package formatting
+package exporting
 
 import (
 	"fmt"

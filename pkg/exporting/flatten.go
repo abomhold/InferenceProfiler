@@ -1,5 +1,5 @@
 // Package formatting provides flatten utilities for export.
-package formatting
+package exporting
 
 import (
 	"encoding/json"

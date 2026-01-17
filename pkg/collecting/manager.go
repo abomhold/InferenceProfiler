@@ -1,25 +1,25 @@
-package collectors
+package collecting
 
 import (
+	"InferenceProfiler/pkg/exporting"
+	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"log"
 	"sync"
-
-	"InferenceProfiler/pkg/config"
-	"InferenceProfiler/pkg/formatting"
-	"InferenceProfiler/pkg/probing"
 )
 
 type Manager struct {
 	collectors []Collector
 	static     *StaticMetrics
-	staticJSON formatting.Record
+	staticJSON exporting.Record
+	concurrent bool
 	mu         sync.RWMutex
 }
 
-func NewManager(cfg *config.Config) *Manager {
+func NewManager(cfg *utils.Config) *Manager {
 	m := &Manager{
 		collectors: make([]Collector, 0, 8),
+		concurrent: cfg.Concurrent,
 	}
 
 	if cfg.EnableVM {
@@ -38,7 +38,7 @@ func NewManager(cfg *config.Config) *Manager {
 	}
 
 	if cfg.EnableProcess {
-		m.collectors = append(m.collectors, NewProcessCollector())
+		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent))
 	}
 
 	if cfg.EnableNvidia {
@@ -51,13 +51,21 @@ func NewManager(cfg *config.Config) *Manager {
 		m.collectors = append(m.collectors, NewVLLMCollector())
 	}
 
-	log.Printf("Initialized %d collectors", len(m.collectors))
+	mode := "sequential"
+	if m.concurrent {
+		mode = "concurrent"
+	}
+	log.Printf("Initialized %d collectors (%s)", len(m.collectors), mode)
 	return m
 }
 
 func (m *Manager) CollectStatic(s *StaticMetrics) {
-	for _, c := range m.collectors {
-		c.CollectStatic(s)
+	if m.concurrent {
+		m.collectStaticConcurrent(s)
+	} else {
+		for _, c := range m.collectors {
+			c.CollectStatic(s)
+		}
 	}
 
 	m.mu.Lock()
@@ -66,10 +74,27 @@ func (m *Manager) CollectStatic(s *StaticMetrics) {
 	m.mu.Unlock()
 }
 
-func (m *Manager) CollectDynamic(d *DynamicMetrics) formatting.Record {
-	d.Timestamp = probing.GetTimestamp()
+func (m *Manager) collectStaticConcurrent(s *StaticMetrics) {
+	var wg sync.WaitGroup
+	wg.Add(len(m.collectors))
 	for _, c := range m.collectors {
-		c.CollectDynamic(d)
+		go func(col Collector) {
+			defer wg.Done()
+			col.CollectStatic(s)
+		}(c)
+	}
+	wg.Wait()
+}
+
+func (m *Manager) CollectDynamic(d *DynamicMetrics) exporting.Record {
+	d.Timestamp = utils.GetTimestamp()
+
+	if m.concurrent {
+		m.collectDynamicConcurrent(d)
+	} else {
+		for _, c := range m.collectors {
+			c.CollectDynamic(d)
+		}
 	}
 
 	record := structToRecord(d)
@@ -81,6 +106,18 @@ func (m *Manager) CollectDynamic(d *DynamicMetrics) formatting.Record {
 	m.mu.RUnlock()
 
 	return record
+}
+
+func (m *Manager) collectDynamicConcurrent(d *DynamicMetrics) {
+	var wg sync.WaitGroup
+	wg.Add(len(m.collectors))
+	for _, c := range m.collectors {
+		go func(col Collector) {
+			defer wg.Done()
+			col.CollectDynamic(d)
+		}(c)
+	}
+	wg.Wait()
 }
 
 func (m *Manager) Close() {
@@ -105,15 +142,27 @@ func (m *Manager) GetStatic() *StaticMetrics {
 	return m.static
 }
 
-func (m *Manager) GetStaticRecord() formatting.Record {
+func (m *Manager) GetStaticRecord() exporting.Record {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.staticJSON
 }
 
-func structToRecord(v interface{}) formatting.Record {
+func structToRecord(v interface{}) exporting.Record {
 	data, _ := json.Marshal(v)
-	var result formatting.Record
+	var result exporting.Record
 	json.Unmarshal(data, &result)
+
+	// Handle special fields excluded by json:"-"
+	switch t := v.(type) {
+	case *DynamicMetrics:
+		if len(t.GPUs) > 0 {
+			result["_gpus"] = t.GPUs
+		}
+		if len(t.Processes) > 0 {
+			result["_processes"] = t.Processes
+		}
+	}
+
 	return result
 }
