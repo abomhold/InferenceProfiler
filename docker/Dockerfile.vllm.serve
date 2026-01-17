@@ -1,31 +1,30 @@
-# Build (Go Profiler)
-FROM golang:1.25 AS builder
-WORKDIR /app
-COPY ../src/main.go .
-RUN go mod init InferenceProfiler && go mod tidy
-RUN CGO_ENABLED=1 GOOS=linux go build -o profiler main.go
+# Build profiler
+FROM golang:1.22 AS builder
+WORKDIR /build
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o infprofiler .
 
-# Stage 1: Runtime Setup
+# Runtime with vLLM
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /app
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    python3-pip \
+    ca-certificates python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-# Install vLLM system-wide
-RUN pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
+RUN pip install --no-cache-dir --break-system-packages vllm
 
-RUN mkdir -p /profiler-output
+COPY --from=builder /build/infprofiler /usr/local/bin/infprofiler
+COPY docker/entrypoint-serve.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
-# Copy the Go binary
-COPY --from=builder /app/profiler /usr/local/bin/profiler
+WORKDIR /app
 
-ENTRYPOINT ["/usr/local/bin/profiler", "-o", "/profiler-output", "-t", "5000", "-f", "csv"]
+# Expose profiler metrics server and vLLM API
+EXPOSE 8081 8000
 
-# Workload: 'vllm' is now in the global PATH
-CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]
+# Entrypoint starts profiler serve in background, then runs CMD
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["vllm", "serve", "/app/model", "--host", "0.0.0.0", "--port", "8000", "--gpu-memory-utilization=0.7", "--max-model-len=2048"]
