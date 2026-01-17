@@ -1,5 +1,5 @@
 PROJECT_NAME  := profiler
-SRC_DIR       := src
+SRC_DIR       := .
 BIN_DIR       := bin
 OUTPUT_DIR    := ./output
 BINARY_NAME   := profiler
