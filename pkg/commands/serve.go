@@ -11,6 +11,7 @@ import (
 
 	"InferenceProfiler/pkg/collectors"
 	"InferenceProfiler/pkg/config"
+	"InferenceProfiler/pkg/formatting"
 )
 
 var serveAddr string
@@ -127,6 +128,8 @@ func (s *metricsServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 func (s *metricsServer) handleDynamic(w http.ResponseWriter, r *http.Request) {
 	baseDynamic := &collectors.BaseDynamic{}
 	data := s.manager.CollectDynamic(baseDynamic)
+	// Flatten to serialize any deferred slice data
+	data = formatting.FlattenRecord(data)
 	writeJSONResponse(w, data)
 }
 
@@ -137,6 +140,8 @@ func (s *metricsServer) handleBoth(w http.ResponseWriter, r *http.Request) {
 
 	baseDynamic := &collectors.BaseDynamic{}
 	dynamicData := s.manager.CollectDynamic(baseDynamic)
+	// Flatten to serialize any deferred slice data
+	dynamicData = formatting.FlattenRecord(dynamicData)
 
 	// Merge static into dynamic
 	dynamicData["uuid"] = baseStatic.UUID

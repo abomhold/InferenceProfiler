@@ -9,6 +9,7 @@ import (
 
 	"InferenceProfiler/pkg/collectors"
 	"InferenceProfiler/pkg/config"
+	"InferenceProfiler/pkg/formatting"
 )
 
 var (
@@ -84,6 +85,8 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	if collectDynamic {
 		baseDynamic := &collectors.BaseDynamic{}
 		dynamicMetrics := manager.CollectDynamic(baseDynamic)
+		// Flatten to serialize any deferred slice data
+		dynamicMetrics = formatting.FlattenRecord(dynamicMetrics)
 		for k, v := range dynamicMetrics {
 			result[k] = v
 		}

@@ -75,31 +75,31 @@ func (n *Collector) CollectStatic() types.Record {
 		return nil
 	}
 
-	s := &Static{
-		NvidiaGPUCount: len(n.devices),
-	}
+	r := types.NewRecord(8)
+	r["nvidiaGpuCount"] = len(n.devices)
 
 	if driverVersion, ret := nvml.SystemGetDriverVersion(); errors.Is(ret, nvml.SUCCESS) {
-		s.NvidiaDriverVersion = driverVersion
+		r["nvidiaDriverVersion"] = driverVersion
 	}
 	if cudaVersion, ret := nvml.SystemGetCudaDriverVersion(); errors.Is(ret, nvml.SUCCESS) {
-		s.NvidiaCudaVersion = fmt.Sprintf("%d.%d", cudaVersion/1000, (cudaVersion%1000)/10)
+		r["nvidiaCudaVersion"] = fmt.Sprintf("%d.%d", cudaVersion/1000, (cudaVersion%1000)/10)
 	}
 	if nvmlVersion, ret := nvml.SystemGetNVMLVersion(); errors.Is(ret, nvml.SUCCESS) {
-		s.NvmlVersion = nvmlVersion
+		r["nvmlVersion"] = nvmlVersion
 	}
 
-	var gpus []GPUInfo
+	gpus := make([]GPUInfo, 0, len(n.devices))
 	for i, device := range n.devices {
 		gpus = append(gpus, n.collectDeviceStatic(device, i))
 	}
 
 	if len(gpus) > 0 {
+		// Static data is marshaled here since it's collected once
 		data, _ := json.Marshal(gpus)
-		s.NvidiaGPUsJSON = string(data)
+		r["nvidiaGpus"] = string(data)
 	}
 
-	return s.ToRecord()
+	return r
 }
 
 func (n *Collector) collectDeviceStatic(device nvml.Device, index int) GPUInfo {
@@ -248,25 +248,24 @@ func (n *Collector) collectDeviceStatic(device nvml.Device, index int) GPUInfo {
 }
 
 // CollectDynamic collects dynamic GPU metrics.
+// Stores []GPUDynamicMetrics under types.KeyGPUs for deferred serialization.
 func (n *Collector) CollectDynamic() types.Record {
 	if !n.initialized {
 		return nil
 	}
 
-	d := &Dynamic{}
-
-	var gpus []GPUDynamicMetrics
+	gpus := make([]GPUDynamicMetrics, 0, len(n.devices))
 	for i, device := range n.devices {
 		gpu := n.collectDeviceDynamic(device, i)
 		gpus = append(gpus, gpu)
 	}
 
-	if len(gpus) > 0 {
-		data, _ := json.Marshal(gpus)
-		d.NvidiaGPUsJSON = string(data)
+	if len(gpus) == 0 {
+		return nil
 	}
 
-	return d.ToRecord()
+	// Store slice directly - serialization deferred to export time
+	return types.Record{types.KeyGPUs: gpus}
 }
 
 func (n *Collector) collectDeviceDynamic(device nvml.Device, index int) GPUDynamicMetrics {

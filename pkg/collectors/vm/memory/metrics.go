@@ -42,7 +42,7 @@ type Dynamic struct {
 	MemoryMajorPageFaultT int64
 }
 
-// ToRecord converts Dynamic to a Record.
+// ToRecord converts Dynamic to a Record with pre-allocated capacity.
 func (d *Dynamic) ToRecord() types.Record {
 	return types.Record{
 		"vMemoryTotal":           d.MemoryTotal,

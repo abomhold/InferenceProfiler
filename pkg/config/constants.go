@@ -5,6 +5,7 @@ const (
 	JiffiesPerSecond  = 100
 	SectorSize        = 512
 	NanosecondsPerSec = 1_000_000_000
+	LoopbackInterface = "lo"
 
 	// Filesystem paths
 	CgroupDir      = "/sys/fs/cgroup"
@@ -20,16 +21,13 @@ const (
 	SysClassNet    = "/sys/class/net"
 	SysCPUPath     = "/sys/devices/system/cpu"
 
-	// Network
-	LoopbackInterface = "lo"
+	// Disk regex pattern for filtering disks
+	DiskRegex = `^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|hd[a-z]+)$`
 
-	// NVIDIA
+	// NVIDIA GPU constants
 	MaxNvLinks = 18
 
-	// vLLM
+	// vLLM constants
+	VLLMEnvVar          = "VLLM_METRICS_ENDPOINT"
 	DefaultVLLMEndpoint = "http://localhost:8000/metrics"
-	VLLMEnvVar          = "VLLM_METRICS_URL"
-
-	// Regex patterns
-	DiskRegex = `^(sd[a-z]+|hd[a-z]+|vd[a-z]+|xvd[a-z]+|nvme\d+n\d+|mmcblk\d+)$`
 )

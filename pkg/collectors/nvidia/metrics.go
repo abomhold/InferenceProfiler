@@ -1,7 +1,5 @@
 package nvidia
 
-import "InferenceProfiler/pkg/collectors/types"
-
 // GPUInfo contains static information for a single GPU.
 type GPUInfo struct {
 	Index               int    `json:"index"`
@@ -48,35 +46,6 @@ type GPUInfo struct {
 	EncoderCapacityHEVC int    `json:"encoderCapacityHevc,omitempty"`
 	EncoderCapacityAV1  int    `json:"encoderCapacityAv1,omitempty"`
 	NvLinkCount         int    `json:"nvlinkCount,omitempty"`
-}
-
-// Static contains static GPU information.
-type Static struct {
-	NvidiaDriverVersion string
-	NvidiaCudaVersion   string
-	NvmlVersion         string
-	NvidiaGPUCount      int
-	NvidiaGPUsJSON      string
-}
-
-// ToRecord converts Static to a Record.
-func (s *Static) ToRecord() types.Record {
-	r := types.Record{
-		"nvidiaGpuCount": s.NvidiaGPUCount,
-	}
-	if s.NvidiaDriverVersion != "" {
-		r["nvidiaDriverVersion"] = s.NvidiaDriverVersion
-	}
-	if s.NvidiaCudaVersion != "" {
-		r["nvidiaCudaVersion"] = s.NvidiaCudaVersion
-	}
-	if s.NvmlVersion != "" {
-		r["nvmlVersion"] = s.NvmlVersion
-	}
-	if s.NvidiaGPUsJSON != "" {
-		r["nvidiaGpus"] = s.NvidiaGPUsJSON
-	}
-	return r
 }
 
 // GPUDynamicMetrics contains dynamic metrics for a single GPU.
@@ -177,20 +146,6 @@ type GPUDynamicMetrics struct {
 	ProcessCountT             int64  `json:"processCountT"`
 	ProcessesJSON             string `json:"processesJson,omitempty"`
 	ProcessUtilizationJSON    string `json:"processUtilizationJson,omitempty"`
-}
-
-// Dynamic contains dynamic GPU metrics.
-type Dynamic struct {
-	NvidiaGPUsJSON string
-}
-
-// ToRecord converts Dynamic to a Record.
-func (d *Dynamic) ToRecord() types.Record {
-	r := types.Record{}
-	if d.NvidiaGPUsJSON != "" {
-		r["nvidiaGpusDynamic"] = d.NvidiaGPUsJSON
-	}
-	return r
 }
 
 // GPUProcess contains information about a process using the GPU.

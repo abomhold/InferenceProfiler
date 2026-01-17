@@ -13,6 +13,7 @@ import (
 	"InferenceProfiler/pkg/collectors/vm/memory"
 	"InferenceProfiler/pkg/collectors/vm/network"
 	"InferenceProfiler/pkg/config"
+	"InferenceProfiler/pkg/formatting"
 )
 
 func BenchmarkCPUCollector_Static(b *testing.B) {
@@ -321,5 +322,59 @@ func BenchmarkIsolated_Network(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		c.CollectDynamic()
+	}
+}
+
+// Benchmark process collection (no JSON serialization)
+func BenchmarkIsolated_Process_CollectOnly(b *testing.B) {
+	c := process.New()
+	defer c.Close()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.CollectDynamic()
+	}
+}
+
+// Benchmark full export path with flatten
+func BenchmarkManager_CollectAndFlatten_All(b *testing.B) {
+	cfg := &config.Config{
+		EnableVM:            true,
+		EnableContainer:     true,
+		EnableProcess:       true,
+		EnableNvidia:        true,
+		EnableVLLM:          true,
+		CollectGPUProcesses: true,
+	}
+	m := collectors.NewManager(cfg)
+	defer m.Close()
+
+	base := &collectors.BaseStatic{UUID: "test", Hostname: "test"}
+	m.CollectStatic(base)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		record := m.CollectDynamic(&collectors.BaseDynamic{})
+		formatting.FlattenRecord(record)
+	}
+}
+
+func BenchmarkManager_CollectAndFlatten_VMOnly(b *testing.B) {
+	cfg := &config.Config{
+		EnableVM:        true,
+		EnableContainer: false,
+		EnableProcess:   false,
+		EnableNvidia:    false,
+		EnableVLLM:      false,
+	}
+	m := collectors.NewManager(cfg)
+	defer m.Close()
+
+	base := &collectors.BaseStatic{UUID: "test", Hostname: "test"}
+	m.CollectStatic(base)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		record := m.CollectDynamic(&collectors.BaseDynamic{})
+		formatting.FlattenRecord(record)
 	}
 }

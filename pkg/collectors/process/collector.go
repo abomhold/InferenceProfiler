@@ -1,7 +1,6 @@
 package process
 
 import (
-	"encoding/json"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -40,27 +39,27 @@ func (c *Collector) CollectStatic() types.Record {
 }
 
 // CollectDynamic collects dynamic process metrics.
+// Stores []Info under types.KeyProcesses for deferred serialization.
 func (c *Collector) CollectDynamic() types.Record {
-	d := &Dynamic{}
-
 	dirs, err := filepath.Glob("/proc/[0-9]*")
 	if err != nil {
-		return d.ToRecord()
+		return nil
 	}
 
-	var procs []Info
+	// Pre-allocate with estimated capacity
+	procs := make([]Info, 0, len(dirs))
 	for _, pidPath := range dirs {
 		if proc := c.collectSingleProcess(pidPath); proc != nil {
 			procs = append(procs, *proc)
 		}
 	}
 
-	if len(procs) > 0 {
-		data, _ := json.Marshal(procs)
-		d.ProcessesJSON = string(data)
+	if len(procs) == 0 {
+		return nil
 	}
 
-	return d.ToRecord()
+	// Store slice directly - serialization deferred to export time
+	return types.Record{types.KeyProcesses: procs}
 }
 
 func (c *Collector) collectSingleProcess(pidPath string) *Info {

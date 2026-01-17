@@ -1,7 +1,5 @@
 package process
 
-import "InferenceProfiler/pkg/collectors/types"
-
 // Info contains information for a single process.
 type Info struct {
 	PID                          int64  `json:"pId"`
@@ -30,18 +28,4 @@ type Info struct {
 	VirtualMemoryBytesT          int64  `json:"pVirtualMemoryBytesT"`
 	ResidentSetSize              int64  `json:"pResidentSetSize"`
 	ResidentSetSizeT             int64  `json:"pResidentSetSizeT"`
-}
-
-// Dynamic contains dynamic process metrics.
-type Dynamic struct {
-	ProcessesJSON string
-}
-
-// ToRecord converts Dynamic to a Record.
-func (d *Dynamic) ToRecord() types.Record {
-	r := types.Record{}
-	if d.ProcessesJSON != "" {
-		r["processesJson"] = d.ProcessesJSON
-	}
-	return r
 }

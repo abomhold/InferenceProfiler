@@ -1,6 +1,12 @@
 // Package types provides shared types for the collectors package.
 package types
 
+// Special keys for slice data (deferred serialization at export time)
+const (
+	KeyProcesses = "_processes" // []process.Info
+	KeyGPUs      = "_gpus"      // []nvidia.GPU
+)
+
 // Record is a flat map of metric names to values.
 // Using type alias for compatibility with formatting.Record.
 type Record = map[string]interface{}
@@ -29,4 +35,9 @@ func MergeRecords(records ...Record) Record {
 		}
 	}
 	return result
+}
+
+// NewRecord creates a Record with the specified capacity.
+func NewRecord(capacity int) Record {
+	return make(Record, capacity)
 }

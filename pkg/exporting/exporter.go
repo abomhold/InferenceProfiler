@@ -61,15 +61,15 @@ func (e *Exporter) Format() string {
 	return e.format
 }
 
-// Write writes a single record.
+// Write writes a single record, flattening any deferred slice data.
 func (e *Exporter) Write(record formatting.Record) error {
-	return e.writer.Write(record)
+	return e.writer.Write(formatting.FlattenRecord(record))
 }
 
-// WriteBatch writes multiple records.
+// WriteBatch writes multiple records, flattening each.
 func (e *Exporter) WriteBatch(records []formatting.Record) error {
 	for i, r := range records {
-		if err := e.writer.Write(r); err != nil {
+		if err := e.writer.Write(formatting.FlattenRecord(r)); err != nil {
 			return fmt.Errorf("failed to write record %d: %w", i, err)
 		}
 	}
