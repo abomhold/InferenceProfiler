@@ -10,11 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"InferenceProfiler/pkg/collecting"
+	"InferenceProfiler/pkg/collectors"
 	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/exporting"
 	"InferenceProfiler/pkg/graphing"
-	"InferenceProfiler/pkg/metrics"
 )
 
 // NewProfileCmd creates the profile subcommand.
@@ -51,11 +50,11 @@ func runProfile(cmd *cobra.Command, args []string) error {
 	}
 
 	// Initialize collector manager
-	manager := collecting.NewManager(Cfg)
+	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
 	// Collect static metrics
-	baseStatic := &metrics.BaseStatic{
+	baseStatic := &collectors.BaseStatic{
 		UUID:     Cfg.UUID,
 		VMID:     Cfg.VMID,
 		Hostname: Cfg.Hostname,
@@ -132,7 +131,7 @@ func runProfile(cmd *cobra.Command, args []string) error {
 	return cmdErr
 }
 
-func runProfileCollection(ctx context.Context, manager *collecting.Manager, exp *exporting.Exporter) {
+func runProfileCollection(ctx context.Context, manager *collectors.Manager, exp *exporting.Exporter) {
 	ticker := time.NewTicker(Cfg.Interval)
 	defer ticker.Stop()
 
@@ -141,7 +140,7 @@ func runProfileCollection(ctx context.Context, manager *collecting.Manager, exp 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			baseDynamic := &metrics.BaseDynamic{}
+			baseDynamic := &collectors.BaseDynamic{}
 			record := manager.CollectDynamic(baseDynamic)
 			if err := exp.Write(record); err != nil {
 				log.Printf("Error writing record: %v", err)

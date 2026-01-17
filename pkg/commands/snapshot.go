@@ -7,9 +7,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"InferenceProfiler/pkg/collecting"
+	"InferenceProfiler/pkg/collectors"
 	"InferenceProfiler/pkg/config"
-	"InferenceProfiler/pkg/metrics"
 )
 
 var (
@@ -52,10 +51,10 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	Cfg.ApplyDefaults()
 
 	// Initialize collector manager
-	manager := collecting.NewManager(Cfg)
+	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
-	result := make(metrics.Record)
+	result := make(collectors.Record)
 
 	// Determine what to collect
 	collectStatic := !snapshotDynamic || snapshotStatic
@@ -68,7 +67,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	}
 
 	if collectStatic {
-		baseStatic := &metrics.BaseStatic{
+		baseStatic := &collectors.BaseStatic{
 			UUID:     Cfg.UUID,
 			VMID:     Cfg.VMID,
 			Hostname: Cfg.Hostname,
@@ -83,7 +82,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	}
 
 	if collectDynamic {
-		baseDynamic := &metrics.BaseDynamic{}
+		baseDynamic := &collectors.BaseDynamic{}
 		dynamicMetrics := manager.CollectDynamic(baseDynamic)
 		for k, v := range dynamicMetrics {
 			result[k] = v
@@ -93,7 +92,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	return writeSnapshotOutput(result)
 }
 
-func writeSnapshotOutput(data metrics.Record) error {
+func writeSnapshotOutput(data collectors.Record) error {
 	output, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)

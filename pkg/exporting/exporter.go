@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 
 	"InferenceProfiler/pkg/formatting"
-	"InferenceProfiler/pkg/metrics"
 )
 
 // Exporter handles writing metrics to various output formats.
@@ -63,12 +62,12 @@ func (e *Exporter) Format() string {
 }
 
 // Write writes a single record.
-func (e *Exporter) Write(record metrics.Record) error {
+func (e *Exporter) Write(record formatting.Record) error {
 	return e.writer.Write(record)
 }
 
 // WriteBatch writes multiple records.
-func (e *Exporter) WriteBatch(records []metrics.Record) error {
+func (e *Exporter) WriteBatch(records []formatting.Record) error {
 	for i, r := range records {
 		if err := e.writer.Write(r); err != nil {
 			return fmt.Errorf("failed to write record %d: %w", i, err)
@@ -88,7 +87,7 @@ func (e *Exporter) Close() error {
 }
 
 // WriteStatic writes static metrics to a separate JSON file.
-func (e *Exporter) WriteStatic(m *metrics.Static) error {
+func (e *Exporter) WriteStatic(record formatting.Record) error {
 	dir := filepath.Dir(e.path)
 	base := filepath.Base(e.path)
 	ext := filepath.Ext(base)
@@ -96,24 +95,10 @@ func (e *Exporter) WriteStatic(m *metrics.Static) error {
 
 	staticPath := filepath.Join(dir, name+"_static.json")
 
-	data, err := json.MarshalIndent(m, "", "  ")
+	data, err := json.MarshalIndent(record, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal static metrics: %w", err)
 	}
 
 	return os.WriteFile(staticPath, data, 0644)
-}
-
-// Flatten converts dynamic metrics to flat records for export.
-func Flatten(m *metrics.Dynamic) []formatting.Record {
-	// Convert to JSON and back for a generic map
-	data, _ := json.Marshal(m)
-	var record formatting.Record
-	json.Unmarshal(data, &record)
-
-	// Remove nested structures that should be flattened differently
-	delete(record, "NvidiaGPUs")
-	delete(record, "Processes")
-
-	return []formatting.Record{record}
 }

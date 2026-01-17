@@ -1,4 +1,4 @@
-package collecting
+package cpu
 
 import (
 	"fmt"
@@ -6,20 +6,34 @@ import (
 	"runtime"
 	"strings"
 
-	"InferenceProfiler/pkg/metrics/vm"
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 
 	"golang.org/x/sys/unix"
 )
 
-type CPU struct{}
+// Collector collects CPU metrics.
+type Collector struct{}
 
-func NewCPU() *CPU          { return &CPU{} }
-func (c *CPU) Name() string { return "VM-CPU" }
-func (c *CPU) Close() error { return nil }
+// New creates a new CPU collector.
+func New() *Collector {
+	return &Collector{}
+}
 
-func (c *CPU) CollectStatic() any {
-	m := &vm.CPUStatic{
+// Name returns the collector name.
+func (c *Collector) Name() string {
+	return "VM-CPU"
+}
+
+// Close releases any resources.
+func (c *Collector) Close() error {
+	return nil
+}
+
+// CollectStatic collects static CPU information.
+func (c *Collector) CollectStatic() types.Record {
+	s := &Static{
 		NumProcessors: runtime.NumCPU(),
 		CPUType:       getCPUType(),
 		CPUCache:      getCPUCache(),
@@ -27,18 +41,18 @@ func (c *CPU) CollectStatic() any {
 	}
 
 	synced, offset, maxErr := getNTPInfo()
-	m.TimeSynced = synced
-	m.TimeOffsetSeconds = offset
-	m.TimeMaxErrorSeconds = maxErr
+	s.TimeSynced = synced
+	s.TimeOffsetSeconds = offset
+	s.TimeMaxErrorSeconds = maxErr
 
-	return m
+	return s.ToRecord()
 }
 
-func (c *CPU) CollectDynamic() any {
-	m := &vm.CPUDynamic{}
+// CollectDynamic collects dynamic CPU metrics.
+func (c *Collector) CollectDynamic() types.Record {
+	d := &Dynamic{}
 
-	// Parse /proc/stat
-	lines, tStat := probing.FileLines("/proc/stat")
+	lines, tStat := probing.FileLines(config.ProcStat)
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
@@ -46,46 +60,43 @@ func (c *CPU) CollectDynamic() any {
 		}
 
 		if fields[0] == "cpu" && len(fields) >= 11 {
-			mult := int64(1000000000 / JiffiesPerSecond)
-			m.CPUTimeUserMode = probing.ParseInt64(fields[1]) * mult
-			m.CPUTimeUserModeT = tStat
-			m.CPUNice = probing.ParseInt64(fields[2]) * mult
-			m.CPUNiceT = tStat
-			m.CPUTimeKernelMode = probing.ParseInt64(fields[3]) * mult
-			m.CPUTimeKernelModeT = tStat
-			m.CPUIdleTime = probing.ParseInt64(fields[4]) * mult
-			m.CPUIdleTimeT = tStat
-			m.CPUTimeIOWait = probing.ParseInt64(fields[5]) * mult
-			m.CPUTimeIOWaitT = tStat
-			m.CPUTimeIntSrvc = probing.ParseInt64(fields[6]) * mult
-			m.CPUTimeIntSrvcT = tStat
-			m.CPUTimeSoftIntSrvc = probing.ParseInt64(fields[7]) * mult
-			m.CPUTimeSoftIntSrvcT = tStat
-			m.CPUSteal = probing.ParseInt64(fields[8]) * mult
-			m.CPUStealT = tStat
+			mult := int64(config.NanosecondsPerSec / config.JiffiesPerSecond)
+			d.CPUTimeUserMode = probing.ParseInt64(fields[1]) * mult
+			d.CPUTimeUserModeT = tStat
+			d.CPUNice = probing.ParseInt64(fields[2]) * mult
+			d.CPUNiceT = tStat
+			d.CPUTimeKernelMode = probing.ParseInt64(fields[3]) * mult
+			d.CPUTimeKernelModeT = tStat
+			d.CPUIdleTime = probing.ParseInt64(fields[4]) * mult
+			d.CPUIdleTimeT = tStat
+			d.CPUTimeIOWait = probing.ParseInt64(fields[5]) * mult
+			d.CPUTimeIOWaitT = tStat
+			d.CPUTimeIntSrvc = probing.ParseInt64(fields[6]) * mult
+			d.CPUTimeIntSrvcT = tStat
+			d.CPUTimeSoftIntSrvc = probing.ParseInt64(fields[7]) * mult
+			d.CPUTimeSoftIntSrvcT = tStat
+			d.CPUSteal = probing.ParseInt64(fields[8]) * mult
+			d.CPUStealT = tStat
 
-			m.CPUTime = (probing.ParseInt64(fields[1]) + probing.ParseInt64(fields[2]) +
+			d.CPUTime = (probing.ParseInt64(fields[1]) + probing.ParseInt64(fields[2]) +
 				probing.ParseInt64(fields[3]) + probing.ParseInt64(fields[4]) +
 				probing.ParseInt64(fields[5]) + probing.ParseInt64(fields[6]) +
 				probing.ParseInt64(fields[7]) + probing.ParseInt64(fields[8])) * mult
-			m.CPUTimeT = tStat
+			d.CPUTimeT = tStat
 		} else if fields[0] == "ctxt" && len(fields) >= 2 {
-			m.CPUContextSwitches = probing.ParseInt64(fields[1])
-			m.CPUContextSwitchesT = tStat
+			d.CPUContextSwitches = probing.ParseInt64(fields[1])
+			d.CPUContextSwitchesT = tStat
 		}
 	}
 
-	// Load average
-	m.LoadAvg, m.LoadAvgT = getLoadAvg()
+	d.LoadAvg, d.LoadAvgT = getLoadAvg()
+	d.CPUMhz, d.CPUMhzT = getCPUFreq()
 
-	// CPU frequency
-	m.CPUMhz, m.CPUMhzT = getCPUFreq()
-
-	return m
+	return d.ToRecord()
 }
 
 func getCPUType() string {
-	lines, _ := probing.FileLines("/proc/cpuinfo")
+	lines, _ := probing.FileLines(config.ProcCPUInfo)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "model name") {
 			parts := strings.SplitN(line, ":", 2)
@@ -101,7 +112,8 @@ func getCPUCache() string {
 	result := make(map[string]int64)
 	seen := make(map[string]bool)
 
-	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
+	pattern := filepath.Join(config.SysCPUPath, "cpu*/cache/index*")
+	dirs, _ := filepath.Glob(pattern)
 	for _, dir := range dirs {
 		levelVal, _ := probing.File(filepath.Join(dir, "level"))
 		level := levelVal
@@ -203,7 +215,7 @@ func getNTPInfo() (bool, float64, float64) {
 }
 
 func getLoadAvg() (float64, int64) {
-	val, ts := probing.File("/proc/loadavg")
+	val, ts := probing.File(config.ProcLoadavg)
 	parts := strings.Fields(val)
 	if len(parts) > 0 {
 		return probing.ParseFloat64(parts[0]), ts
@@ -212,8 +224,8 @@ func getLoadAvg() (float64, int64) {
 }
 
 func getCPUFreq() (float64, int64) {
-	// Try sysfs first
-	files, err := filepath.Glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq")
+	pattern := filepath.Join(config.SysCPUPath, "cpu*/cpufreq/scaling_cur_freq")
+	files, err := filepath.Glob(pattern)
 	ts := probing.GetTimestamp()
 	if err == nil && len(files) > 0 {
 		var total int64
@@ -230,8 +242,7 @@ func getCPUFreq() (float64, int64) {
 		}
 	}
 
-	// Fallback to /proc/cpuinfo
-	lines, ts := probing.FileLines("/proc/cpuinfo")
+	lines, ts := probing.FileLines(config.ProcCPUInfo)
 	for _, line := range lines {
 		if strings.HasPrefix(line, "cpu MHz") {
 			parts := strings.SplitN(line, ":", 2)

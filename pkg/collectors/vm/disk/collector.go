@@ -1,4 +1,4 @@
-package collecting
+package disk
 
 import (
 	"encoding/json"
@@ -7,28 +7,39 @@ import (
 	"regexp"
 	"strings"
 
-	"InferenceProfiler/pkg/metrics/vm"
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 )
 
-type Disk struct {
+// Collector collects disk metrics.
+type Collector struct {
 	diskPattern *regexp.Regexp
 }
 
-func NewDisk() *Disk {
-	return &Disk{
-		diskPattern: regexp.MustCompile(DiskRegex),
+// New creates a new Disk collector.
+func New() *Collector {
+	return &Collector{
+		diskPattern: regexp.MustCompile(config.DiskRegex),
 	}
 }
 
-func (c *Disk) Name() string { return "VM-Disk" }
-func (c *Disk) Close() error { return nil }
+// Name returns the collector name.
+func (c *Collector) Name() string {
+	return "VM-Disk"
+}
 
-func (c *Disk) CollectStatic() any {
-	m := &vm.DiskStatic{}
+// Close releases any resources.
+func (c *Collector) Close() error {
+	return nil
+}
 
-	entries, _ := os.ReadDir("/sys/class/block/")
-	var disks []vm.DiskInfo
+// CollectStatic collects static disk information.
+func (c *Collector) CollectStatic() types.Record {
+	s := &Static{}
+
+	entries, _ := os.ReadDir(config.SysClassBlock)
+	var disks []Info
 
 	for _, entry := range entries {
 		devName := entry.Name()
@@ -36,45 +47,40 @@ func (c *Disk) CollectStatic() any {
 			continue
 		}
 
-		basePath := filepath.Join("/sys/class/block", devName)
+		basePath := filepath.Join(config.SysClassBlock, devName)
 		devicePath := filepath.Join(basePath, "device")
 
 		var model, vendor string
 
-		// NVMe drives have different sysfs structure
 		if strings.HasPrefix(devName, "nvme") {
 			model = readFileSilent(filepath.Join(devicePath, "model"))
-			// NVMe vendor info is in different locations
 			vendor = readFileSilent(filepath.Join(devicePath, "subsystem_vendor"))
 			if vendor == "" {
-				// Try reading from nvme identify
 				vendor = readFileSilent(filepath.Join(devicePath, "vendor"))
 			}
 		} else {
-			// SATA/SAS/other drives
 			model = readFileSilent(filepath.Join(devicePath, "model"))
 			vendor = readFileSilent(filepath.Join(devicePath, "vendor"))
 		}
 
 		sizeSectors, _ := probing.FileInt(filepath.Join(basePath, "size"))
 
-		disks = append(disks, vm.DiskInfo{
+		disks = append(disks, Info{
 			Name:      devName,
 			Model:     strings.TrimSpace(model),
 			Vendor:    strings.TrimSpace(vendor),
-			SizeBytes: sizeSectors * SectorSize,
+			SizeBytes: sizeSectors * config.SectorSize,
 		})
 	}
 
 	if len(disks) > 0 {
 		data, _ := json.Marshal(disks)
-		m.DisksJSON = string(data)
+		s.DisksJSON = string(data)
 	}
 
-	return m
+	return s.ToRecord()
 }
 
-// readFileSilent reads a file and returns empty string on error (no logging).
 func readFileSilent(path string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -83,10 +89,11 @@ func readFileSilent(path string) string {
 	return strings.TrimSpace(string(data))
 }
 
-func (c *Disk) CollectDynamic() any {
-	m := &vm.DiskDynamic{}
+// CollectDynamic collects dynamic disk metrics.
+func (c *Collector) CollectDynamic() types.Record {
+	d := &Dynamic{}
 
-	lines, tDisk := probing.FileLines("/proc/diskstats")
+	lines, tDisk := probing.FileLines(config.ProcDiskstats)
 
 	var readCount, mergedReads, sectorReads, readTimeMs int64
 	var writeCount, mergedWrites, sectorWrites, writeTimeMs int64
@@ -116,19 +123,19 @@ func (c *Disk) CollectDynamic() any {
 		weightedIOTimeMs += probing.ParseInt64(fields[13])
 	}
 
-	m.DiskSectorReads, m.DiskSectorReadsT = sectorReads, tDisk
-	m.DiskSectorWrites, m.DiskSectorWritesT = sectorWrites, tDisk
-	m.DiskReadBytes, m.DiskReadBytesT = sectorReads*SectorSize, tDisk
-	m.DiskWriteBytes, m.DiskWriteBytesT = sectorWrites*SectorSize, tDisk
-	m.DiskSuccessfulReads, m.DiskSuccessfulReadsT = readCount, tDisk
-	m.DiskSuccessfulWrites, m.DiskSuccessfulWritesT = writeCount, tDisk
-	m.DiskMergedReads, m.DiskMergedReadsT = mergedReads, tDisk
-	m.DiskMergedWrites, m.DiskMergedWritesT = mergedWrites, tDisk
-	m.DiskReadTime, m.DiskReadTimeT = readTimeMs, tDisk
-	m.DiskWriteTime, m.DiskWriteTimeT = writeTimeMs, tDisk
-	m.DiskIOInProgress, m.DiskIOInProgressT = ioInProgress, tDisk
-	m.DiskIOTime, m.DiskIOTimeT = ioTimeMs, tDisk
-	m.DiskWeightedIOTime, m.DiskWeightedIOTimeT = weightedIOTimeMs, tDisk
+	d.DiskSectorReads, d.DiskSectorReadsT = sectorReads, tDisk
+	d.DiskSectorWrites, d.DiskSectorWritesT = sectorWrites, tDisk
+	d.DiskReadBytes, d.DiskReadBytesT = sectorReads*config.SectorSize, tDisk
+	d.DiskWriteBytes, d.DiskWriteBytesT = sectorWrites*config.SectorSize, tDisk
+	d.DiskSuccessfulReads, d.DiskSuccessfulReadsT = readCount, tDisk
+	d.DiskSuccessfulWrites, d.DiskSuccessfulWritesT = writeCount, tDisk
+	d.DiskMergedReads, d.DiskMergedReadsT = mergedReads, tDisk
+	d.DiskMergedWrites, d.DiskMergedWritesT = mergedWrites, tDisk
+	d.DiskReadTime, d.DiskReadTimeT = readTimeMs, tDisk
+	d.DiskWriteTime, d.DiskWriteTimeT = writeTimeMs, tDisk
+	d.DiskIOInProgress, d.DiskIOInProgressT = ioInProgress, tDisk
+	d.DiskIOTime, d.DiskIOTimeT = ioTimeMs, tDisk
+	d.DiskWeightedIOTime, d.DiskWeightedIOTimeT = weightedIOTimeMs, tDisk
 
-	return m
+	return d.ToRecord()
 }

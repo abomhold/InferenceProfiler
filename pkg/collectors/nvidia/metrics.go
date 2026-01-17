@@ -1,5 +1,8 @@
-package metrics
+package nvidia
 
+import "InferenceProfiler/pkg/collectors/types"
+
+// GPUInfo contains static information for a single GPU.
 type GPUInfo struct {
 	Index               int    `json:"index"`
 	Name                string `json:"name"`
@@ -47,14 +50,36 @@ type GPUInfo struct {
 	NvLinkCount         int    `json:"nvlinkCount,omitempty"`
 }
 
-type GPUStatic struct {
-	NvidiaDriverVersion string `json:"nvidiaDriverVersion,omitempty"`
-	NvidiaCudaVersion   string `json:"nvidiaCudaVersion,omitempty"`
-	NvmlVersion         string `json:"nvmlVersion,omitempty"`
-	NvidiaGPUCount      int    `json:"nvidiaGpuCount,omitempty"`
-	NvidiaGPUsJSON      string `json:"nvidiaGpus,omitempty"`
+// Static contains static GPU information.
+type Static struct {
+	NvidiaDriverVersion string
+	NvidiaCudaVersion   string
+	NvmlVersion         string
+	NvidiaGPUCount      int
+	NvidiaGPUsJSON      string
 }
 
+// ToRecord converts Static to a Record.
+func (s *Static) ToRecord() types.Record {
+	r := types.Record{
+		"nvidiaGpuCount": s.NvidiaGPUCount,
+	}
+	if s.NvidiaDriverVersion != "" {
+		r["nvidiaDriverVersion"] = s.NvidiaDriverVersion
+	}
+	if s.NvidiaCudaVersion != "" {
+		r["nvidiaCudaVersion"] = s.NvidiaCudaVersion
+	}
+	if s.NvmlVersion != "" {
+		r["nvmlVersion"] = s.NvmlVersion
+	}
+	if s.NvidiaGPUsJSON != "" {
+		r["nvidiaGpus"] = s.NvidiaGPUsJSON
+	}
+	return r
+}
+
+// GPUDynamicMetrics contains dynamic metrics for a single GPU.
 type GPUDynamicMetrics struct {
 	Index                     int    `json:"index"`
 	UtilizationGPU            int64  `json:"utilizationGpu"`
@@ -154,10 +179,21 @@ type GPUDynamicMetrics struct {
 	ProcessUtilizationJSON    string `json:"processUtilizationJson,omitempty"`
 }
 
-type GPUDynamic struct {
-	NvidiaGPUsJSON string `json:"nvidiaGpusDynamic,omitempty"`
+// Dynamic contains dynamic GPU metrics.
+type Dynamic struct {
+	NvidiaGPUsJSON string
 }
 
+// ToRecord converts Dynamic to a Record.
+func (d *Dynamic) ToRecord() types.Record {
+	r := types.Record{}
+	if d.NvidiaGPUsJSON != "" {
+		r["nvidiaGpusDynamic"] = d.NvidiaGPUsJSON
+	}
+	return r
+}
+
+// GPUProcess contains information about a process using the GPU.
 type GPUProcess struct {
 	PID             uint32 `json:"pid"`
 	Name            string `json:"name"`
@@ -165,6 +201,7 @@ type GPUProcess struct {
 	Type            string `json:"type,omitempty"`
 }
 
+// GPUProcessUtilization contains utilization info for a GPU process.
 type GPUProcessUtilization struct {
 	PID         uint32 `json:"pid"`
 	SmUtil      int    `json:"smUtil"`
@@ -174,12 +211,14 @@ type GPUProcessUtilization struct {
 	TimestampUs int64  `json:"timestampUs"`
 }
 
+// NvLinkBandwidth contains NVLink bandwidth metrics.
 type NvLinkBandwidth struct {
 	Link    int   `json:"link"`
 	TxBytes int64 `json:"txBytes"`
 	RxBytes int64 `json:"rxBytes"`
 }
 
+// NvLinkErrors contains NVLink error metrics.
 type NvLinkErrors struct {
 	Link          int   `json:"link"`
 	CrcErrors     int64 `json:"crcErrors"`

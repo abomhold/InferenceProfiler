@@ -1,4 +1,4 @@
-package collecting
+package nvidia
 
 import (
 	"encoding/json"
@@ -7,20 +7,24 @@ import (
 	"log"
 	"time"
 
-	"InferenceProfiler/pkg/metrics"
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
 )
 
-type Nvidia struct {
+// Collector collects NVIDIA GPU metrics.
+type Collector struct {
 	initialized  bool
 	collectProcs bool
 	devices      []nvml.Device
 }
 
-func NewNvidia(collectProcs bool) *Nvidia {
-	n := &Nvidia{collectProcs: collectProcs}
+// New creates a new NVIDIA collector.
+// Returns nil if NVIDIA drivers are not available.
+func New(collectProcs bool) *Collector {
+	n := &Collector{collectProcs: collectProcs}
 	if err := n.init(); err != nil {
 		log.Printf("WARNING: NVIDIA collector disabled: %v", err)
 		return nil
@@ -28,9 +32,12 @@ func NewNvidia(collectProcs bool) *Nvidia {
 	return n
 }
 
-func (n *Nvidia) Name() string { return "NVIDIA" }
+// Name returns the collector name.
+func (n *Collector) Name() string {
+	return "NVIDIA"
+}
 
-func (n *Nvidia) init() error {
+func (n *Collector) init() error {
 	if n.initialized {
 		return nil
 	}
@@ -53,7 +60,8 @@ func (n *Nvidia) init() error {
 	return nil
 }
 
-func (n *Nvidia) Close() error {
+// Close releases NVML resources.
+func (n *Collector) Close() error {
 	if n.initialized {
 		nvml.Shutdown()
 		n.initialized = false
@@ -61,40 +69,41 @@ func (n *Nvidia) Close() error {
 	return nil
 }
 
-func (n *Nvidia) CollectStatic() any {
+// CollectStatic collects static GPU information.
+func (n *Collector) CollectStatic() types.Record {
 	if !n.initialized {
 		return nil
 	}
 
-	m := &metrics.GPUStatic{
+	s := &Static{
 		NvidiaGPUCount: len(n.devices),
 	}
 
 	if driverVersion, ret := nvml.SystemGetDriverVersion(); errors.Is(ret, nvml.SUCCESS) {
-		m.NvidiaDriverVersion = driverVersion
+		s.NvidiaDriverVersion = driverVersion
 	}
 	if cudaVersion, ret := nvml.SystemGetCudaDriverVersion(); errors.Is(ret, nvml.SUCCESS) {
-		m.NvidiaCudaVersion = fmt.Sprintf("%d.%d", cudaVersion/1000, (cudaVersion%1000)/10)
+		s.NvidiaCudaVersion = fmt.Sprintf("%d.%d", cudaVersion/1000, (cudaVersion%1000)/10)
 	}
 	if nvmlVersion, ret := nvml.SystemGetNVMLVersion(); errors.Is(ret, nvml.SUCCESS) {
-		m.NvmlVersion = nvmlVersion
+		s.NvmlVersion = nvmlVersion
 	}
 
-	var gpus []metrics.GPUInfo
+	var gpus []GPUInfo
 	for i, device := range n.devices {
 		gpus = append(gpus, n.collectDeviceStatic(device, i))
 	}
 
 	if len(gpus) > 0 {
 		data, _ := json.Marshal(gpus)
-		m.NvidiaGPUsJSON = string(data)
+		s.NvidiaGPUsJSON = string(data)
 	}
 
-	return m
+	return s.ToRecord()
 }
 
-func (n *Nvidia) collectDeviceStatic(device nvml.Device, index int) metrics.GPUInfo {
-	gpu := metrics.GPUInfo{Index: index}
+func (n *Collector) collectDeviceStatic(device nvml.Device, index int) GPUInfo {
+	gpu := GPUInfo{Index: index}
 
 	if name, ret := device.GetName(); errors.Is(ret, nvml.SUCCESS) {
 		gpu.Name = name
@@ -226,7 +235,7 @@ func (n *Nvidia) collectDeviceStatic(device nvml.Device, index int) metrics.GPUI
 	}
 
 	nvlinkCount := 0
-	for link := 0; link < MaxNvLinks; link++ {
+	for link := 0; link < config.MaxNvLinks; link++ {
 		if _, ret := device.GetNvLinkState(link); errors.Is(ret, nvml.SUCCESS) {
 			nvlinkCount++
 		} else {
@@ -238,14 +247,15 @@ func (n *Nvidia) collectDeviceStatic(device nvml.Device, index int) metrics.GPUI
 	return gpu
 }
 
-func (n *Nvidia) CollectDynamic() any {
+// CollectDynamic collects dynamic GPU metrics.
+func (n *Collector) CollectDynamic() types.Record {
 	if !n.initialized {
 		return nil
 	}
 
-	m := &metrics.GPUDynamic{}
+	d := &Dynamic{}
 
-	var gpus []metrics.GPUDynamicMetrics
+	var gpus []GPUDynamicMetrics
 	for i, device := range n.devices {
 		gpu := n.collectDeviceDynamic(device, i)
 		gpus = append(gpus, gpu)
@@ -253,14 +263,14 @@ func (n *Nvidia) CollectDynamic() any {
 
 	if len(gpus) > 0 {
 		data, _ := json.Marshal(gpus)
-		m.NvidiaGPUsJSON = string(data)
+		d.NvidiaGPUsJSON = string(data)
 	}
 
-	return m
+	return d.ToRecord()
 }
 
-func (n *Nvidia) collectDeviceDynamic(device nvml.Device, index int) metrics.GPUDynamicMetrics {
-	gpu := metrics.GPUDynamicMetrics{Index: index}
+func (n *Collector) collectDeviceDynamic(device nvml.Device, index int) GPUDynamicMetrics {
+	gpu := GPUDynamicMetrics{Index: index}
 
 	// Utilization
 	if util, ret := device.GetUtilizationRates(); errors.Is(ret, nvml.SUCCESS) {
@@ -422,7 +432,7 @@ func (n *Nvidia) collectDeviceDynamic(device nvml.Device, index int) metrics.GPU
 	return gpu
 }
 
-func (n *Nvidia) collectViolationStatus(device nvml.Device, gpu *metrics.GPUDynamicMetrics) {
+func (n *Collector) collectViolationStatus(device nvml.Device, gpu *GPUDynamicMetrics) {
 	if viol, ret := device.GetViolationStatus(nvml.PERF_POLICY_POWER); errors.Is(ret, nvml.SUCCESS) {
 		ts := time.Now().UnixNano()
 		gpu.ViolationPowerNs, gpu.ViolationPowerNsT = int64(viol.ViolationTime), ts
@@ -449,7 +459,7 @@ func (n *Nvidia) collectViolationStatus(device nvml.Device, gpu *metrics.GPUDyna
 	}
 }
 
-func (n *Nvidia) collectEccErrors(device nvml.Device, gpu *metrics.GPUDynamicMetrics) {
+func (n *Collector) collectEccErrors(device nvml.Device, gpu *GPUDynamicMetrics) {
 	if count, ret := device.GetTotalEccErrors(nvml.MEMORY_ERROR_TYPE_CORRECTED, nvml.AGGREGATE_ECC); errors.Is(ret, nvml.SUCCESS) {
 		ts := time.Now().UnixNano()
 		gpu.EccAggregateSbe, gpu.EccAggregateSbeT = int64(count), ts
@@ -482,24 +492,24 @@ func (n *Nvidia) collectEccErrors(device nvml.Device, gpu *metrics.GPUDynamicMet
 	}
 }
 
-func (n *Nvidia) collectNvLinkMetrics(device nvml.Device, gpu *metrics.GPUDynamicMetrics) {
-	var bandwidths []metrics.NvLinkBandwidth
-	var linkErrors []metrics.NvLinkErrors
+func (n *Collector) collectNvLinkMetrics(device nvml.Device, gpu *GPUDynamicMetrics) {
+	var bandwidths []NvLinkBandwidth
+	var linkErrors []NvLinkErrors
 
-	for link := 0; link < MaxNvLinks; link++ {
+	for link := 0; link < config.MaxNvLinks; link++ {
 		state, ret := device.GetNvLinkState(link)
 		if !errors.Is(ret, nvml.SUCCESS) || state != nvml.FEATURE_ENABLED {
 			break
 		}
 
-		bw := metrics.NvLinkBandwidth{Link: link}
+		bw := NvLinkBandwidth{Link: link}
 		if rx, tx, ret := device.GetNvLinkUtilizationCounter(link, 0); errors.Is(ret, nvml.SUCCESS) {
 			bw.TxBytes = int64(tx)
 			bw.RxBytes = int64(rx)
 		}
 		bandwidths = append(bandwidths, bw)
 
-		errs := metrics.NvLinkErrors{Link: link}
+		errs := NvLinkErrors{Link: link}
 		if crc, ret := device.GetNvLinkErrorCounter(link, nvml.NVLINK_ERROR_DL_CRC_FLIT); errors.Is(ret, nvml.SUCCESS) {
 			errs.CrcErrors = int64(crc)
 		}
@@ -525,15 +535,15 @@ func (n *Nvidia) collectNvLinkMetrics(device nvml.Device, gpu *metrics.GPUDynami
 	}
 }
 
-func (n *Nvidia) collectGPUProcesses(device nvml.Device, gpu *metrics.GPUDynamicMetrics) {
+func (n *Collector) collectGPUProcesses(device nvml.Device, gpu *GPUDynamicMetrics) {
 	seen := make(map[uint32]bool)
-	var procs []metrics.GPUProcess
+	var procs []GPUProcess
 
 	if list, ret := device.GetComputeRunningProcesses(); errors.Is(ret, nvml.SUCCESS) {
 		for _, p := range list {
 			if !seen[p.Pid] {
 				seen[p.Pid] = true
-				procs = append(procs, metrics.GPUProcess{
+				procs = append(procs, GPUProcess{
 					PID:             p.Pid,
 					Name:            getProcessName(int(p.Pid)),
 					UsedMemoryBytes: int64(p.UsedGpuMemory),
@@ -547,7 +557,7 @@ func (n *Nvidia) collectGPUProcesses(device nvml.Device, gpu *metrics.GPUDynamic
 		for _, p := range list {
 			if !seen[p.Pid] {
 				seen[p.Pid] = true
-				procs = append(procs, metrics.GPUProcess{
+				procs = append(procs, GPUProcess{
 					PID:             p.Pid,
 					Name:            getProcessName(int(p.Pid)),
 					UsedMemoryBytes: int64(p.UsedGpuMemory),
@@ -561,7 +571,7 @@ func (n *Nvidia) collectGPUProcesses(device nvml.Device, gpu *metrics.GPUDynamic
 		for _, p := range list {
 			if !seen[p.Pid] {
 				seen[p.Pid] = true
-				procs = append(procs, metrics.GPUProcess{
+				procs = append(procs, GPUProcess{
 					PID:             p.Pid,
 					Name:            getProcessName(int(p.Pid)),
 					UsedMemoryBytes: int64(p.UsedGpuMemory),
@@ -580,9 +590,9 @@ func (n *Nvidia) collectGPUProcesses(device nvml.Device, gpu *metrics.GPUDynamic
 	}
 
 	if samples, ret := device.GetProcessUtilization(0); errors.Is(ret, nvml.SUCCESS) {
-		var result []metrics.GPUProcessUtilization
+		var result []GPUProcessUtilization
 		for _, s := range samples {
-			result = append(result, metrics.GPUProcessUtilization{
+			result = append(result, GPUProcessUtilization{
 				PID:         s.Pid,
 				SmUtil:      int(s.SmUtil),
 				MemUtil:     int(s.MemUtil),

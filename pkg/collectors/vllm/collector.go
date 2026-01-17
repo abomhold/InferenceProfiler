@@ -1,7 +1,6 @@
-package collecting
+package vllm
 
 import (
-	"InferenceProfiler/pkg/probing"
 	"encoding/json"
 	"io"
 	"log"
@@ -12,38 +11,54 @@ import (
 	"strings"
 	"time"
 
-	"InferenceProfiler/pkg/metrics"
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
+	"InferenceProfiler/pkg/probing"
 )
 
-type VLLM struct {
+// Collector collects vLLM metrics.
+type Collector struct {
 	client   *http.Client
 	endpoint string
 }
 
-func NewVLLM() *VLLM {
-	endpoint := os.Getenv("VLLM_METRICS_URL")
+// New creates a new vLLM collector.
+func New() *Collector {
+	endpoint := os.Getenv(config.VLLMEnvVar)
 	if endpoint == "" {
-		endpoint = "http://localhost:8000/metrics"
+		endpoint = config.DefaultVLLMEndpoint
 	}
-	return &VLLM{
+	return &Collector{
 		client:   &http.Client{Timeout: 500 * time.Millisecond},
 		endpoint: endpoint,
 	}
 }
 
-func (c *VLLM) Name() string       { return "vLLM" }
-func (c *VLLM) Close() error       { return nil }
-func (c *VLLM) CollectStatic() any { return nil }
+// Name returns the collector name.
+func (c *Collector) Name() string {
+	return "vLLM"
+}
 
-func (c *VLLM) CollectDynamic() any {
-	m := &metrics.VLLMDynamic{
+// Close releases any resources.
+func (c *Collector) Close() error {
+	return nil
+}
+
+// CollectStatic returns nil as vLLM collector has no static data.
+func (c *Collector) CollectStatic() types.Record {
+	return nil
+}
+
+// CollectDynamic collects dynamic vLLM metrics.
+func (c *Collector) CollectDynamic() types.Record {
+	d := &Dynamic{
 		VLLMTimestamp: probing.GetTimestamp(),
 	}
 
 	resp, err := c.client.Get(c.endpoint)
 	if err != nil {
-		m.VLLMAvailable = false
-		return m
+		d.VLLMAvailable = false
+		return d.ToRecord()
 	}
 	defer func(Body io.ReadCloser) {
 		err := Body.Close()
@@ -53,24 +68,24 @@ func (c *VLLM) CollectDynamic() any {
 	}(resp.Body)
 
 	if resp.StatusCode != http.StatusOK {
-		m.VLLMAvailable = false
-		return m
+		d.VLLMAvailable = false
+		return d.ToRecord()
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		m.VLLMAvailable = false
-		return m
+		d.VLLMAvailable = false
+		return d.ToRecord()
 	}
 
-	m.VLLMAvailable = true
-	c.parseMetrics(m, string(body))
+	d.VLLMAvailable = true
+	c.parseMetrics(d, string(body))
 
-	return m
+	return d.ToRecord()
 }
 
-func (c *VLLM) parseMetrics(m *metrics.VLLMDynamic, body string) {
-	histograms := &metrics.VLLMHistograms{}
+func (c *Collector) parseMetrics(d *Dynamic, body string) {
+	histograms := &Histograms{}
 
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -93,24 +108,24 @@ func (c *VLLM) parseMetrics(m *metrics.VLLMDynamic, body string) {
 
 		case strings.HasSuffix(name, "_sum"):
 			baseName := strings.TrimSuffix(name, "_sum")
-			setHistogramSum(m, baseName, value)
+			setHistogramSum(d, baseName, value)
 
 		case strings.HasSuffix(name, "_count"):
 			baseName := strings.TrimSuffix(name, "_count")
-			setHistogramCount(m, baseName, value)
+			setHistogramCount(d, baseName, value)
 
 		case strings.HasSuffix(name, "_total"):
 			baseName := strings.TrimSuffix(name, "_total")
-			setGaugeOrCounter(m, baseName, value)
+			setGaugeOrCounter(d, baseName, value)
 
 		default:
-			setGaugeOrCounter(m, name, value)
+			setGaugeOrCounter(d, name, value)
 		}
 	}
 
 	if hasHistogramData(histograms) {
 		data, _ := json.Marshal(histograms)
-		m.VLLMHistogramsJSON = string(data)
+		d.VLLMHistogramsJSON = string(data)
 	}
 }
 
@@ -189,7 +204,7 @@ func splitLabels(s string) []string {
 	return result
 }
 
-func addHistogramBucket(h *metrics.VLLMHistograms, name, le string, value float64) {
+func addHistogramBucket(h *Histograms, name, le string, value float64) {
 	if le == "+Inf" {
 		le = "inf"
 	}
@@ -258,67 +273,67 @@ func addHistogramBucket(h *metrics.VLLMHistograms, name, le string, value float6
 	}
 }
 
-func setHistogramSum(m *metrics.VLLMDynamic, name string, value float64) {
+func setHistogramSum(d *Dynamic, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "time_to_first_token_seconds":
-		m.VLLMLatencyTtftSum = value
+		d.VLLMLatencyTtftSum = value
 	case "e2e_request_latency_seconds":
-		m.VLLMLatencyE2eSum = value
+		d.VLLMLatencyE2eSum = value
 	case "request_queue_time_seconds":
-		m.VLLMLatencyQueueSum = value
+		d.VLLMLatencyQueueSum = value
 	case "request_inference_time_seconds":
-		m.VLLMLatencyInferenceSum = value
+		d.VLLMLatencyInferenceSum = value
 	case "request_prefill_time_seconds":
-		m.VLLMLatencyPrefillSum = value
+		d.VLLMLatencyPrefillSum = value
 	case "request_decode_time_seconds":
-		m.VLLMLatencyDecodeSum = value
+		d.VLLMLatencyDecodeSum = value
 	}
 }
 
-func setHistogramCount(m *metrics.VLLMDynamic, name string, value float64) {
+func setHistogramCount(d *Dynamic, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "time_to_first_token_seconds":
-		m.VLLMLatencyTtftCount = value
+		d.VLLMLatencyTtftCount = value
 	case "e2e_request_latency_seconds":
-		m.VLLMLatencyE2eCount = value
+		d.VLLMLatencyE2eCount = value
 	case "request_queue_time_seconds":
-		m.VLLMLatencyQueueCount = value
+		d.VLLMLatencyQueueCount = value
 	case "request_inference_time_seconds":
-		m.VLLMLatencyInferenceCount = value
+		d.VLLMLatencyInferenceCount = value
 	case "request_prefill_time_seconds":
-		m.VLLMLatencyPrefillCount = value
+		d.VLLMLatencyPrefillCount = value
 	case "request_decode_time_seconds":
-		m.VLLMLatencyDecodeCount = value
+		d.VLLMLatencyDecodeCount = value
 	}
 }
 
-func setGaugeOrCounter(m *metrics.VLLMDynamic, name string, value float64) {
+func setGaugeOrCounter(d *Dynamic, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "num_requests_running":
-		m.VLLMRequestsRunning = value
+		d.VLLMRequestsRunning = value
 	case "num_requests_waiting":
-		m.VLLMRequestsWaiting = value
+		d.VLLMRequestsWaiting = value
 	case "engine_sleep_state":
-		m.VLLMEngineSleepState = value
+		d.VLLMEngineSleepState = value
 	case "num_preemptions":
-		m.VLLMPreemptionsTotal = value
+		d.VLLMPreemptionsTotal = value
 	case "kv_cache_usage_perc":
-		m.VLLMKvCacheUsagePercent = value
+		d.VLLMKvCacheUsagePercent = value
 	case "prefix_cache_hits":
-		m.VLLMPrefixCacheHits = value
+		d.VLLMPrefixCacheHits = value
 	case "prefix_cache_queries":
-		m.VLLMPrefixCacheQueries = value
+		d.VLLMPrefixCacheQueries = value
 	case "request_success":
-		m.VLLMRequestsFinishedTotal = value
+		d.VLLMRequestsFinishedTotal = value
 	case "corrupted_requests":
-		m.VLLMRequestsCorruptedTotal = value
+		d.VLLMRequestsCorruptedTotal = value
 	case "prompt_tokens":
-		m.VLLMTokensPromptTotal = value
+		d.VLLMTokensPromptTotal = value
 	case "generation_tokens":
-		m.VLLMTokensGenerationTotal = value
+		d.VLLMTokensGenerationTotal = value
 	}
 }
 
@@ -329,7 +344,7 @@ func sanitizeFloat(v float64) float64 {
 	return v
 }
 
-func hasHistogramData(h *metrics.VLLMHistograms) bool {
+func hasHistogramData(h *Histograms) bool {
 	return len(h.LatencyTtft) > 0 ||
 		len(h.LatencyE2e) > 0 ||
 		len(h.LatencyQueue) > 0 ||

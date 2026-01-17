@@ -1,28 +1,32 @@
-package collecting
+package container
 
 import (
-	"InferenceProfiler/pkg/metrics"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 )
 
-type Container struct {
+// Collector collects container metrics.
+type Collector struct {
 	cgroupVersion int
 	cgroupPath    string
 }
 
-func NewContainer() *Container {
-	if !probing.IsDir(CgroupDir) {
+// New creates a new Container collector.
+// Returns nil if not running in a container or cgroups are unavailable.
+func New() *Collector {
+	if !probing.IsDir(config.CgroupDir) {
 		return nil
 	}
 
-	c := &Container{}
-	if probing.Exists(filepath.Join(CgroupDir, "cgroup.controllers")) {
+	c := &Collector{}
+	if probing.Exists(filepath.Join(config.CgroupDir, "cgroup.controllers")) {
 		c.cgroupVersion = 2
 		c.cgroupPath = findCgroupV2Path()
 		if c.cgroupPath == "" {
@@ -35,38 +39,50 @@ func NewContainer() *Container {
 	return c
 }
 
-func (c *Container) Name() string { return "Container" }
-func (c *Container) Close() error { return nil }
+// Name returns the collector name.
+func (c *Collector) Name() string {
+	return "Container"
+}
 
-func (c *Container) CollectStatic() any {
-	return &metrics.ContainerStatic{
+// Close releases any resources.
+func (c *Collector) Close() error {
+	return nil
+}
+
+// CollectStatic collects static container information.
+func (c *Collector) CollectStatic() types.Record {
+	s := &Static{
 		ContainerID:      getContainerID(),
 		ContainerNumCPUs: int64(runtime.NumCPU()),
 		CgroupVersion:    int64(c.cgroupVersion),
 	}
+	return s.ToRecord()
 }
 
-func (c *Container) CollectDynamic() any {
-	m := &metrics.ContainerDynamic{}
+// CollectDynamic collects dynamic container metrics.
+func (c *Collector) CollectDynamic() types.Record {
+	d := &Dynamic{}
+
 	netRecv, netSent, tNet := getContainerNetStats()
-	m.ContainerNetworkBytesRecvd, m.ContainerNetworkBytesRecvdT = netRecv, tNet
-	m.ContainerNetworkBytesSent, m.ContainerNetworkBytesSentT = netSent, tNet
+	d.ContainerNetworkBytesRecvd, d.ContainerNetworkBytesRecvdT = netRecv, tNet
+	d.ContainerNetworkBytesSent, d.ContainerNetworkBytesSentT = netSent, tNet
 
 	switch c.cgroupVersion {
 	case 1:
-		c.collectV1(m)
+		c.collectV1(d)
 	case 2:
-		c.collectV2(m)
+		c.collectV2(d)
 	}
 
-	return m
+	return d.ToRecord()
 }
 
-func (c *Container) collectV1(m *metrics.ContainerDynamic) {
-	cpuPath := filepath.Join(CgroupDir, "cpuacct")
-	memPath := filepath.Join(CgroupDir, "memory")
-	blkioPath := filepath.Join(CgroupDir, "blkio")
-	pidsPath := filepath.Join(CgroupDir, "pids")
+func (c *Collector) collectV1(d *Dynamic) {
+	cpuPath := filepath.Join(config.CgroupDir, "cpuacct")
+	memPath := filepath.Join(config.CgroupDir, "memory")
+	blkioPath := filepath.Join(config.CgroupDir, "blkio")
+	pidsPath := filepath.Join(config.CgroupDir, "pids")
+
 	cpuUsage, tCpu := probing.FileInt(filepath.Join(cpuPath, "cpuacct.usage"))
 	cpuStat, tCpuStat := probing.FileKV(filepath.Join(cpuPath, "cpuacct.stat"), " ")
 	perCpuJSON, tPerCpu := getPerCPUTimesV1(cpuPath)
@@ -77,25 +93,25 @@ func (c *Container) collectV1(m *metrics.ContainerDynamic) {
 	sectorIO, tSector := getBlkioSectorsV1(blkioPath)
 	numProcs, tProcs := getProcessCountV1(pidsPath)
 
-	m.ContainerCPUTime, m.ContainerCPUTimeT = cpuUsage, tCpu
-	m.ContainerCPUTimeUserMode = probing.ParseInt64(cpuStat["user"]) * JiffiesPerSecond
-	m.ContainerCPUTimeUserModeT = tCpuStat
-	m.ContainerCPUTimeKernelMode = probing.ParseInt64(cpuStat["system"]) * JiffiesPerSecond
-	m.ContainerCPUTimeKernelModeT = tCpuStat
-	m.ContainerPerCPUTimesJSON, m.ContainerPerCPUTimesT = perCpuJSON, tPerCpu
-	m.ContainerMemoryUsed, m.ContainerMemoryUsedT = usage, tU
-	m.ContainerMemoryMaxUsed, m.ContainerMemoryMaxUsedT = maxMem, tM
-	m.ContainerPgFault = probing.ParseInt64(memStat["pgfault"])
-	m.ContainerPgFaultT = tMemStat
-	m.ContainerMajorPgFault = probing.ParseInt64(memStat["pgmajfault"])
-	m.ContainerMajorPgFaultT = tMemStat
-	m.ContainerDiskReadBytes, m.ContainerDiskReadBytesT = dr, tBlk
-	m.ContainerDiskWriteBytes, m.ContainerDiskWriteBytesT = dw, tBlk
-	m.ContainerDiskSectorIO, m.ContainerDiskSectorIOT = sectorIO, tSector
-	m.ContainerNumProcesses, m.ContainerNumProcessesT = numProcs, tProcs
+	d.ContainerCPUTime, d.ContainerCPUTimeT = cpuUsage, tCpu
+	d.ContainerCPUTimeUserMode = probing.ParseInt64(cpuStat["user"]) * config.JiffiesPerSecond
+	d.ContainerCPUTimeUserModeT = tCpuStat
+	d.ContainerCPUTimeKernelMode = probing.ParseInt64(cpuStat["system"]) * config.JiffiesPerSecond
+	d.ContainerCPUTimeKernelModeT = tCpuStat
+	d.ContainerPerCPUTimesJSON, d.ContainerPerCPUTimesT = perCpuJSON, tPerCpu
+	d.ContainerMemoryUsed, d.ContainerMemoryUsedT = usage, tU
+	d.ContainerMemoryMaxUsed, d.ContainerMemoryMaxUsedT = maxMem, tM
+	d.ContainerPgFault = probing.ParseInt64(memStat["pgfault"])
+	d.ContainerPgFaultT = tMemStat
+	d.ContainerMajorPgFault = probing.ParseInt64(memStat["pgmajfault"])
+	d.ContainerMajorPgFaultT = tMemStat
+	d.ContainerDiskReadBytes, d.ContainerDiskReadBytesT = dr, tBlk
+	d.ContainerDiskWriteBytes, d.ContainerDiskWriteBytesT = dw, tBlk
+	d.ContainerDiskSectorIO, d.ContainerDiskSectorIOT = sectorIO, tSector
+	d.ContainerNumProcesses, d.ContainerNumProcessesT = numProcs, tProcs
 }
 
-func (c *Container) collectV2(m *metrics.ContainerDynamic) {
+func (c *Collector) collectV2(d *Dynamic) {
 	cpuStats, tCpu := probing.FileKV(filepath.Join(c.cgroupPath, "cpu.stat"), " ")
 	memUsage, tMem := probing.FileInt(filepath.Join(c.cgroupPath, "memory.current"))
 	memPeak, tPeak := probing.FileInt(filepath.Join(c.cgroupPath, "memory.peak"))
@@ -103,25 +119,25 @@ func (c *Container) collectV2(m *metrics.ContainerDynamic) {
 	dr, dw, tIO := getIOStatV2(c.cgroupPath)
 	numProcs, tProcs := probing.FileInt(filepath.Join(c.cgroupPath, "pids.current"))
 
-	m.ContainerCPUTime = probing.ParseInt64(cpuStats["usage_usec"]) * 1000
-	m.ContainerCPUTimeT = tCpu
-	m.ContainerCPUTimeUserMode = probing.ParseInt64(cpuStats["user_usec"]) / 10000
-	m.ContainerCPUTimeUserModeT = tCpu
-	m.ContainerCPUTimeKernelMode = probing.ParseInt64(cpuStats["system_usec"]) / 10000
-	m.ContainerCPUTimeKernelModeT = tCpu
-	m.ContainerMemoryUsed, m.ContainerMemoryUsedT = memUsage, tMem
-	m.ContainerMemoryMaxUsed, m.ContainerMemoryMaxUsedT = memPeak, tPeak
-	m.ContainerPgFault = probing.ParseInt64(memStat["pgfault"])
-	m.ContainerPgFaultT = tMemStat
-	m.ContainerMajorPgFault = probing.ParseInt64(memStat["pgmajfault"])
-	m.ContainerMajorPgFaultT = tMemStat
-	m.ContainerDiskReadBytes, m.ContainerDiskReadBytesT = dr, tIO
-	m.ContainerDiskWriteBytes, m.ContainerDiskWriteBytesT = dw, tIO
-	m.ContainerNumProcesses, m.ContainerNumProcessesT = numProcs, tProcs
+	d.ContainerCPUTime = probing.ParseInt64(cpuStats["usage_usec"]) * 1000
+	d.ContainerCPUTimeT = tCpu
+	d.ContainerCPUTimeUserMode = probing.ParseInt64(cpuStats["user_usec"]) / 10000
+	d.ContainerCPUTimeUserModeT = tCpu
+	d.ContainerCPUTimeKernelMode = probing.ParseInt64(cpuStats["system_usec"]) / 10000
+	d.ContainerCPUTimeKernelModeT = tCpu
+	d.ContainerMemoryUsed, d.ContainerMemoryUsedT = memUsage, tMem
+	d.ContainerMemoryMaxUsed, d.ContainerMemoryMaxUsedT = memPeak, tPeak
+	d.ContainerPgFault = probing.ParseInt64(memStat["pgfault"])
+	d.ContainerPgFaultT = tMemStat
+	d.ContainerMajorPgFault = probing.ParseInt64(memStat["pgmajfault"])
+	d.ContainerMajorPgFaultT = tMemStat
+	d.ContainerDiskReadBytes, d.ContainerDiskReadBytesT = dr, tIO
+	d.ContainerDiskWriteBytes, d.ContainerDiskWriteBytesT = dw, tIO
+	d.ContainerNumProcesses, d.ContainerNumProcessesT = numProcs, tProcs
 }
 
 func getContainerID() string {
-	lines, _ := probing.FileLines("/proc/self/cgroup")
+	lines, _ := probing.FileLines(config.ProcSelfCgroup)
 	for _, line := range lines {
 		if parts := strings.SplitN(line, ":", 3); len(parts) >= 3 {
 			path := parts[2]
@@ -141,7 +157,7 @@ func getContainerID() string {
 
 func getContainerNetStats() (int64, int64, int64) {
 	var recv, sent int64
-	lines, ts := probing.FileLines("/proc/net/dev")
+	lines, ts := probing.FileLines(config.ProcNetDev)
 	for _, line := range lines {
 		if !strings.Contains(line, ":") {
 			continue
@@ -185,13 +201,13 @@ func getProcessCountV1(pidsPath string) (int64, int64) {
 	if count, ts := probing.FileInt(filepath.Join(pidsPath, "pids.current")); count > 0 {
 		return count, ts
 	}
-	lines, ts := probing.FileLines(filepath.Join(CgroupDir, "cpuacct", "tasks"))
+	lines, ts := probing.FileLines(filepath.Join(config.CgroupDir, "cpuacct", "tasks"))
 	return int64(len(lines)), ts
 }
 
 func getBlkioV1() (int64, int64, int64) {
 	var r, w int64
-	path := filepath.Join(CgroupDir, "blkio", "blkio.throttle.io_service_bytes")
+	path := filepath.Join(config.CgroupDir, "blkio", "blkio.throttle.io_service_bytes")
 	lines, ts := probing.FileLines(path)
 	for _, line := range lines {
 		f := strings.Fields(line)
@@ -229,7 +245,7 @@ func getIOStatV2(cgroupPath string) (int64, int64, int64) {
 }
 
 func findCgroupV2Path() string {
-	lines, _ := probing.FileLines("/proc/self/cgroup")
+	lines, _ := probing.FileLines(config.ProcSelfCgroup)
 	for _, line := range lines {
 		parts := strings.SplitN(line, ":", 3)
 		if len(parts) == 3 && parts[0] == "0" {

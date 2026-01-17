@@ -9,9 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"InferenceProfiler/pkg/collecting"
+	"InferenceProfiler/pkg/collectors"
 	"InferenceProfiler/pkg/config"
-	"InferenceProfiler/pkg/metrics"
 )
 
 var serveAddr string
@@ -45,8 +44,8 @@ Example:
 }
 
 type metricsServer struct {
-	manager    *collecting.Manager
-	baseStatic *metrics.BaseStatic
+	manager    *collectors.Manager
+	baseStatic *collectors.BaseStatic
 	mu         sync.RWMutex
 }
 
@@ -54,11 +53,11 @@ func runServe(cmd *cobra.Command, args []string) error {
 	Cfg.ApplyDefaults()
 
 	// Initialize collector manager
-	manager := collecting.NewManager(Cfg)
+	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
 	// Create base static
-	baseStatic := &metrics.BaseStatic{
+	baseStatic := &collectors.BaseStatic{
 		UUID:     Cfg.UUID,
 		VMID:     Cfg.VMID,
 		Hostname: Cfg.Hostname,
@@ -115,7 +114,7 @@ func (s *metricsServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 	// Re-collect static to get current values
 	s.manager.CollectStatic(baseStatic)
 
-	data := metrics.Record{
+	data := collectors.Record{
 		"uuid":      baseStatic.UUID,
 		"vId":       baseStatic.VMID,
 		"vHostname": baseStatic.Hostname,
@@ -126,7 +125,7 @@ func (s *metricsServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *metricsServer) handleDynamic(w http.ResponseWriter, r *http.Request) {
-	baseDynamic := &metrics.BaseDynamic{}
+	baseDynamic := &collectors.BaseDynamic{}
 	data := s.manager.CollectDynamic(baseDynamic)
 	writeJSONResponse(w, data)
 }
@@ -136,7 +135,7 @@ func (s *metricsServer) handleBoth(w http.ResponseWriter, r *http.Request) {
 	baseStatic := s.baseStatic
 	s.mu.RUnlock()
 
-	baseDynamic := &metrics.BaseDynamic{}
+	baseDynamic := &collectors.BaseDynamic{}
 	dynamicData := s.manager.CollectDynamic(baseDynamic)
 
 	// Merge static into dynamic

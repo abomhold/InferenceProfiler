@@ -1,41 +1,54 @@
-package collecting
+package process
 
 import (
-	"InferenceProfiler/pkg/metrics"
 	"encoding/json"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 
+	"InferenceProfiler/pkg/collectors/types"
+	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 )
 
-//const JiffiesPerSecond = 100
-
-type Process struct {
+// Collector collects process metrics.
+type Collector struct {
 	pageSize int64
 }
 
-func NewProcess() *Process {
-	return &Process{
+// New creates a new Process collector.
+func New() *Collector {
+	return &Collector{
 		pageSize: int64(syscall.Getpagesize()),
 	}
 }
 
-func (c *Process) Name() string       { return "Process" }
-func (c *Process) Close() error       { return nil }
-func (c *Process) CollectStatic() any { return nil }
+// Name returns the collector name.
+func (c *Collector) Name() string {
+	return "Process"
+}
 
-func (c *Process) CollectDynamic() any {
-	m := &metrics.ProcessDynamic{}
+// Close releases any resources.
+func (c *Collector) Close() error {
+	return nil
+}
+
+// CollectStatic returns nil as process collector has no static data.
+func (c *Collector) CollectStatic() types.Record {
+	return nil
+}
+
+// CollectDynamic collects dynamic process metrics.
+func (c *Collector) CollectDynamic() types.Record {
+	d := &Dynamic{}
 
 	dirs, err := filepath.Glob("/proc/[0-9]*")
 	if err != nil {
-		return m
+		return d.ToRecord()
 	}
 
-	var procs []metrics.Process
+	var procs []Info
 	for _, pidPath := range dirs {
 		if proc := c.collectSingleProcess(pidPath); proc != nil {
 			procs = append(procs, *proc)
@@ -44,13 +57,13 @@ func (c *Process) CollectDynamic() any {
 
 	if len(procs) > 0 {
 		data, _ := json.Marshal(procs)
-		m.ProcessesJSON = string(data)
+		d.ProcessesJSON = string(data)
 	}
 
-	return m
+	return d.ToRecord()
 }
 
-func (c *Process) collectSingleProcess(pidPath string) *metrics.Process {
+func (c *Collector) collectSingleProcess(pidPath string) *Info {
 	pid, err := strconv.ParseInt(filepath.Base(pidPath), 10, 64)
 	if err != nil {
 		return nil
@@ -86,7 +99,7 @@ func (c *Process) collectSingleProcess(pidPath string) *metrics.Process {
 		}
 	}
 
-	return &metrics.Process{
+	return &Info{
 		PID:                          pid,
 		PIDT:                         tStat,
 		Name:                         pName,
@@ -95,19 +108,19 @@ func (c *Process) collectSingleProcess(pidPath string) *metrics.Process {
 		CmdlineT:                     tCmd,
 		NumThreads:                   probing.ParseInt64(statParts[17]),
 		NumThreadsT:                  tStat,
-		CPUTimeUserMode:              probing.ParseInt64(statParts[11]) * JiffiesPerSecond,
+		CPUTimeUserMode:              probing.ParseInt64(statParts[11]) * config.JiffiesPerSecond,
 		CPUTimeUserModeT:             tStat,
-		CPUTimeKernelMode:            probing.ParseInt64(statParts[12]) * JiffiesPerSecond,
+		CPUTimeKernelMode:            probing.ParseInt64(statParts[12]) * config.JiffiesPerSecond,
 		CPUTimeKernelModeT:           tStat,
-		ChildrenUserMode:             probing.ParseInt64(statParts[13]) * JiffiesPerSecond,
+		ChildrenUserMode:             probing.ParseInt64(statParts[13]) * config.JiffiesPerSecond,
 		ChildrenUserModeT:            tStat,
-		ChildrenKernelMode:           probing.ParseInt64(statParts[14]) * JiffiesPerSecond,
+		ChildrenKernelMode:           probing.ParseInt64(statParts[14]) * config.JiffiesPerSecond,
 		ChildrenKernelModeT:          tStat,
 		VoluntaryContextSwitches:     probing.ParseInt64(status["voluntary_ctxt_switches"]),
 		VoluntaryContextSwitchesT:    tStatus,
 		NonvoluntaryContextSwitches:  probing.ParseInt64(status["nonvoluntary_ctxt_switches"]),
 		NonvoluntaryContextSwitchesT: tStatus,
-		BlockIODelays:                probing.ParseInt64(statParts[39]) * JiffiesPerSecond,
+		BlockIODelays:                probing.ParseInt64(statParts[39]) * config.JiffiesPerSecond,
 		BlockIODelaysT:               tStat,
 		VirtualMemoryBytes:           probing.ParseInt64(statParts[20]),
 		VirtualMemoryBytesT:          tStat,
