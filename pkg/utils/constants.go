@@ -9,6 +9,7 @@ const (
 	MaxNvLinks          = 18
 	VLLMEnvVar          = "VLLM_METRICS_ENDPOINT"
 	DefaultVLLMEndpoint = "http://localhost:8000/metrics"
+	CMDSeparator        = "--"
 	//procStat      = "/proc/stat"
 	//procCPUInfo   = "/proc/cpuinfo"
 	//procLoadavg   = "/proc/loadavg"

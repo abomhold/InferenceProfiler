@@ -13,9 +13,6 @@ DOCKER_FILE   := Dockerfile
 MODEL_ID      ?= meta-llama/Llama-3.2-1B-Instruct
 MODEL_DIR     ?= ./model
 
-# Build flags
-LDFLAGS       := -s -w
-BUILD_FLAGS   := -ldflags "$(LDFLAGS)"
 
 .DELETE_ON_ERROR:
 .PHONY: all help build clean run snapshot serve test test-v test-cover \
@@ -39,7 +36,7 @@ refresh: ##@ Tidy modules, format and vet source code
 build: ##@ Compile Go binary
 	@echo "--- Building $(GO_BINARY) ---"
 	@mkdir -p $(BIN_DIR)
-	go build $(BUILD_FLAGS) -o $(GO_BINARY) $(GO_MAIN)
+	go build -o $(GO_BINARY) $(GO_MAIN)
 
 install: build ##@ Install binary to GOPATH/bin
 	go install $(BUILD_FLAGS)

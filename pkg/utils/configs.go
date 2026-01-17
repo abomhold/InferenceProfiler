@@ -1,53 +1,89 @@
 package utils
 
+import (
+	"crypto/rand"
+	"flag"
+	"fmt"
+	"os"
+)
+
 type Config struct {
-	// Collection toggles
-	EnableVM        bool
-	EnableContainer bool
-	EnableProcess   bool
-	EnableNvidia    bool
-	EnableVLLM      bool
-
-	// GPU-specific options
-	CollectGPUProcesses bool
-
-	// Performance options
-	Concurrent bool
-
-	// Output options
-	OutputFormat string
-	OutputFile   string
-	Flatten      bool
-
-	// Streaming options
-	EnableStreaming bool
-	StreamInterval  int // milliseconds
-
-	// Metadata
-	UUID     string
-	Hostname string
+	DisableVM           bool
+	DisableContainer    bool
+	DisableProcess      bool
+	DisableNvidia       bool
+	DisableVLLM         bool
+	DisableGPUProcesses bool
+	Concurrent          bool
+	CollectStatic       bool
+	CollectDynamic      bool
+	Format              string
+	OutputFile          string
+	DisableFlatten      bool
+	Interval            int
+	Batch               bool
+	Stream              bool
+	Cleanup             bool
+	Graphs              bool
+	GraphDir            string
+	Port                int
+	UUID                string
+	Hostname            string
 }
 
 func NewConfig() *Config {
 	return &Config{
-		// Defaults
-		EnableVM:        true,
-		EnableContainer: false,
-		EnableProcess:   false,
-		EnableNvidia:    false,
-		EnableVLLM:      false,
-
-		CollectGPUProcesses: false,
-		Concurrent:          false,
-
-		OutputFormat: "json",
-		OutputFile:   "",
-		Flatten:      false,
-
-		EnableStreaming: false,
-		StreamInterval:  1000,
-
-		UUID:     "",
-		Hostname: "",
+		Interval: 1000,
+		Port:     8080,
+		Format:   "json",
+		UUID:     GenerateUUID(),
+		Hostname: GetHostname(),
 	}
+}
+
+func GetFlags(fs *flag.FlagSet, cfg *Config) func() {
+	fs.BoolVar(&cfg.Concurrent, "concurrent", false, "Enable concurrent collection")
+	fs.BoolVar(&cfg.DisableVM, "no-vm", false, "Collect VM metrics")
+	fs.BoolVar(&cfg.DisableContainer, "no-container", false, "Disable container metrics")
+	fs.BoolVar(&cfg.DisableProcess, "no-procs", false, "Disable process metrics")
+	fs.BoolVar(&cfg.DisableNvidia, "no-nvidia", false, "Disable NVIDIA GPU metrics")
+	fs.BoolVar(&cfg.DisableVLLM, "no-vllm", false, "Disable vLLM metrics")
+	fs.BoolVar(&cfg.DisableGPUProcesses, "no-gpu-procs", false, "Disable GPU process info")
+	fs.BoolVar(&cfg.DisableFlatten, "no-flatten", false, "Do not flatten nested structures")
+	fs.StringVar(&cfg.Format, "format", cfg.Format, "Output format")
+	fs.StringVar(&cfg.OutputFile, "output", "", "Output file path")
+	fs.IntVar(&cfg.Interval, "interval", cfg.Interval, "Collection interval (ms)")
+	fs.IntVar(&cfg.Port, "port", cfg.Port, "HTTP server port")
+	fs.BoolVar(&cfg.Batch, "batch", false, "Batch mode")
+	fs.BoolVar(&cfg.Stream, "stream", false, "Stream mode")
+	fs.BoolVar(&cfg.Cleanup, "cleanup", false, "Cleanup temp files")
+	fs.BoolVar(&cfg.Graphs, "graphs", false, "Generate graphs")
+	fs.StringVar(&cfg.GraphDir, "graph-dir", "", "Graph output directory")
+
+	var static, dynamic bool
+	fs.BoolVar(&static, "static", false, "Collect static metrics")
+	fs.BoolVar(&dynamic, "dynamic", false, "Collect dynamic metrics")
+
+	return func() {
+		if !static && !dynamic {
+			cfg.CollectStatic = true
+			cfg.CollectDynamic = true
+		} else {
+			cfg.CollectStatic = static
+			cfg.CollectDynamic = dynamic
+		}
+	}
+}
+
+func GetHostname() string {
+	if h, err := os.Hostname(); err == nil {
+		return h
+	}
+	return "unknown"
+}
+
+func GenerateUUID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:])
 }

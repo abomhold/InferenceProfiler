@@ -12,10 +12,8 @@ import (
 
 func Graph(args []string) {
 	fs := flag.NewFlagSet("graph", flag.ExitOnError)
-
 	var outputDir string
 	fs.StringVar(&outputDir, "output", "", "Output directory for graphs")
-
 	fs.Parse(args)
 
 	if fs.NArg() < 1 {
@@ -23,13 +21,10 @@ func Graph(args []string) {
 	}
 
 	inputFile := fs.Arg(0)
-
-	// Check if input file exists
 	if _, err := os.Stat(inputFile); err != nil {
 		log.Fatalf("Input file not found: %s", inputFile)
 	}
 
-	// Generate output directory if not specified
 	if outputDir == "" {
 		base := filepath.Base(inputFile)
 		ext := filepath.Ext(base)

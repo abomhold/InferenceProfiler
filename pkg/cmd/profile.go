@@ -16,18 +16,12 @@ import (
 
 func Profile(args []string) {
 	fs := flag.NewFlagSet("profile", flag.ExitOnError)
-	flags := &CommonFlags{}
+	cfg := utils.NewConfig()
+	applyFlags := utils.GetFlags(fs, cfg)
 
-	addCollectionFlags(fs, flags)
-	addOutputFlags(fs, flags, "parquet")
-	addModeFlags(fs, flags)
-	addProfilingFlags(fs, flags)
-	addGraphFlags(fs, flags)
-
-	// Find the -- separator
 	dashIdx := -1
 	for i, arg := range args {
-		if arg == "--" {
+		if arg == utils.CMDSeparator {
 			dashIdx = i
 			break
 		}
@@ -42,19 +36,16 @@ func Profile(args []string) {
 	}
 
 	fs.Parse(flagArgs)
+	applyFlags()
 
 	if len(cmdArgs) == 0 {
-		log.Fatal("No command specified. Usage: infpro profile [flags] -- <command> [args]")
+		log.Fatalf("No command specified. Usage: infpro profile [flags] %s <command> [args]", utils.CMDSeparator)
 	}
 
-	// Default to stream mode
-	if !flags.Batch && !flags.Stream {
-		flags.Stream = true
+	if !cfg.Batch && !cfg.Stream {
+		cfg.Stream = true
 	}
 
-	cfg := flags.ToConfig()
-
-	// Generate output filename if not provided
 	if cfg.OutputFile == "" {
 		timestamp := time.Now().Format("20060102_150405")
 		cmdName := filepath.Base(cmdArgs[0])
@@ -62,18 +53,15 @@ func Profile(args []string) {
 		cfg.OutputFile = fmt.Sprintf("profile_%s_%s%s", cmdName, timestamp, ext)
 	}
 
-	// Initialize collector manager
 	manager := collecting.NewManager(cfg)
 	defer manager.Close()
 
-	// Collect static metrics
 	static := &collecting.StaticMetrics{
 		UUID:     cfg.UUID,
 		Hostname: cfg.Hostname,
 	}
 	manager.CollectStatic(static)
 
-	// Start target command
 	targetCmd := exec.Command(cmdArgs[0], cmdArgs[1:]...)
 	targetCmd.Stdout = os.Stdout
 	targetCmd.Stderr = os.Stderr
@@ -86,7 +74,6 @@ func Profile(args []string) {
 		log.Fatalf("Failed to start command: %v", err)
 	}
 
-	// Profile in background
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 
@@ -94,14 +81,13 @@ func Profile(args []string) {
 
 	go func() {
 		defer close(done)
-		if flags.Batch {
+		if cfg.Batch {
 			profileBatchMode(ctx, manager, cfg)
 		} else {
 			profileStreamMode(ctx, manager, cfg)
 		}
 	}()
 
-	// Wait for command to complete
 	cmdErr := targetCmd.Wait()
 	elapsed := time.Since(start)
 
@@ -114,8 +100,8 @@ func Profile(args []string) {
 		log.Printf("Command exited with error: %v", cmdErr)
 	}
 
-	if flags.Graphs {
-		generateGraphs(cfg.OutputFile, flags.GraphDir)
+	if cfg.Graphs {
+		generateGraphs(cfg.OutputFile, cfg.GraphDir)
 	}
 }
 
@@ -143,7 +129,8 @@ func profileStreamMode(ctx context.Context, manager *collecting.Manager, cfg *ut
 			dynamic := &collecting.DynamicMetrics{}
 			record := manager.CollectDynamic(dynamic)
 
-			if cfg.Flatten {
+			// Check DisableFlatten (inverted)
+			if !cfg.DisableFlatten {
 				record = exporting.FlattenRecord(record)
 			}
 
@@ -167,7 +154,8 @@ func profileBatchMode(ctx context.Context, manager *collecting.Manager, cfg *uti
 		select {
 		case <-ctx.Done():
 			log.Printf("Writing %d records...", len(records))
-			writeRecordsBatch(cfg.OutputFile, cfg.Format, records, cfg.Flatten)
+			// Check DisableFlatten (inverted)
+			writeRecordsBatch(cfg.OutputFile, cfg.Format, records, !cfg.DisableFlatten)
 			return
 
 		case <-ticker.C:

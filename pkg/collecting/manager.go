@@ -22,7 +22,8 @@ func NewManager(cfg *utils.Config) *Manager {
 		concurrent: cfg.Concurrent,
 	}
 
-	if cfg.EnableVM {
+	// VM is the only one we kept as Positive (EnableVM)
+	if !cfg.DisableVM {
 		m.collectors = append(m.collectors,
 			NewCPUCollector(),
 			NewMemoryCollector(),
@@ -31,23 +32,25 @@ func NewManager(cfg *utils.Config) *Manager {
 		)
 	}
 
-	if cfg.EnableContainer {
+	// The rest are now Negative (DisableX), so we check if NOT disabled.
+	if !cfg.DisableContainer {
 		if c := NewContainerCollector(); c != nil {
 			m.collectors = append(m.collectors, c)
 		}
 	}
 
-	if cfg.EnableProcess {
+	if !cfg.DisableProcess {
 		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent))
 	}
 
-	if cfg.EnableNvidia {
-		if c := NewNvidiaCollector(cfg.CollectGPUProcesses); c != nil {
+	if !cfg.DisableNvidia {
+		// Note: DisableGPUProcesses also inverted here
+		if c := NewNvidiaCollector(!cfg.DisableGPUProcesses, cfg.Concurrent); c != nil {
 			m.collectors = append(m.collectors, c)
 		}
 	}
 
-	if cfg.EnableVLLM {
+	if !cfg.DisableVLLM {
 		m.collectors = append(m.collectors, NewVLLMCollector())
 	}
 

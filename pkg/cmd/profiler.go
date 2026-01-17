@@ -5,55 +5,41 @@ import (
 	"InferenceProfiler/pkg/exporting"
 	"InferenceProfiler/pkg/utils"
 	"context"
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 )
 
 func Profiler(args []string) {
 	fs := flag.NewFlagSet("profiler", flag.ExitOnError)
-	flags := &CommonFlags{}
-
-	addCollectionFlags(fs, flags)
-	addOutputFlags(fs, flags, "parquet")
-	addModeFlags(fs, flags)
-	addProfilingFlags(fs, flags)
-	addGraphFlags(fs, flags)
-
+	cfg := utils.NewConfig()
+	applyFlags := utils.GetFlags(fs, cfg)
 	fs.Parse(args)
+	applyFlags()
 
-	// Default to stream mode if neither specified
-	if !flags.Batch && !flags.Stream {
-		flags.Stream = true
+	if !cfg.Batch && !cfg.Stream {
+		cfg.Stream = true
 	}
 
-	cfg := flags.ToConfig()
-
-	// Generate output filename if not provided
 	if cfg.OutputFile == "" {
 		timestamp := time.Now().Format("20060102_150405")
 		ext := exporting.GetExtension(cfg.Format)
 		cfg.OutputFile = fmt.Sprintf("profiler_%s%s", timestamp, ext)
 	}
 
-	// Initialize collector manager
 	manager := collecting.NewManager(cfg)
 	defer manager.Close()
 
-	// Collect static metrics
 	static := &collecting.StaticMetrics{
 		UUID:     cfg.UUID,
 		Hostname: cfg.Hostname,
 	}
 	manager.CollectStatic(static)
 
-	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -65,15 +51,14 @@ func Profiler(args []string) {
 		cancel()
 	}()
 
-	if flags.Batch {
-		runBatchMode(ctx, manager, cfg, flags)
+	if cfg.Batch {
+		runBatchMode(ctx, manager, cfg)
 	} else {
-		runStreamMode(ctx, manager, cfg, flags)
+		runStreamMode(ctx, manager, cfg)
 	}
 }
 
-func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config, flags *CommonFlags) {
-	// Create writer
+func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
 	f, ok := exporting.Get(cfg.Format)
 	if !ok {
 		log.Fatalf("Unsupported format: %s", cfg.Format)
@@ -104,8 +89,8 @@ func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.
 			log.Printf("Collected %d records in %v (%.2f records/sec)",
 				count, elapsed, float64(count)/elapsed.Seconds())
 
-			if flags.Graphs {
-				generateGraphs(cfg.OutputFile, flags.GraphDir)
+			if cfg.Graphs {
+				generateGraphs(cfg.OutputFile, cfg.GraphDir)
 			}
 			return
 
@@ -113,7 +98,8 @@ func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.
 			dynamic := &collecting.DynamicMetrics{}
 			record := manager.CollectDynamic(dynamic)
 
-			if cfg.Flatten {
+			// Check DisableFlatten (inverted)
+			if !cfg.DisableFlatten {
 				record = exporting.FlattenRecord(record)
 			}
 
@@ -131,7 +117,7 @@ func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.
 	}
 }
 
-func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config, flags *CommonFlags) {
+func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
 	log.Printf("Profiler started (batch mode)")
 	log.Printf("  Interval: %dms", cfg.Interval)
 	log.Println("  Collecting in memory, will write at end...")
@@ -142,9 +128,8 @@ func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.C
 	var records []exporting.Record
 	start := time.Now()
 
-	// Temporary JSON file for intermediate storage
 	tmpFile := ""
-	if flags.Cleanup {
+	if cfg.Cleanup {
 		tmpFile = cfg.OutputFile + ".tmp.jsonl"
 		defer func() {
 			if tmpFile != "" {
@@ -159,15 +144,15 @@ func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.C
 			elapsed := time.Since(start)
 			log.Printf("Collected %d records in %v", len(records), elapsed)
 
-			// Write all records
 			log.Printf("Writing to %s...", cfg.OutputFile)
-			if err := writeRecordsBatch(cfg.OutputFile, cfg.Format, records, cfg.Flatten); err != nil {
+			// Check DisableFlatten (inverted)
+			if err := writeRecordsBatch(cfg.OutputFile, cfg.Format, records, !cfg.DisableFlatten); err != nil {
 				log.Fatalf("Failed to write records: %v", err)
 			}
 			log.Printf("Successfully wrote %d records", len(records))
 
-			if flags.Graphs {
-				generateGraphs(cfg.OutputFile, flags.GraphDir)
+			if cfg.Graphs {
+				generateGraphs(cfg.OutputFile, cfg.GraphDir)
 			}
 			return
 

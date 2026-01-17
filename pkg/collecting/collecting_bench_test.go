@@ -13,10 +13,6 @@ func init() {
 	log.SetOutput(io.Discard)
 }
 
-// ============================================================================
-// Individual Collector Benchmarks
-// ============================================================================
-
 func BenchmarkCPUCollector_Static(b *testing.B) {
 	c := NewCPUCollector()
 	defer c.Close()
@@ -100,8 +96,21 @@ func BenchmarkProcessCollector_Concurrent(b *testing.B) {
 	}
 }
 
-func BenchmarkNvidiaCollector_Dynamic(b *testing.B) {
-	c := NewNvidiaCollector(false)
+func BenchmarkNvidiaCollector_Sequential(b *testing.B) {
+	c := NewNvidiaCollector(false, false)
+	if c == nil {
+		b.Skip("nvidia collector not available")
+	}
+	defer c.Close()
+	d := &DynamicMetrics{}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		c.CollectDynamic(d)
+	}
+}
+
+func BenchmarkNvidiaCollector_Concurrent(b *testing.B) {
+	c := NewNvidiaCollector(false, true)
 	if c == nil {
 		b.Skip("nvidia collector not available")
 	}
@@ -114,7 +123,7 @@ func BenchmarkNvidiaCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkNvidiaCollector_DynamicWithProcs(b *testing.B) {
-	c := NewNvidiaCollector(true)
+	c := NewNvidiaCollector(true, false)
 	if c == nil {
 		b.Skip("nvidia collector not available")
 	}
@@ -135,10 +144,6 @@ func BenchmarkVLLMCollector_Dynamic(b *testing.B) {
 		c.CollectDynamic(d)
 	}
 }
-
-// ============================================================================
-// Manager Benchmarks - Sequential vs Concurrent
-// ============================================================================
 
 func BenchmarkManager_VMOnly_Sequential(b *testing.B) {
 	cfg := &utils.Config{
@@ -255,10 +260,6 @@ func BenchmarkManager_NoGPU_Concurrent(b *testing.B) {
 		m.CollectDynamic(&DynamicMetrics{})
 	}
 }
-
-// ============================================================================
-// End-to-End Benchmarks (Collect + Flatten)
-// ============================================================================
 
 func BenchmarkManager_Flatten_Sequential(b *testing.B) {
 	cfg := &utils.Config{
