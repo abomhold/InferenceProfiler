@@ -1,4 +1,4 @@
-package cpu
+package vm
 
 import (
 	"fmt"
@@ -17,7 +17,7 @@ import (
 type Collector struct{}
 
 // New creates a new CPU collector.
-func New() *Collector {
+func NewCPUCollector() *Collector {
 	return &Collector{}
 }
 

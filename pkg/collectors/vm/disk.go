@@ -1,4 +1,4 @@
-package disk
+package vm
 
 import (
 	"encoding/json"
@@ -18,7 +18,7 @@ type Collector struct {
 }
 
 // New creates a new Disk collector.
-func New() *Collector {
+func NewDiskCollector() *Collector {
 	return &Collector{
 		diskPattern: regexp.MustCompile(config.DiskRegex),
 	}

@@ -1,4 +1,4 @@
-package network
+package vm
 
 import (
 	"encoding/json"

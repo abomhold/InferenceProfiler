@@ -1,4 +1,4 @@
-package nvidia
+package collectors
 
 import (
 	"encoding/json"

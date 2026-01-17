@@ -1,18 +1,11 @@
 package collectors
 
 import (
+	"InferenceProfiler/pkg/collectors/vm"
 	"log"
 	"sync"
 
-	"InferenceProfiler/pkg/collectors/container"
-	"InferenceProfiler/pkg/collectors/nvidia"
-	"InferenceProfiler/pkg/collectors/process"
 	"InferenceProfiler/pkg/collectors/types"
-	"InferenceProfiler/pkg/collectors/vllm"
-	"InferenceProfiler/pkg/collectors/vm/cpu"
-	"InferenceProfiler/pkg/collectors/vm/disk"
-	"InferenceProfiler/pkg/collectors/vm/memory"
-	"InferenceProfiler/pkg/collectors/vm/network"
 	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 )
@@ -33,35 +26,35 @@ func NewManager(cfg *config.Config) *Manager {
 	// Initialize VM collectors
 	if cfg.EnableVM {
 		m.collectors = append(m.collectors,
-			cpu.New(),
-			memory.New(),
-			disk.New(),
-			network.New(),
+			vm.New(),
+			vm.New(),
+			vm.New(),
+			vm.New(),
 		)
 	}
 
 	// Initialize container collector
 	if cfg.EnableContainer {
-		if c := container.New(); c != nil {
+		if c := New(); c != nil {
 			m.collectors = append(m.collectors, c)
 		}
 	}
 
 	// Initialize process collector
 	if cfg.EnableProcess {
-		m.collectors = append(m.collectors, process.New())
+		m.collectors = append(m.collectors, New())
 	}
 
 	// Initialize NVIDIA collector
 	if cfg.EnableNvidia {
-		if n := nvidia.New(cfg.CollectGPUProcesses); n != nil {
+		if n := New(cfg.CollectGPUProcesses); n != nil {
 			m.collectors = append(m.collectors, n)
 		}
 	}
 
 	// Initialize vLLM collector
 	if cfg.EnableVLLM {
-		m.collectors = append(m.collectors, vllm.New())
+		m.collectors = append(m.collectors, New())
 	}
 
 	log.Printf("Initialized %d collectors", len(m.collectors))

@@ -1,4 +1,4 @@
-package memory
+package vm
 
 import (
 	"strings"
@@ -9,25 +9,25 @@ import (
 )
 
 // Collector collects memory metrics.
-type Collector struct{}
+type NetworkCollector struct{}
 
 // New creates a new Memory collector.
-func New() *Collector {
-	return &Collector{}
+func NewMemoryCollector() *NetworkCollector {
+	return &NetworkCollector{}
 }
 
 // Name returns the collector name.
-func (c *Collector) Name() string {
+func (c *NetworkCollector) Name() string {
 	return "VM-Memory"
 }
 
 // Close releases any resources.
-func (c *Collector) Close() error {
+func (c *NetworkCollector) Close() error {
 	return nil
 }
 
 // CollectStatic collects static memory information.
-func (c *Collector) CollectStatic() types.Record {
+func (c *NetworkCollector) CollectStatic() types.Record {
 	info, _ := getMemInfo()
 	s := &Static{
 		MemoryTotalBytes: info["MemTotal"] * 1024,
@@ -37,7 +37,7 @@ func (c *Collector) CollectStatic() types.Record {
 }
 
 // CollectDynamic collects dynamic memory metrics.
-func (c *Collector) CollectDynamic() types.Record {
+func (c *NetworkCollector) CollectDynamic() types.Record {
 	d := &Dynamic{}
 
 	info, tMem := getMemInfo()

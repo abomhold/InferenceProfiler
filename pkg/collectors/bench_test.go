@@ -1,23 +1,16 @@
 package collectors_test
 
 import (
+	"InferenceProfiler/pkg/collectors/vm"
 	"testing"
 
 	"InferenceProfiler/pkg/collectors"
-	"InferenceProfiler/pkg/collectors/container"
-	"InferenceProfiler/pkg/collectors/nvidia"
-	"InferenceProfiler/pkg/collectors/process"
-	"InferenceProfiler/pkg/collectors/vllm"
-	"InferenceProfiler/pkg/collectors/vm/cpu"
-	"InferenceProfiler/pkg/collectors/vm/disk"
-	"InferenceProfiler/pkg/collectors/vm/memory"
-	"InferenceProfiler/pkg/collectors/vm/network"
 	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/formatting"
 )
 
 func BenchmarkCPUCollector_Static(b *testing.B) {
-	c := cpu.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -26,7 +19,7 @@ func BenchmarkCPUCollector_Static(b *testing.B) {
 }
 
 func BenchmarkCPUCollector_Dynamic(b *testing.B) {
-	c := cpu.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -35,7 +28,7 @@ func BenchmarkCPUCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkMemoryCollector_Static(b *testing.B) {
-	c := memory.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -44,7 +37,7 @@ func BenchmarkMemoryCollector_Static(b *testing.B) {
 }
 
 func BenchmarkMemoryCollector_Dynamic(b *testing.B) {
-	c := memory.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -53,7 +46,7 @@ func BenchmarkMemoryCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkDiskCollector_Static(b *testing.B) {
-	c := disk.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -62,7 +55,7 @@ func BenchmarkDiskCollector_Static(b *testing.B) {
 }
 
 func BenchmarkDiskCollector_Dynamic(b *testing.B) {
-	c := disk.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -71,7 +64,7 @@ func BenchmarkDiskCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkNetworkCollector_Static(b *testing.B) {
-	c := network.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -80,7 +73,7 @@ func BenchmarkNetworkCollector_Static(b *testing.B) {
 }
 
 func BenchmarkNetworkCollector_Dynamic(b *testing.B) {
-	c := network.New()
+	c := vm.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -89,7 +82,7 @@ func BenchmarkNetworkCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkContainerCollector_Static(b *testing.B) {
-	c := container.New()
+	c := collectors.New()
 	if c == nil {
 		b.Skip("container collector not available")
 	}
@@ -101,7 +94,7 @@ func BenchmarkContainerCollector_Static(b *testing.B) {
 }
 
 func BenchmarkContainerCollector_Dynamic(b *testing.B) {
-	c := container.New()
+	c := collectors.New()
 	if c == nil {
 		b.Skip("container collector not available")
 	}
@@ -113,7 +106,7 @@ func BenchmarkContainerCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkProcessCollector_Dynamic(b *testing.B) {
-	c := process.New()
+	c := collectors.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -122,7 +115,7 @@ func BenchmarkProcessCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkNvidiaCollector_Static(b *testing.B) {
-	c := nvidia.New(false)
+	c := collectors.New(false)
 	if c == nil {
 		b.Skip("nvidia collector not available")
 	}
@@ -134,7 +127,7 @@ func BenchmarkNvidiaCollector_Static(b *testing.B) {
 }
 
 func BenchmarkNvidiaCollector_Dynamic(b *testing.B) {
-	c := nvidia.New(false)
+	c := collectors.New(false)
 	if c == nil {
 		b.Skip("nvidia collector not available")
 	}
@@ -146,7 +139,7 @@ func BenchmarkNvidiaCollector_Dynamic(b *testing.B) {
 }
 
 func BenchmarkNvidiaCollector_DynamicWithProcs(b *testing.B) {
-	c := nvidia.New(true)
+	c := collectors.New(true)
 	if c == nil {
 		b.Skip("nvidia collector not available")
 	}
@@ -158,7 +151,7 @@ func BenchmarkNvidiaCollector_DynamicWithProcs(b *testing.B) {
 }
 
 func BenchmarkVLLMCollector_Dynamic(b *testing.B) {
-	c := vllm.New()
+	c := collectors.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -231,7 +224,7 @@ func BenchmarkManager_CollectDynamic_NoProcess(b *testing.B) {
 
 // Benchmark ToRecord conversion
 func BenchmarkToRecord_CPUDynamic(b *testing.B) {
-	c := cpu.New()
+	c := vm.New()
 	defer c.Close()
 	// Warm up to get a real record
 	c.CollectDynamic()
@@ -286,7 +279,7 @@ func BenchmarkMergeRecords_10Records(b *testing.B) {
 
 // Individual collector isolation benchmarks
 func BenchmarkIsolated_CPU(b *testing.B) {
-	c := cpu.New()
+	c := vm.New()
 	defer c.Close()
 	c.CollectStatic() // warm up
 	b.ResetTimer()
@@ -296,7 +289,7 @@ func BenchmarkIsolated_CPU(b *testing.B) {
 }
 
 func BenchmarkIsolated_Memory(b *testing.B) {
-	c := memory.New()
+	c := vm.New()
 	defer c.Close()
 	c.CollectStatic()
 	b.ResetTimer()
@@ -306,7 +299,7 @@ func BenchmarkIsolated_Memory(b *testing.B) {
 }
 
 func BenchmarkIsolated_Disk(b *testing.B) {
-	c := disk.New()
+	c := vm.New()
 	defer c.Close()
 	c.CollectStatic()
 	b.ResetTimer()
@@ -316,7 +309,7 @@ func BenchmarkIsolated_Disk(b *testing.B) {
 }
 
 func BenchmarkIsolated_Network(b *testing.B) {
-	c := network.New()
+	c := vm.New()
 	defer c.Close()
 	c.CollectStatic()
 	b.ResetTimer()
@@ -327,7 +320,7 @@ func BenchmarkIsolated_Network(b *testing.B) {
 
 // Benchmark process collection (no JSON serialization)
 func BenchmarkIsolated_Process_CollectOnly(b *testing.B) {
-	c := process.New()
+	c := collectors.New()
 	defer c.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

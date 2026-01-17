@@ -1,4 +1,4 @@
-package process
+package collectors
 
 import (
 	"path/filepath"
