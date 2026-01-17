@@ -46,7 +46,7 @@ const (
 	DefaultInterval    = 100 * time.Millisecond
 	DefaultOutputDir   = "."
 	DefaultFormat      = "parquet"
-	DefaultGraphFormat = "html"
+	DefaultGraphFormat = "png"
 )
 
 // New creates a Config with default values.
@@ -58,7 +58,7 @@ func New() *Config {
 		Duration:            0,
 		EnableVM:            true,
 		EnableContainer:     true,
-		EnableProcess:       false,
+		EnableProcess:       true,
 		EnableNvidia:        true,
 		EnableVLLM:          true,
 		CollectGPUProcesses: true,
@@ -86,7 +86,7 @@ func (c *Config) Validate() error {
 	}
 
 	if c.GenerateGraphs && !isValidGraphFormat(c.GraphFormat) {
-		return fmt.Errorf("invalid graph format: %s (valid: html, png, svg)", c.GraphFormat)
+		return fmt.Errorf("invalid graph format: %s (valid: png)", c.GraphFormat)
 	}
 
 	if c.OutputDir != "" {
@@ -109,7 +109,7 @@ func ValidOutputFormats() []string {
 
 // ValidGraphFormats returns the list of supported graph formats.
 func ValidGraphFormats() []string {
-	return []string{"html", "png", "svg"}
+	return []string{"png"}
 }
 
 func isValidOutputFormat(format string) bool {
@@ -169,7 +169,7 @@ func (c *Config) GenerateOutputPath(prefix string) string {
 	return filepath.Join(c.OutputDir, fmt.Sprintf("%s-%s%s", prefix, timestamp, ext))
 }
 
-// GenerateGraphPath creates an auto-generated graph output path.
+// GenerateGraphPath creates an auto-generated graph output directory path.
 func (c *Config) GenerateGraphPath(inputFile string) string {
 	if c.GraphOutput != "" {
 		return c.GraphOutput
@@ -180,8 +180,7 @@ func (c *Config) GenerateGraphPath(inputFile string) string {
 	ext := filepath.Ext(base)
 	name := base[:len(base)-len(ext)]
 
-	graphExt := formatting.GetGraphExtension(c.GraphFormat)
-	return filepath.Join(dir, name+"_graphs"+graphExt)
+	return filepath.Join(dir, name+"_graphs")
 }
 
 // GetBootTime reads the system boot time from /proc/stat.

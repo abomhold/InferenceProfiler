@@ -10,7 +10,6 @@ import (
 )
 
 var (
-	graphFormat string
 	graphOutput string
 )
 
@@ -20,19 +19,20 @@ func NewGraphCmd() *cobra.Command {
 		Aliases: []string{"g"},
 		Use:     "graph <input-file>",
 		Short:   "Generate visualization graphs from data",
-		Long: `Generate HTML visualization graphs from profiler data files.
+		Long: `Generate PNG visualization graphs from profiler data files.
+
+Output is a directory containing PNG files for each metric.
 
 Supported input formats: parquet, jsonl, csv, tsv
 
 Example:
   infprofiler graph profile-20240101-120000.parquet
-  infprofiler graph data.jsonl -o report.html`,
+  infprofiler graph data.jsonl -o ./graphs`,
 		Args: cobra.ExactArgs(1),
 		RunE: runGraph,
 	}
 
-	cmd.Flags().StringVar(&graphFormat, "format", "html", "Output format (html)")
-	cmd.Flags().StringVarP(&graphOutput, "output", "o", "", "Output file (auto-generated if empty)")
+	cmd.Flags().StringVarP(&graphOutput, "output", "o", "", "Output directory (auto-generated if empty)")
 
 	return cmd
 }
@@ -42,19 +42,18 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	if _, err := os.Stat(inputPath); err != nil {
 		return fmt.Errorf("input file not found: %s", inputPath)
 	}
-	outputPath := graphOutput
-	if outputPath == "" {
-		Cfg.GraphFormat = graphFormat
-		outputPath = Cfg.GenerateGraphPath(inputPath)
+	outputDir := graphOutput
+	if outputDir == "" {
+		outputDir = Cfg.GenerateGraphPath(inputPath)
 	}
 
-	gen, err := graphing.NewGenerator(inputPath, outputPath, graphFormat)
+	gen, err := graphing.NewGenerator(inputPath, outputDir, "png")
 	if err != nil {
 		return fmt.Errorf("failed to create generator: %w", err)
 	}
 	if err := gen.Generate(); err != nil {
 		return fmt.Errorf("failed to generate graphs: %w", err)
 	}
-	fmt.Printf("Generated: %s\n", outputPath)
+	fmt.Printf("Generated graphs in: %s\n", outputDir)
 	return nil
 }

@@ -1,129 +1,90 @@
 package collectors
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 
-	"InferenceProfiler/pkg/collectors/types"
 	"InferenceProfiler/pkg/config"
 	"InferenceProfiler/pkg/probing"
 )
 
-// Collector collects process metrics.
-type Collector struct {
-	pageSize int64
+type ProcessCollector struct{}
+
+func NewProcessCollector() *ProcessCollector {
+	return &ProcessCollector{}
 }
 
-// New creates a new Process collector.
-func New() *Collector {
-	return &Collector{
-		pageSize: int64(syscall.Getpagesize()),
-	}
-}
+func (c *ProcessCollector) Name() string { return "Process" }
+func (c *ProcessCollector) Close() error { return nil }
 
-// Name returns the collector name.
-func (c *Collector) Name() string {
-	return "Process"
-}
+func (c *ProcessCollector) CollectStatic(m *StaticMetrics) {}
 
-// Close releases any resources.
-func (c *Collector) Close() error {
-	return nil
-}
-
-// CollectStatic returns nil as process collector has no static data.
-func (c *Collector) CollectStatic() types.Record {
-	return nil
-}
-
-// CollectDynamic collects dynamic process metrics.
-// Stores []Info under types.KeyProcesses for deferred serialization.
-func (c *Collector) CollectDynamic() types.Record {
-	dirs, err := filepath.Glob("/proc/[0-9]*")
+func (c *ProcessCollector) CollectDynamic(m *DynamicMetrics) {
+	entries, err := os.ReadDir("/proc")
 	if err != nil {
-		return nil
+		return
 	}
 
-	// Pre-allocate with estimated capacity
-	procs := make([]Info, 0, len(dirs))
-	for _, pidPath := range dirs {
-		if proc := c.collectSingleProcess(pidPath); proc != nil {
-			procs = append(procs, *proc)
+	ts := probing.GetTimestamp()
+	mult := int64(config.NanosecondsPerSec / config.JiffiesPerSecond)
+
+	var processes []ProcessInfo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
 		}
-	}
-
-	if len(procs) == 0 {
-		return nil
-	}
-
-	// Store slice directly - serialization deferred to export time
-	return types.Record{types.KeyProcesses: procs}
-}
-
-func (c *Collector) collectSingleProcess(pidPath string) *Info {
-	pid, err := strconv.ParseInt(filepath.Base(pidPath), 10, 64)
-	if err != nil {
-		return nil
-	}
-
-	statVal, tStat := probing.File(filepath.Join(pidPath, "stat"))
-	statData := statVal
-
-	rparenIndex := strings.LastIndex(statData, ")")
-	if rparenIndex == -1 || len(statData) < rparenIndex+3 {
-		return nil
-	}
-
-	statParts := strings.Fields(statData[rparenIndex+2:])
-	if len(statParts) < 40 {
-		return nil
-	}
-
-	cmdlineVal, tCmd := probing.File(filepath.Join(pidPath, "cmdline"))
-	status, tStatus := probing.FileKV(filepath.Join(pidPath, "status"), ":")
-	statmVal, tStatm := probing.File(filepath.Join(pidPath, "statm"))
-
-	var rssBytes int64
-	if parts := strings.Fields(statmVal); len(parts) >= 2 {
-		rssPages := probing.ParseInt64(parts[1])
-		rssBytes = rssPages * c.pageSize
-	}
-
-	pName := status["Name"]
-	if pName == "" {
-		if lp := strings.Index(statData, "("); lp != -1 && rparenIndex > lp {
-			pName = statData[lp+1 : rparenIndex]
+		pid, err := strconv.ParseInt(entry.Name(), 10, 64)
+		if err != nil {
+			continue
 		}
+
+		procPath := filepath.Join("/proc", entry.Name())
+		proc := ProcessInfo{PID: pid, PIDT: ts}
+
+		if name, _, err := probing.File(filepath.Join(procPath, "comm")); err == nil {
+			proc.Name, proc.NameT = name, ts
+		}
+		if cmdline, _, err := probing.File(filepath.Join(procPath, "cmdline")); err == nil {
+			proc.Cmdline = strings.ReplaceAll(cmdline, "\x00", " ")
+			proc.CmdlineT = ts
+		}
+
+		if stat, _, err := probing.File(filepath.Join(procPath, "stat")); err == nil {
+			fields := strings.Fields(stat)
+			if len(fields) >= 24 {
+				proc.NumThreads = probing.ParseInt64(fields[19])
+				proc.NumThreadsT = ts
+				proc.CPUTimeUserMode = probing.ParseInt64(fields[13]) * mult
+				proc.CPUTimeUserModeT = ts
+				proc.CPUTimeKernelMode = probing.ParseInt64(fields[14]) * mult
+				proc.CPUTimeKernelModeT = ts
+				proc.ChildrenUserMode = probing.ParseInt64(fields[15]) * mult
+				proc.ChildrenUserModeT = ts
+				proc.ChildrenKernelMode = probing.ParseInt64(fields[16]) * mult
+				proc.ChildrenKernelModeT = ts
+				proc.VirtualMemoryBytes = probing.ParseInt64(fields[22])
+				proc.VirtualMemoryBytesT = ts
+				proc.ResidentSetSize = probing.ParseInt64(fields[23]) * 4096
+				proc.ResidentSetSizeT = ts
+			}
+		}
+
+		if status, _, err := probing.FileKV(filepath.Join(procPath, "status"), ":"); err == nil {
+			proc.VoluntaryContextSwitches = probing.ParseInt64(status["voluntary_ctxt_switches"])
+			proc.VoluntaryContextSwitchesT = ts
+			proc.NonvoluntaryContextSwitches = probing.ParseInt64(status["nonvoluntary_ctxt_switches"])
+			proc.NonvoluntaryContextSwitchesT = ts
+		}
+
+		if sched, _, err := probing.FileKV(filepath.Join(procPath, "sched"), ":"); err == nil {
+			proc.BlockIODelays = int64(probing.ParseFloat64(sched["sum_sleep_runtime"]))
+			proc.BlockIODelaysT = ts
+		}
+
+		processes = append(processes, proc)
 	}
 
-	return &Info{
-		PID:                          pid,
-		PIDT:                         tStat,
-		Name:                         pName,
-		NameT:                        tStat,
-		Cmdline:                      strings.ReplaceAll(cmdlineVal, "\x00", " "),
-		CmdlineT:                     tCmd,
-		NumThreads:                   probing.ParseInt64(statParts[17]),
-		NumThreadsT:                  tStat,
-		CPUTimeUserMode:              probing.ParseInt64(statParts[11]) * config.JiffiesPerSecond,
-		CPUTimeUserModeT:             tStat,
-		CPUTimeKernelMode:            probing.ParseInt64(statParts[12]) * config.JiffiesPerSecond,
-		CPUTimeKernelModeT:           tStat,
-		ChildrenUserMode:             probing.ParseInt64(statParts[13]) * config.JiffiesPerSecond,
-		ChildrenUserModeT:            tStat,
-		ChildrenKernelMode:           probing.ParseInt64(statParts[14]) * config.JiffiesPerSecond,
-		ChildrenKernelModeT:          tStat,
-		VoluntaryContextSwitches:     probing.ParseInt64(status["voluntary_ctxt_switches"]),
-		VoluntaryContextSwitchesT:    tStatus,
-		NonvoluntaryContextSwitches:  probing.ParseInt64(status["nonvoluntary_ctxt_switches"]),
-		NonvoluntaryContextSwitchesT: tStatus,
-		BlockIODelays:                probing.ParseInt64(statParts[39]) * config.JiffiesPerSecond,
-		BlockIODelaysT:               tStat,
-		VirtualMemoryBytes:           probing.ParseInt64(statParts[20]),
-		VirtualMemoryBytesT:          tStat,
-		ResidentSetSize:              rssBytes,
-		ResidentSetSizeT:             tStatm,
-	}
+	m.Processes = processes
 }

@@ -51,43 +51,38 @@ Example:
 func runSnapshot(cmd *cobra.Command, args []string) error {
 	Cfg.ApplyDefaults()
 
-	// Initialize collector manager
 	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
-	result := make(collectors.Record)
+	result := make(formatting.Record)
 
-	// Determine what to collect
 	collectStatic := !snapshotDynamic || snapshotStatic
 	collectDynamic := !snapshotStatic || snapshotDynamic
 
-	// If neither flag set, collect both
 	if !snapshotStatic && !snapshotDynamic {
 		collectStatic = true
 		collectDynamic = true
 	}
 
 	if collectStatic {
-		baseStatic := &collectors.BaseStatic{
+		static := &collectors.StaticMetrics{
 			UUID:     Cfg.UUID,
 			VMID:     Cfg.VMID,
 			Hostname: Cfg.Hostname,
 			BootTime: config.GetBootTime(),
 		}
-		manager.CollectStatic(baseStatic)
+		manager.CollectStatic(static)
 
-		result["uuid"] = baseStatic.UUID
-		result["vId"] = baseStatic.VMID
-		result["vHostname"] = baseStatic.Hostname
-		result["vBootTime"] = baseStatic.BootTime
+		for k, v := range manager.GetStaticRecord() {
+			result[k] = v
+		}
 	}
 
 	if collectDynamic {
-		baseDynamic := &collectors.BaseDynamic{}
-		dynamicMetrics := manager.CollectDynamic(baseDynamic)
-		// Flatten to serialize any deferred slice data
-		dynamicMetrics = formatting.FlattenRecord(dynamicMetrics)
-		for k, v := range dynamicMetrics {
+		dynamic := &collectors.DynamicMetrics{}
+		dynamicRecord := manager.CollectDynamic(dynamic)
+		dynamicRecord = formatting.FlattenRecord(dynamicRecord)
+		for k, v := range dynamicRecord {
 			result[k] = v
 		}
 	}
@@ -95,7 +90,7 @@ func runSnapshot(cmd *cobra.Command, args []string) error {
 	return writeSnapshotOutput(result)
 }
 
-func writeSnapshotOutput(data collectors.Record) error {
+func writeSnapshotOutput(data formatting.Record) error {
 	output, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON: %w", err)

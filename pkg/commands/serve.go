@@ -45,35 +45,30 @@ Example:
 }
 
 type metricsServer struct {
-	manager    *collectors.Manager
-	baseStatic *collectors.BaseStatic
-	mu         sync.RWMutex
+	manager *collectors.Manager
+	static  *collectors.StaticMetrics
+	mu      sync.RWMutex
 }
 
 func runServe(cmd *cobra.Command, args []string) error {
 	Cfg.ApplyDefaults()
 
-	// Initialize collector manager
 	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
-	// Create base static
-	baseStatic := &collectors.BaseStatic{
+	static := &collectors.StaticMetrics{
 		UUID:     Cfg.UUID,
 		VMID:     Cfg.VMID,
 		Hostname: Cfg.Hostname,
 		BootTime: config.GetBootTime(),
 	}
-
-	// Collect initial static metrics
-	manager.CollectStatic(baseStatic)
+	manager.CollectStatic(static)
 
 	server := &metricsServer{
-		manager:    manager,
-		baseStatic: baseStatic,
+		manager: manager,
+		static:  static,
 	}
 
-	// Setup routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", server.handleIndex)
 	mux.HandleFunc("/static", server.handleStatic)
@@ -109,47 +104,26 @@ func (s *metricsServer) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 func (s *metricsServer) handleStatic(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
-	baseStatic := s.baseStatic
+	static := s.static
 	s.mu.RUnlock()
 
-	// Re-collect static to get current values
-	s.manager.CollectStatic(baseStatic)
+	s.manager.CollectStatic(static)
 
-	data := collectors.Record{
-		"uuid":      baseStatic.UUID,
-		"vId":       baseStatic.VMID,
-		"vHostname": baseStatic.Hostname,
-		"vBootTime": baseStatic.BootTime,
-	}
-
-	writeJSONResponse(w, data)
+	writeJSONResponse(w, s.manager.GetStaticRecord())
 }
 
 func (s *metricsServer) handleDynamic(w http.ResponseWriter, r *http.Request) {
-	baseDynamic := &collectors.BaseDynamic{}
-	data := s.manager.CollectDynamic(baseDynamic)
-	// Flatten to serialize any deferred slice data
+	dynamic := &collectors.DynamicMetrics{}
+	data := s.manager.CollectDynamic(dynamic)
 	data = formatting.FlattenRecord(data)
 	writeJSONResponse(w, data)
 }
 
 func (s *metricsServer) handleBoth(w http.ResponseWriter, r *http.Request) {
-	s.mu.RLock()
-	baseStatic := s.baseStatic
-	s.mu.RUnlock()
-
-	baseDynamic := &collectors.BaseDynamic{}
-	dynamicData := s.manager.CollectDynamic(baseDynamic)
-	// Flatten to serialize any deferred slice data
-	dynamicData = formatting.FlattenRecord(dynamicData)
-
-	// Merge static into dynamic
-	dynamicData["uuid"] = baseStatic.UUID
-	dynamicData["vId"] = baseStatic.VMID
-	dynamicData["vHostname"] = baseStatic.Hostname
-	dynamicData["vBootTime"] = baseStatic.BootTime
-
-	writeJSONResponse(w, dynamicData)
+	dynamic := &collectors.DynamicMetrics{}
+	data := s.manager.CollectDynamic(dynamic)
+	data = formatting.FlattenRecord(data)
+	writeJSONResponse(w, data)
 }
 
 func writeJSONResponse(w http.ResponseWriter, data interface{}) {

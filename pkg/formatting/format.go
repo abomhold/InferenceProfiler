@@ -117,18 +117,6 @@ func GetExtension(format string) string {
 	}
 }
 
-// GetGraphExtension returns the file extension for a graph format.
-func GetGraphExtension(format string) string {
-	switch strings.ToLower(format) {
-	case "png":
-		return ".png"
-	case "svg":
-		return ".svg"
-	default:
-		return ".html"
-	}
-}
-
 // LoadRecords loads all records from a file.
 func LoadRecords(path string) ([]Record, error) {
 	f, ok := GetByPath(path)

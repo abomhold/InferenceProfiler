@@ -46,20 +46,17 @@ func runProfiler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Initialize collector manager
 	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
-	// Collect static metrics
-	baseStatic := &collectors.BaseStatic{
+	static := &collectors.StaticMetrics{
 		UUID:     Cfg.UUID,
 		VMID:     Cfg.VMID,
 		Hostname: Cfg.Hostname,
 		BootTime: config.GetBootTime(),
 	}
-	manager.CollectStatic(baseStatic)
+	manager.CollectStatic(static)
 
-	// Initialize exporter
 	outputPath := Cfg.OutputName
 	if outputPath == "" {
 		outputPath = Cfg.GenerateOutputPath("profiler")
@@ -70,7 +67,6 @@ func runProfiler(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create exporter: %w", err)
 	}
 
-	// Setup signal handling
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -80,7 +76,6 @@ func runProfiler(cmd *cobra.Command, args []string) error {
 	log.Printf("Starting profiler with %v interval", Cfg.Interval)
 	log.Printf("Output: %s", outputPath)
 
-	// Collection loop
 	ticker := time.NewTicker(Cfg.Interval)
 	defer ticker.Stop()
 
@@ -97,8 +92,8 @@ func runProfiler(cmd *cobra.Command, args []string) error {
 			return finalizeProfiler(exp, sampleCount, startTime)
 
 		case <-ticker.C:
-			baseDynamic := &collectors.BaseDynamic{}
-			record := manager.CollectDynamic(baseDynamic)
+			dynamic := &collectors.DynamicMetrics{}
+			record := manager.CollectDynamic(dynamic)
 			if err := exp.Write(record); err != nil {
 				log.Printf("Error writing record: %v", err)
 				continue

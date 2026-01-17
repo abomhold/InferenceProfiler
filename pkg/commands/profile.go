@@ -49,20 +49,17 @@ func runProfile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("invalid configuration: %w", err)
 	}
 
-	// Initialize collector manager
 	manager := collectors.NewManager(Cfg)
 	defer manager.Close()
 
-	// Collect static metrics
-	baseStatic := &collectors.BaseStatic{
+	static := &collectors.StaticMetrics{
 		UUID:     Cfg.UUID,
 		VMID:     Cfg.VMID,
 		Hostname: Cfg.Hostname,
 		BootTime: config.GetBootTime(),
 	}
-	manager.CollectStatic(baseStatic)
+	manager.CollectStatic(static)
 
-	// Initialize exporter
 	outputPath := Cfg.OutputName
 	if outputPath == "" {
 		outputPath = Cfg.GenerateOutputPath("profile")
@@ -73,7 +70,6 @@ func runProfile(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create exporter: %w", err)
 	}
 
-	// Create target command
 	targetCmd := exec.Command(args[0], args[1:]...)
 	targetCmd.Stdout = os.Stdout
 	targetCmd.Stderr = os.Stderr
@@ -82,13 +78,11 @@ func runProfile(cmd *cobra.Command, args []string) error {
 	log.Printf("Profiling command: %v", args)
 	log.Printf("Output: %s", outputPath)
 
-	// Start the target command
 	if err := targetCmd.Start(); err != nil {
 		exp.Close()
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// Start collection in background
 	ctx, cancel := context.WithCancel(context.Background())
 	collectorDone := make(chan struct{})
 
@@ -97,25 +91,21 @@ func runProfile(cmd *cobra.Command, args []string) error {
 		runProfileCollection(ctx, manager, exp)
 	}()
 
-	// Wait for command to finish
 	startTime := time.Now()
 	cmdErr := targetCmd.Wait()
 	duration := time.Since(startTime)
 
-	// Stop collection
 	cancel()
 	<-collectorDone
 
 	log.Printf("Command completed in %v", duration)
 
-	// Finalize
 	if err := exp.Close(); err != nil {
 		log.Printf("Warning: failed to close exporter: %v", err)
 	}
 
 	log.Printf("Data written to: %s", exp.Path())
 
-	// Generate graphs if requested
 	if Cfg.GenerateGraphs {
 		graphPath := Cfg.GenerateGraphPath(exp.Path())
 		log.Printf("Generating graphs: %s", graphPath)
@@ -140,8 +130,8 @@ func runProfileCollection(ctx context.Context, manager *collectors.Manager, exp 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			baseDynamic := &collectors.BaseDynamic{}
-			record := manager.CollectDynamic(baseDynamic)
+			dynamic := &collectors.DynamicMetrics{}
+			record := manager.CollectDynamic(dynamic)
 			if err := exp.Write(record); err != nil {
 				log.Printf("Error writing record: %v", err)
 			}

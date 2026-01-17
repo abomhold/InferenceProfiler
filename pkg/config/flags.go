@@ -27,9 +27,8 @@ func (c *Config) AddOutputFlags(cmd *cobra.Command) {
 // AddGraphFlags adds graph generation flags to a command.
 func (c *Config) AddGraphFlags(cmd *cobra.Command) {
 	flags := cmd.Flags()
-	flags.BoolVarP(&c.GenerateGraphs, "graphs", "g", c.GenerateGraphs, "Generate visualization graphs")
-	flags.StringVar(&c.GraphFormat, "graph-format", c.GraphFormat, "Graph format (html, png, svg)")
-	flags.StringVar(&c.GraphOutput, "graph-output", c.GraphOutput, "Graph output file (auto-generated if empty)")
+	flags.BoolVarP(&c.GenerateGraphs, "graphs", "g", c.GenerateGraphs, "Generate visualization graphs (PNG)")
+	flags.StringVar(&c.GraphOutput, "graph-output", c.GraphOutput, "Graph output directory (auto-generated if empty)")
 }
 
 // AddSystemFlags adds system identification flags to a command.

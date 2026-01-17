@@ -8,42 +8,46 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
-	"time"
 
 	"InferenceProfiler/pkg/formatting"
 
-	"github.com/go-echarts/go-echarts/v2/components"
+	"gonum.org/v1/plot"
+	"gonum.org/v1/plot/plotter"
+	"gonum.org/v1/plot/plotutil"
+	"gonum.org/v1/plot/vg"
+)
+
+const (
+	defaultWidth  = 12 * vg.Inch
+	defaultHeight = 4 * vg.Inch
 )
 
 // Generator creates visualizations from profiler metrics.
 type Generator struct {
-	inputPath  string
-	outputPath string
-	format     string
-	records    []formatting.Record
-	staticInfo map[string]interface{}
+	inputPath string
+	outputDir string
+	records   []formatting.Record
 }
 
 // NewGenerator creates a new graph generator.
-func NewGenerator(inputPath, outputPath, format string) (*Generator, error) {
+func NewGenerator(inputPath, outputDir, _ string) (*Generator, error) {
 	if inputPath == "" {
 		return nil, fmt.Errorf("input path is required")
 	}
-	if outputPath == "" {
-		return nil, fmt.Errorf("output path is required")
+	if outputDir == "" {
+		return nil, fmt.Errorf("output directory is required")
 	}
 
 	return &Generator{
-		inputPath:  inputPath,
-		outputPath: outputPath,
-		format:     format,
+		inputPath: inputPath,
+		outputDir: outputDir,
 	}, nil
 }
 
-// Generate creates the visualization output.
+// Generate creates PNG visualizations in the output directory.
 func (g *Generator) Generate() error {
-	// Load records
 	records, err := formatting.LoadRecords(g.inputPath)
 	if err != nil {
 		return fmt.Errorf("failed to load records: %w", err)
@@ -55,140 +59,157 @@ func (g *Generator) Generate() error {
 
 	g.records = records
 
-	// Try to load static info
-	g.loadStaticInfo()
-
 	// Sort records by timestamp
 	sort.Slice(g.records, func(i, j int) bool {
 		return formatting.ToFloat(g.records[i]["timestamp"]) < formatting.ToFloat(g.records[j]["timestamp"])
 	})
 
-	switch g.format {
-	case "html":
-		return g.generateHTML()
-	case "png", "svg":
-		return fmt.Errorf("format %s not yet implemented", g.format)
-	default:
-		return g.generateHTML()
-	}
-}
-
-func (g *Generator) loadStaticInfo() {
-	// Try to find static info file
-	dir := filepath.Dir(g.inputPath)
-	base := filepath.Base(g.inputPath)
-	ext := filepath.Ext(base)
-	name := base[:len(base)-len(ext)]
-
-	// Try different naming patterns
-	patterns := []string{
-		filepath.Join(dir, name+".json"),
-		filepath.Join(dir, "static_"+name+".json"),
+	// Create output directory
+	if err := os.MkdirAll(g.outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
-	for _, pattern := range patterns {
-		if data, err := os.ReadFile(pattern); err == nil {
-			var info map[string]interface{}
-			if json.Unmarshal(data, &info) == nil {
-				g.staticInfo = info
-				return
-			}
-		}
-	}
-}
-
-func (g *Generator) generateHTML() error {
+	// Build and render series
 	series := buildSeries(g.records)
-	histograms := buildHistograms(g.records)
-
-	page := components.NewPage()
-	page.PageTitle = "Profiler Metrics"
-
-	// Add line charts
 	for _, s := range series {
 		if len(s.Values) < 2 {
 			continue
 		}
-		page.AddCharts(createLineChart(s, false)) // Raw values
+
+		// Raw values chart
+		if err := g.renderLineChart(s, false); err != nil {
+			log.Printf("Warning: failed to render %s: %v", s.Name, err)
+		}
+
+		// Delta chart
 		if len(s.Deltas) > 0 {
-			page.AddCharts(createLineChart(s, true)) // Delta values
+			if err := g.renderLineChart(s, true); err != nil {
+				log.Printf("Warning: failed to render %s delta: %v", s.Name, err)
+			}
 		}
 	}
 
-	// Add histogram charts
+	// Build and render histograms
+	histograms := buildHistograms(g.records)
 	for _, h := range histograms {
 		if len(h.Buckets) == 0 {
 			continue
 		}
-		if heatmap := createHeatmap(h); heatmap != nil {
-			page.AddCharts(heatmap)
+		if err := g.renderBarChart(h); err != nil {
+			log.Printf("Warning: failed to render histogram %s: %v", h.Name, err)
 		}
-		page.AddCharts(createBarChart(h))
 	}
 
-	// Render charts HTML
-	var chartBuf strings.Builder
-	if err := page.Render(&chartBuf); err != nil {
-		return fmt.Errorf("failed to render charts: %w", err)
-	}
-
-	chartHTML := chartBuf.String()
-
-	// Extract just the body content from echarts output
-	// The echarts library generates a full HTML page, we need to integrate it
-	var finalHTML string
-
-	if g.staticInfo != nil {
-		sessionID := extractSessionID(g.inputPath)
-
-		// Render static info using templates
-		staticInfoHTML, err := renderStaticInfoHTML(sessionID, g.staticInfo)
-		if err != nil {
-			log.Printf("Warning: failed to render static info: %v", err)
-			staticInfoHTML = ""
-		}
-
-		// Get styles and scripts from template
-		stylesScripts, err := renderStylesAndScripts()
-		if err != nil {
-			log.Printf("Warning: failed to render styles/scripts: %v", err)
-			stylesScripts = ""
-		}
-
-		// Inject into chart HTML
-		finalHTML = strings.Replace(chartHTML, "<body>", "<body>\n"+staticInfoHTML, 1)
-		finalHTML = strings.Replace(finalHTML, "</head>", stylesScripts+"</head>", 1)
-	} else {
-		// Just add styles/scripts
-		stylesScripts, _ := renderStylesAndScripts()
-		finalHTML = strings.Replace(chartHTML, "</head>", stylesScripts+"</head>", 1)
-	}
-
-	// Write output
-	if err := os.WriteFile(g.outputPath, []byte(finalHTML), 0644); err != nil {
-		return fmt.Errorf("failed to write output: %w", err)
-	}
-
-	log.Printf("Generated graphs: %s", g.outputPath)
+	log.Printf("Generated graphs in: %s", g.outputDir)
 	return nil
 }
 
-func extractSessionID(path string) string {
-	base := filepath.Base(path)
-	ext := filepath.Ext(base)
-	return base[:len(base)-len(ext)]
+func (g *Generator) renderLineChart(s *Series, isDelta bool) error {
+	p := plot.New()
+
+	title := formatName(s.Name)
+	suffix := "_raw"
+	if isDelta {
+		title += " (Delta)"
+		suffix = "_delta"
+	}
+	p.Title.Text = title
+	p.X.Label.Text = "Time"
+	p.Y.Label.Text = "Value"
+
+	var pts plotter.XYs
+	var timestamps []int64
+	var values []float64
+
+	if isDelta {
+		timestamps = s.Timestamps[1:]
+		values = s.Deltas
+	} else {
+		timestamps = s.Timestamps
+		values = s.Values
+	}
+
+	if len(timestamps) == 0 || len(values) == 0 {
+		return nil
+	}
+
+	baseTime := timestamps[0]
+	for i, ts := range timestamps {
+		if i < len(values) {
+			pts = append(pts, plotter.XY{
+				X: float64(ts-baseTime) / 1e9, // Convert to seconds from start
+				Y: values[i],
+			})
+		}
+	}
+
+	line, err := plotter.NewLine(pts)
+	if err != nil {
+		return err
+	}
+	line.Color = plotutil.Color(0)
+	p.Add(line)
+	p.Add(plotter.NewGrid())
+
+	filename := sanitizeFilename(s.Name) + suffix + ".png"
+	return p.Save(defaultWidth, defaultHeight, filepath.Join(g.outputDir, filename))
+}
+
+func (g *Generator) renderBarChart(h *Histogram) error {
+	p := plot.New()
+	p.Title.Text = "vLLM " + formatName(h.Name) + " Distribution"
+	p.X.Label.Text = "Bucket"
+	p.Y.Label.Text = "Count"
+
+	labels := sortBucketLabels(h.Buckets)
+	lastIdx := len(h.Timestamps) - 1
+	if lastIdx < 0 {
+		return nil
+	}
+
+	var values plotter.Values
+	var prev float64
+
+	for _, label := range labels {
+		vals := h.Buckets[label]
+		var cum float64
+		if lastIdx < len(vals) {
+			cum = vals[lastIdx]
+		}
+		count := cum - prev
+		if count < 0 {
+			count = 0
+		}
+		values = append(values, count)
+		prev = cum
+	}
+
+	bars, err := plotter.NewBarChart(values, vg.Points(20))
+	if err != nil {
+		return err
+	}
+	bars.Color = plotutil.Color(0)
+	p.Add(bars)
+
+	// Set X axis labels
+	p.NominalX(formatBucketLabels(labels)...)
+
+	filename := "vllm_" + sanitizeFilename(h.Name) + "_dist.png"
+	return p.Save(defaultWidth, defaultHeight, filepath.Join(g.outputDir, filename))
 }
 
 // GenerateGraphsFromFile is a convenience function for simple graph generation.
 func GenerateGraphsFromFile(inputPath, outputPath string) error {
-	format := "html"
-	if strings.HasSuffix(outputPath, ".png") {
-		format = "png"
-	} else if strings.HasSuffix(outputPath, ".svg") {
-		format = "svg"
+	// If outputPath looks like a file, use its directory
+	outputDir := outputPath
+	if strings.HasSuffix(outputPath, ".png") || strings.HasSuffix(outputPath, ".html") {
+		outputDir = filepath.Dir(outputPath)
+		if outputDir == "" || outputDir == "." {
+			outputDir = "graphs"
+		}
 	}
 
-	gen, err := NewGenerator(inputPath, outputPath, format)
+	gen, err := NewGenerator(inputPath, outputDir, "png")
 	if err != nil {
 		return err
 	}
@@ -212,11 +233,9 @@ type Histogram struct {
 
 // buildSeries extracts numeric columns into time series with deltas.
 func buildSeries(records []formatting.Record) []*Series {
-	// Find all numeric columns
 	cols := make(map[string]bool)
 	for _, r := range records {
 		for k, v := range r {
-			// Skip timestamp, T-suffix columns, and JSON columns
 			if k == "timestamp" ||
 				strings.HasSuffix(k, "T") ||
 				strings.HasSuffix(k, "Json") ||
@@ -229,7 +248,6 @@ func buildSeries(records []formatting.Record) []*Series {
 		}
 	}
 
-	// Build series for each column
 	seriesMap := make(map[string]*Series)
 	for col := range cols {
 		seriesMap[col] = &Series{Name: col}
@@ -242,7 +260,6 @@ func buildSeries(records []formatting.Record) []*Series {
 			s := seriesMap[col]
 			if v, ok := formatting.ToFloatOk(r[col]); ok {
 				ts := fallbackTs
-				// Try to get metric-specific timestamp
 				if metricTs, ok := formatting.ToFloatOk(r[col+"T"]); ok && metricTs > 0 {
 					ts = int64(metricTs)
 				}
@@ -252,14 +269,12 @@ func buildSeries(records []formatting.Record) []*Series {
 		}
 	}
 
-	// Calculate deltas
 	for _, s := range seriesMap {
 		for i := 1; i < len(s.Values); i++ {
 			s.Deltas = append(s.Deltas, s.Values[i]-s.Values[i-1])
 		}
 	}
 
-	// Convert to sorted slice
 	result := make([]*Series, 0, len(seriesMap))
 	for _, s := range seriesMap {
 		result = append(result, s)
@@ -283,7 +298,7 @@ func buildHistograms(records []formatting.Record) []*Histogram {
 		}
 
 		var data map[string]map[string]float64
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+		if err := parseJSON(jsonStr, &data); err != nil {
 			continue
 		}
 
@@ -323,7 +338,7 @@ func buildHistograms(records []formatting.Record) []*Histogram {
 		jsonStr := getHistogramJSON(r)
 		var currentData map[string]map[string]float64
 		if jsonStr != "" {
-			json.Unmarshal([]byte(jsonStr), &currentData)
+			parseJSON(jsonStr, &currentData)
 		}
 
 		for name, h := range histMap {
@@ -387,7 +402,43 @@ func getHistogramJSON(r formatting.Record) string {
 	return ""
 }
 
-// formatName converts camelCase to readable format.
+func parseJSON(s string, v interface{}) error {
+	return json.Unmarshal([]byte(s), v)
+}
+
+func sortBucketLabels(buckets map[string][]float64) []string {
+	labels := make([]string, 0, len(buckets))
+	for l := range buckets {
+		labels = append(labels, l)
+	}
+
+	sort.Slice(labels, func(i, j int) bool {
+		if labels[i] == "+Inf" || labels[i] == "inf" {
+			return false
+		}
+		if labels[j] == "+Inf" || labels[j] == "inf" {
+			return true
+		}
+		vi, _ := strconv.ParseFloat(labels[i], 64)
+		vj, _ := strconv.ParseFloat(labels[j], 64)
+		return vi < vj
+	})
+
+	return labels
+}
+
+func formatBucketLabels(labels []string) []string {
+	result := make([]string, len(labels))
+	for i, l := range labels {
+		if l == "inf" {
+			result[i] = "+Inf"
+		} else {
+			result[i] = l
+		}
+	}
+	return result
+}
+
 func formatName(name string) string {
 	var result strings.Builder
 	for i, r := range name {
@@ -399,11 +450,10 @@ func formatName(name string) string {
 	return result.String()
 }
 
-// formatTime converts a timestamp to readable format.
-func formatTime(val interface{}) string {
-	ts := int64(formatting.ToFloat(val))
-	if ts == 0 {
-		return ""
-	}
-	return time.Unix(ts, 0).Format("2006-01-02 15:04:05")
+func sanitizeFilename(name string) string {
+	// Replace problematic characters
+	name = strings.ReplaceAll(name, "/", "_")
+	name = strings.ReplaceAll(name, "\\", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	return strings.ToLower(name)
 }
