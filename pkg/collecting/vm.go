@@ -165,6 +165,7 @@ func getKernelInfo() string {
 // Replace the entire getNTPInfo and all helper functions (getLinuxNTPInfo, etc)
 // with this single function.
 func getNTPInfo() (bool, float64, float64) {
+	return false, 0, 0
 	opts := ntp.QueryOptions{
 		Timeout: 5 * time.Second,
 	}

@@ -1,6 +1,7 @@
 package exporting
 
 import (
+	"InferenceProfiler/pkg/utils"
 	"encoding/csv"
 	"fmt"
 	"os"
@@ -164,7 +165,7 @@ func (w *DelimitedWriter) Write(record Record) error {
 	row := make([]string, len(w.header))
 	for i, key := range w.header {
 		if val, ok := record[key]; ok {
-			row[i] = FormatValue(val)
+			row[i] = utils.FormatValue(val)
 		}
 	}
 

@@ -61,9 +61,9 @@ bench: ##@ Run all benchmarks
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem -run=^$$ ./...
 
-bench,: ##@ Run all benchmarks
+bench,: ##@ Run all benchmarks with comma formatting
 	@echo "--- Running All Benchmarks ---"
-	go test -bench=. -benchmem -run=^$$ ./... | sed -E ':a;s/([0-9])([0-9]{3})($|[^0-9])/\1,\2\3/;ta'
+	go test -bench=. -benchmem -run=^$$ ./... | python3 -c "import re,sys;[print(re.sub(r'(\d)(?=(\d{3})+(?!\d))',r'\1,',l),end='')for l in sys.stdin]"
 
 bench-hf: build ##@ Compare sequential vs concurrent with hyperfine
 	@echo "--- Hyperfine Comparison ---"

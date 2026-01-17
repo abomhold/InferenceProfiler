@@ -147,12 +147,12 @@ func BenchmarkVLLMCollector_Dynamic(b *testing.B) {
 
 func BenchmarkManager_VMOnly_Sequential(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:        true,
-		EnableContainer: false,
-		EnableProcess:   false,
-		EnableNvidia:    false,
-		EnableVLLM:      false,
-		Concurrent:      false,
+		DisableVM:        false,
+		DisableContainer: true,
+		DisableProcess:   true,
+		DisableNvidia:    true,
+		DisableVLLM:      true,
+		Concurrent:       false,
 	}
 	m := NewManager(cfg)
 	defer m.Close()
@@ -166,12 +166,12 @@ func BenchmarkManager_VMOnly_Sequential(b *testing.B) {
 
 func BenchmarkManager_VMOnly_Concurrent(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:        true,
-		EnableContainer: false,
-		EnableProcess:   false,
-		EnableNvidia:    false,
-		EnableVLLM:      false,
-		Concurrent:      true,
+		DisableVM:        false,
+		DisableContainer: true,
+		DisableProcess:   true,
+		DisableNvidia:    true,
+		DisableVLLM:      true,
+		Concurrent:       true,
 	}
 	m := NewManager(cfg)
 	defer m.Close()
@@ -185,12 +185,12 @@ func BenchmarkManager_VMOnly_Concurrent(b *testing.B) {
 
 func BenchmarkManager_All_Sequential(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:            true,
-		EnableContainer:     true,
-		EnableProcess:       true,
-		EnableNvidia:        true,
-		EnableVLLM:          true,
-		CollectGPUProcesses: true,
+		DisableVM:           false,
+		DisableContainer:    false,
+		DisableProcess:      false,
+		DisableNvidia:       false,
+		DisableVLLM:         false,
+		DisableGPUProcesses: false,
 		Concurrent:          false,
 	}
 	m := NewManager(cfg)
@@ -205,12 +205,12 @@ func BenchmarkManager_All_Sequential(b *testing.B) {
 
 func BenchmarkManager_All_Concurrent(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:            true,
-		EnableContainer:     true,
-		EnableProcess:       true,
-		EnableNvidia:        true,
-		EnableVLLM:          true,
-		CollectGPUProcesses: true,
+		DisableVM:           false,
+		DisableContainer:    false,
+		DisableProcess:      false,
+		DisableNvidia:       false,
+		DisableVLLM:         false,
+		DisableGPUProcesses: false,
 		Concurrent:          true,
 	}
 	m := NewManager(cfg)
@@ -225,12 +225,12 @@ func BenchmarkManager_All_Concurrent(b *testing.B) {
 
 func BenchmarkManager_NoGPU_Sequential(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:        true,
-		EnableContainer: true,
-		EnableProcess:   true,
-		EnableNvidia:    false,
-		EnableVLLM:      false,
-		Concurrent:      false,
+		DisableVM:        false,
+		DisableContainer: false,
+		DisableProcess:   false,
+		DisableNvidia:    true,
+		DisableVLLM:      true,
+		Concurrent:       false,
 	}
 	m := NewManager(cfg)
 	defer m.Close()
@@ -244,12 +244,12 @@ func BenchmarkManager_NoGPU_Sequential(b *testing.B) {
 
 func BenchmarkManager_NoGPU_Concurrent(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:        true,
-		EnableContainer: true,
-		EnableProcess:   true,
-		EnableNvidia:    false,
-		EnableVLLM:      false,
-		Concurrent:      true,
+		DisableVM:        false,
+		DisableContainer: false,
+		DisableProcess:   false,
+		DisableNvidia:    true,
+		DisableVLLM:      true,
+		Concurrent:       true,
 	}
 	m := NewManager(cfg)
 	defer m.Close()
@@ -263,12 +263,12 @@ func BenchmarkManager_NoGPU_Concurrent(b *testing.B) {
 
 func BenchmarkManager_Flatten_Sequential(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:            true,
-		EnableContainer:     true,
-		EnableProcess:       true,
-		EnableNvidia:        true,
-		EnableVLLM:          true,
-		CollectGPUProcesses: true,
+		DisableVM:           false,
+		DisableContainer:    false,
+		DisableProcess:      false,
+		DisableNvidia:       false,
+		DisableVLLM:         false,
+		DisableGPUProcesses: false,
 		Concurrent:          false,
 	}
 	m := NewManager(cfg)
@@ -284,12 +284,12 @@ func BenchmarkManager_Flatten_Sequential(b *testing.B) {
 
 func BenchmarkManager_Flatten_Concurrent(b *testing.B) {
 	cfg := &utils.Config{
-		EnableVM:            true,
-		EnableContainer:     true,
-		EnableProcess:       true,
-		EnableNvidia:        true,
-		EnableVLLM:          true,
-		CollectGPUProcesses: true,
+		DisableVM:           false,
+		DisableContainer:    false,
+		DisableProcess:      false,
+		DisableNvidia:       false,
+		DisableVLLM:         false,
+		DisableGPUProcesses: false,
 		Concurrent:          true,
 	}
 	m := NewManager(cfg)

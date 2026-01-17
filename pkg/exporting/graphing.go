@@ -2,6 +2,7 @@
 package exporting
 
 import (
+	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -59,7 +60,7 @@ func (g *Generator) Generate() error {
 
 	// Sort records by timestamp
 	sort.Slice(g.records, func(i, j int) bool {
-		return ToFloat(g.records[i]["timestamp"]) < ToFloat(g.records[j]["timestamp"])
+		return utils.ToFloat64(g.records[i]["timestamp"]) < utils.ToFloat64(g.records[j]["timestamp"])
 	})
 
 	// Create output directory
@@ -240,7 +241,7 @@ func buildSeries(records []Record) []*Series {
 				strings.HasSuffix(k, "JSON") {
 				continue
 			}
-			if _, ok := ToFloatOk(v); ok {
+			if _, ok := utils.ToFloat64Ok(v); ok {
 				cols[k] = true
 			}
 		}
@@ -252,13 +253,13 @@ func buildSeries(records []Record) []*Series {
 	}
 
 	for _, r := range records {
-		fallbackTs := int64(ToFloat(r["timestamp"]))
+		fallbackTs := int64(utils.ToFloat64(r["timestamp"]))
 
 		for col := range cols {
 			s := seriesMap[col]
-			if v, ok := ToFloatOk(r[col]); ok {
+			if v, ok := utils.ToFloat64Ok(r[col]); ok {
 				ts := fallbackTs
-				if metricTs, ok := ToFloatOk(r[col+"T"]); ok && metricTs > 0 {
+				if metricTs, ok := utils.ToFloat64Ok(r[col+"T"]); ok && metricTs > 0 {
 					ts = int64(metricTs)
 				}
 				s.Timestamps = append(s.Timestamps, ts)
@@ -331,7 +332,7 @@ func buildHistograms(records []Record) []*Histogram {
 	lastValues := make(map[string]map[string]float64)
 
 	for _, r := range records {
-		ts := int64(ToFloat(r["timestamp"]))
+		ts := int64(utils.ToFloat64(r["timestamp"]))
 
 		jsonStr := getHistogramJSON(r)
 		var currentData map[string]map[string]float64

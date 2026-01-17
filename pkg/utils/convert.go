@@ -1,4 +1,4 @@
-package exporting
+package utils
 
 import (
 	"encoding/json"
@@ -6,14 +6,14 @@ import (
 	"strconv"
 )
 
-// ToFloat converts a value to float64, returning 0 on failure.
-func ToFloat(v interface{}) float64 {
-	f, _ := ToFloatOk(v)
+// ToFloat64 converts a value to float64, returning 0 on failure.
+func ToFloat64(v interface{}) float64 {
+	f, _ := ToFloat64Ok(v)
 	return f
 }
 
-// ToFloatOk converts a value to float64, returning success status.
-func ToFloatOk(v interface{}) (float64, bool) {
+// ToFloat64Ok converts a value to float64, returning success status.
+func ToFloat64Ok(v interface{}) (float64, bool) {
 	if v == nil {
 		return 0, false
 	}
@@ -87,9 +87,14 @@ func ToInt64Ok(v interface{}) (int64, bool) {
 	case uint64:
 		return int64(n), true
 	case float32:
-		return int64(n), true
+		// Only convert if it's a whole number
+		if n == float32(int64(n)) {
+			return int64(n), true
+		}
 	case float64:
-		return int64(n), true
+		if n == float64(int64(n)) {
+			return int64(n), true
+		}
 	case string:
 		i, err := strconv.ParseInt(n, 10, 64)
 		return i, err == nil
@@ -137,12 +142,10 @@ func ToBoolOk(v interface{}) (bool, bool) {
 		case "false", "0", "no", "False", "FALSE", "No", "NO":
 			return false, true
 		}
-	case int:
-		return b != 0, true
-	case int64:
-		return b != 0, true
-	case float64:
-		return b != 0, true
+	case int, int8, int16, int32, int64:
+		return ToInt64(v) != 0, true
+	case float32, float64:
+		return ToFloat64(v) != 0, true
 	}
 	return false, false
 }
@@ -170,6 +173,8 @@ func FormatValue(v interface{}) string {
 		return strconv.FormatBool(val)
 	case uint64:
 		return strconv.FormatUint(val, 10)
+	case json.Number:
+		return val.String()
 	default:
 		return fmt.Sprintf("%v", v)
 	}
