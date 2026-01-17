@@ -22,7 +22,6 @@ func NewManager(cfg *utils.Config) *Manager {
 		concurrent: cfg.Concurrent,
 	}
 
-	// VM is the only one we kept as Positive (EnableVM)
 	if !cfg.DisableVM {
 		m.collectors = append(m.collectors,
 			NewCPUCollector(),
@@ -32,7 +31,6 @@ func NewManager(cfg *utils.Config) *Manager {
 		)
 	}
 
-	// The rest are now Negative (DisableX), so we check if NOT disabled.
 	if !cfg.DisableContainer {
 		if c := NewContainerCollector(); c != nil {
 			m.collectors = append(m.collectors, c)
@@ -44,7 +42,6 @@ func NewManager(cfg *utils.Config) *Manager {
 	}
 
 	if !cfg.DisableNvidia {
-		// Note: DisableGPUProcesses also inverted here
 		if c := NewNvidiaCollector(!cfg.DisableGPUProcesses, cfg.Concurrent); c != nil {
 			m.collectors = append(m.collectors, c)
 		}
@@ -156,7 +153,6 @@ func structToRecord(v interface{}) exporting.Record {
 	var result exporting.Record
 	json.Unmarshal(data, &result)
 
-	// Handle special fields excluded by json:"-"
 	switch t := v.(type) {
 	case *DynamicMetrics:
 		if len(t.GPUs) > 0 {

@@ -83,11 +83,6 @@ func (n *NvidiaCollector) CollectStatic(m *StaticMetrics) {
 	marshalToJSON(gpus, &m.NvidiaGPUsJSON)
 }
 
-// ============================================================================
-// Helper Functions
-// ============================================================================
-
-// Capture string value on success
 func captureStr(call func() (string, nvml.Return), dst *string) bool {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*dst = val
@@ -96,7 +91,6 @@ func captureStr(call func() (string, nvml.Return), dst *string) bool {
 	return false
 }
 
-// Capture single value on success
 func capture[T any](call func() (T, nvml.Return), dst *T) bool {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*dst = val
@@ -105,7 +99,6 @@ func capture[T any](call func() (T, nvml.Return), dst *T) bool {
 	return false
 }
 
-// Capture two values on success
 func capture2[T1, T2 any](call func() (T1, T2, nvml.Return), dst1 *T1, dst2 *T2) bool {
 	if val1, val2, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*dst1, *dst2 = val1, val2
@@ -114,7 +107,6 @@ func capture2[T1, T2 any](call func() (T1, T2, nvml.Return), dst1 *T1, dst2 *T2)
 	return false
 }
 
-// Capture int value with conversion on success
 func captureInt[T any](call func() (T, nvml.Return), dst *int, conv func(T) int) bool {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*dst = conv(val)
@@ -123,7 +115,6 @@ func captureInt[T any](call func() (T, nvml.Return), dst *int, conv func(T) int)
 	return false
 }
 
-// Capture int64 value with conversion on success
 func captureInt64[T any](call func() (T, nvml.Return), dst *int64, conv func(T) int64) bool {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*dst = conv(val)
@@ -132,14 +123,12 @@ func captureInt64[T any](call func() (T, nvml.Return), dst *int64, conv func(T) 
 	return false
 }
 
-// Capture value and timestamp together
 func captureTs[T any](call func() (T, nvml.Return), value *int64, timestamp *int64, conv func(T) int64) {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*value, *timestamp = conv(val), utils.GetTimestamp()
 	}
 }
 
-// Capture two int values with same timestamp
 func capture2Ts[T any](call func() (T, nvml.Return), v1 *int64, v2 *int64, t *int64, conv1 func(T) int64, conv2 func(T) int64) {
 	if val, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		ts := utils.GetTimestamp()
@@ -147,7 +136,6 @@ func capture2Ts[T any](call func() (T, nvml.Return), v1 *int64, v2 *int64, t *in
 	}
 }
 
-// Capture utilization with period
 func captureUtil3(call func() (uint32, uint32, nvml.Return), util *int64, utilT *int64, period *int64) {
 	if u, p, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		ts := utils.GetTimestamp()
@@ -155,14 +143,12 @@ func captureUtil3(call func() (uint32, uint32, nvml.Return), util *int64, utilT 
 	}
 }
 
-// Capture utilization without period
 func captureUtil2(call func() (uint32, uint32, nvml.Return), util *int64, utilT *int64) {
 	if u, _, ret := call(); errors.Is(ret, nvml.SUCCESS) {
 		*util, *utilT = int64(u), utils.GetTimestamp()
 	}
 }
 
-// Marshal to JSON string if not empty
 func marshalToJSON[T any](data []T, dst *string) {
 	if len(data) > 0 {
 		if jsonData, err := json.Marshal(data); err == nil {
@@ -171,7 +157,6 @@ func marshalToJSON[T any](data []T, dst *string) {
 	}
 }
 
-// Generic enum to string converter
 func enumToString[T comparable](val T, mapping map[T]string, typeName string) string {
 	if str, ok := mapping[val]; ok {
 		return str
@@ -179,14 +164,9 @@ func enumToString[T comparable](val T, mapping map[T]string, typeName string) st
 	return fmt.Sprintf("Unknown(%v)", val)
 }
 
-// ============================================================================
-// Static Collection
-// ============================================================================
-
 func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPUInfo {
 	gpu := GPUInfo{Index: index}
 
-	// Basic info
 	capture(device.GetName, &gpu.Name)
 	capture(device.GetUUID, &gpu.UUID)
 	capture(device.GetSerial, &gpu.Serial)
@@ -199,10 +179,8 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		gpu.Architecture = archToString(arch)
 	}
 
-	// Compute capability
 	capture2(device.GetCudaComputeCapability, &gpu.CudaCapabilityMajor, &gpu.CudaCapabilityMinor)
 
-	// Memory info
 	if mem, ret := device.GetMemoryInfo(); errors.Is(ret, nvml.SUCCESS) {
 		gpu.MemoryTotalBytes = int64(mem.Total)
 	}
@@ -210,11 +188,9 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		gpu.Bar1TotalBytes = int64(bar1.Bar1Total)
 	}
 
-	// Hardware specs
 	captureInt(device.GetMemoryBusWidth, &gpu.MemoryBusWidthBits, func(v uint32) int { return int(v) })
 	captureInt(device.GetNumGpuCores, &gpu.NumCores, func(v int) int { return v })
 
-	// Max clock frequencies
 	for _, ct := range []struct {
 		typ nvml.ClockType
 		dst *int
@@ -227,7 +203,6 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		captureInt(func() (uint32, nvml.Return) { return device.GetMaxClockInfo(ct.typ) }, ct.dst, func(v uint32) int { return int(v) })
 	}
 
-	// PCIe info
 	if pci, ret := device.GetPciInfo(); errors.Is(ret, nvml.SUCCESS) {
 		gpu.PciBusId = int8SliceToString(pci.BusId[:])
 		gpu.PciDeviceId = pci.PciDeviceId
@@ -236,22 +211,18 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 	captureInt(device.GetMaxPcieLinkGeneration, &gpu.PcieMaxLinkGen, func(v int) int { return v })
 	captureInt(device.GetMaxPcieLinkWidth, &gpu.PcieMaxLinkWidth, func(v int) int { return int(v) })
 
-	// Power limits
 	captureInt(device.GetPowerManagementDefaultLimit, &gpu.PowerDefaultLimitMw, func(v uint32) int { return int(v) })
 	if minLimit, maxLimit, ret := device.GetPowerManagementLimitConstraints(); errors.Is(ret, nvml.SUCCESS) {
 		gpu.PowerMinLimitMw = int(minLimit)
 		gpu.PowerMaxLimitMw = int(maxLimit)
 	}
 
-	// Firmware versions
 	capture(device.GetVbiosVersion, &gpu.VbiosVersion)
 	capture(device.GetInforomImageVersion, &gpu.InforomImageVersion)
 	captureStr(func() (string, nvml.Return) { return device.GetInforomVersion(nvml.INFOROM_OEM) }, &gpu.InforomOemVersion)
 
-	// Cooling
 	captureInt(device.GetNumFans, &gpu.NumFans, func(v int) int { return int(v) })
 
-	// Temperature thresholds
 	for _, tt := range []struct {
 		typ nvml.TemperatureThresholds
 		dst *int
@@ -264,7 +235,6 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		captureInt(func() (uint32, nvml.Return) { return device.GetTemperatureThreshold(tt.typ) }, tt.dst, func(v uint32) int { return int(v) })
 	}
 
-	// Feature modes
 	if eccCurrent, _, ret := device.GetEccMode(); errors.Is(ret, nvml.SUCCESS) {
 		gpu.EccModeEnabled = eccCurrent == nvml.FEATURE_ENABLED
 	}
@@ -287,7 +257,6 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		gpu.MigModeEnabled = migCurrent == nvml.DEVICE_MIG_ENABLE
 	}
 
-	// Encoder capacities
 	for _, et := range []struct {
 		typ nvml.EncoderType
 		dst *int
@@ -299,7 +268,6 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 		capture(func() (int, nvml.Return) { return device.GetEncoderCapacity(et.typ) }, et.dst)
 	}
 
-	// NvLink count
 	gpu.NvLinkCount = countActiveNvLinks(device)
 
 	return gpu
@@ -315,10 +283,6 @@ func countActiveNvLinks(device nvml.Device) int {
 	}
 	return count
 }
-
-// ============================================================================
-// Dynamic Collection
-// ============================================================================
 
 func (n *NvidiaCollector) CollectDynamic(m *DynamicMetrics) {
 	if !n.initialized {
@@ -348,7 +312,6 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		}
 	}
 
-	// Utilization metrics
 	run(func() {
 		if util, ret := device.GetUtilizationRates(); errors.Is(ret, nvml.SUCCESS) {
 			ts := utils.GetTimestamp()
@@ -365,7 +328,6 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 	run(func() { captureUtil2(device.GetJpgUtilization, &gpu.UtilizationJpeg, &gpu.UtilizationJpegT) })
 	run(func() { captureUtil2(device.GetOfaUtilization, &gpu.UtilizationOfa, &gpu.UtilizationOfaT) })
 
-	// Memory metrics
 	run(func() {
 		if mem, ret := device.GetMemoryInfo(); errors.Is(ret, nvml.SUCCESS) {
 			ts := utils.GetTimestamp()
@@ -388,7 +350,6 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		}
 	})
 
-	// Temperature metrics
 	for _, tm := range []struct {
 		typ nvml.TemperatureSensors
 		val *int64
@@ -397,13 +358,12 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		{nvml.TEMPERATURE_GPU, &gpu.TemperatureGpuC, &gpu.TemperatureGpuCT},
 		{nvml.TEMPERATURE_COUNT, &gpu.TemperatureMemoryC, &gpu.TemperatureMemoryCT},
 	} {
-		tm := tm // capture for goroutine
+		tm := tm
 		run(func() {
 			captureTs(func() (uint32, nvml.Return) { return device.GetTemperature(tm.typ) }, tm.val, tm.ts, func(v uint32) int64 { return int64(v) })
 		})
 	}
 
-	// Fan metrics
 	run(func() {
 		captureTs(device.GetFanSpeed, &gpu.FanSpeedPercent, &gpu.FanSpeedPercentT, func(v uint32) int64 { return int64(v) })
 	})
@@ -419,7 +379,6 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		}
 	})
 
-	// Clock metrics
 	for _, cm := range []struct {
 		typ nvml.ClockType
 		val *int64
@@ -430,13 +389,12 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		{nvml.CLOCK_MEM, &gpu.ClockMemoryMhz, &gpu.ClockMemoryMhzT},
 		{nvml.CLOCK_VIDEO, &gpu.ClockVideoMhz, &gpu.ClockVideoMhzT},
 	} {
-		cm := cm // capture for goroutine
+		cm := cm
 		run(func() {
 			captureTs(func() (uint32, nvml.Return) { return device.GetClockInfo(cm.typ) }, cm.val, cm.ts, func(v uint32) int64 { return int64(v) })
 		})
 	}
 
-	// Performance and power metrics
 	run(func() {
 		if pstate, ret := device.GetPerformanceState(); errors.Is(ret, nvml.SUCCESS) {
 			gpu.PerformanceState, gpu.PerformanceStateT = int(pstate), utils.GetTimestamp()
@@ -455,7 +413,6 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		captureTs(device.GetTotalEnergyConsumption, &gpu.EnergyConsumptionMj, &gpu.EnergyConsumptionMjT, func(v uint64) int64 { return int64(v) })
 	})
 
-	// PCIe metrics
 	for _, pm := range []struct {
 		counter nvml.PcieUtilCounter
 		val     *int64
@@ -465,7 +422,7 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 		{nvml.PCIE_UTIL_TX_BYTES, &gpu.PcieTxBytesPerSec, &gpu.PcieTxBytesPerSecT, 1000},
 		{nvml.PCIE_UTIL_RX_BYTES, &gpu.PcieRxBytesPerSec, &gpu.PcieRxBytesPerSecT, 1000},
 	} {
-		pm := pm // capture for goroutine
+		pm := pm
 		run(func() {
 			if throughput, ret := device.GetPcieThroughput(pm.counter); errors.Is(ret, nvml.SUCCESS) {
 				*pm.val, *pm.ts = int64(throughput)*pm.scale, utils.GetTimestamp()
@@ -475,26 +432,24 @@ func (n *NvidiaCollector) collectDeviceDynamic(device nvml.Device, index int) GP
 
 	run(func() {
 		if gen, ret := device.GetCurrPcieLinkGeneration(); errors.Is(ret, nvml.SUCCESS) {
-			gpu.PcieCurrentLinkGen, gpu.PcieCurrentLinkGenT = gen, utils.GetTimestamp()
+			gpu.PcieCurrentLinkGen, gpu.PcieCurrentLinkGenT = int(gen), utils.GetTimestamp()
 		}
 	})
 	run(func() {
 		if width, ret := device.GetCurrPcieLinkWidth(); errors.Is(ret, nvml.SUCCESS) {
-			gpu.PcieCurrentLinkWidth, gpu.PcieCurrentLinkWidthT = width, utils.GetTimestamp()
+			gpu.PcieCurrentLinkWidth, gpu.PcieCurrentLinkWidthT = int(width), utils.GetTimestamp()
 		}
 	})
 	run(func() {
 		captureTs(device.GetPcieReplayCounter, &gpu.PcieReplayCounter, &gpu.PcieReplayCounterT, func(v int) int64 { return int64(v) })
 	})
 
-	// Clock events
 	run(func() {
 		if reasons, ret := device.GetCurrentClocksEventReasons(); errors.Is(ret, nvml.SUCCESS) {
 			gpu.ClocksEventReasons, gpu.ClocksEventReasonsT = reasons, utils.GetTimestamp()
 		}
 	})
 
-	// Grouped collections
 	run(func() { n.collectViolationStatus(device, &gpu) })
 	run(func() { n.collectEccErrors(device, &gpu) })
 	run(func() { n.collectNvLinkMetrics(device, &gpu) })
@@ -526,7 +481,6 @@ func (n *NvidiaCollector) collectViolationStatus(device nvml.Device, gpu *GPUDyn
 }
 
 func (n *NvidiaCollector) collectEccErrors(device nvml.Device, gpu *GPUDynamic) {
-	// ECC aggregate errors
 	for _, et := range []struct {
 		errType  nvml.MemoryErrorType
 		location nvml.EccCounterType
@@ -541,7 +495,6 @@ func (n *NvidiaCollector) collectEccErrors(device nvml.Device, gpu *GPUDynamic) 
 		}
 	}
 
-	// Retired pages
 	for _, rt := range []struct {
 		cause nvml.PageRetirementCause
 		val   *int64
@@ -654,10 +607,6 @@ func getProcessName(pid int) string {
 	val, _, _ := utils.File(fmt.Sprintf("/proc/%d/comm", pid))
 	return val
 }
-
-// ============================================================================
-// Enum Converters
-// ============================================================================
 
 func archToString(arch nvml.DeviceArchitecture) string {
 	return enumToString(arch, map[nvml.DeviceArchitecture]string{

@@ -1,5 +1,12 @@
-// Package collectors provides metric collection functionality.
 package collecting
+
+// Collector interface for all metric collectors.
+type Collector interface {
+	Name() string
+	CollectStatic(s *StaticMetrics)
+	CollectDynamic(d *DynamicMetrics)
+	Close() error
+}
 
 // StaticMetrics contains all static system information collected once at startup.
 type StaticMetrics struct {
@@ -424,12 +431,4 @@ type GPUProcessUtilization struct {
 	EncUtil     int    `json:"encUtil"`
 	DecUtil     int    `json:"decUtil"`
 	TimestampUs int64  `json:"timestampUs"`
-}
-
-// Collector interface for all metric collectors.
-type Collector interface {
-	Name() string
-	CollectStatic(s *StaticMetrics)
-	CollectDynamic(d *DynamicMetrics)
-	Close() error
 }
