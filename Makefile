@@ -41,7 +41,7 @@ build: ##@ Compile Go binary
 install: build ##@ Install binary to GOPATH/bin
 	go install $(BUILD_FLAGS)
 
-clean: ##@ Remove build artifacts
+clean: docker-clean ##@ Remove build artifacts
 	@echo "--- Cleaning ---"
 	rm -rf $(BIN_DIR) $(OUTPUT_DIR) coverage.out coverage.html *.parquet *.jsonl *.prof
 
@@ -78,27 +78,6 @@ docker-build: ##@ Build Docker image (profile mode)
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		.
 
-docker-build-serve: ##@ Build Docker image (serve mode - profiler HTTP server)
-	@echo "--- Building Docker Image (serve mode) ---"
-	docker build --progress=plain \
-		-f docker/Dockerfile.vllm.serve \
-		-t $(DOCKER_IMAGE):serve \
-		.
-
-docker-build-run: ##@ Build Docker image (batch vLLM run)
-	@echo "--- Building Docker Image (run mode) ---"
-	docker build --progress=plain \
-		-f docker/Dockerfile.vllm.run \
-		-t $(DOCKER_IMAGE):run \
-		.
-
-docker-build-sysbench: ##@ Build Docker image (sysbench CPU test)
-	@echo "--- Building Docker Image (sysbench) ---"
-	docker build --progress=plain \
-		-f docker/Dockerfile.sysbench \
-		-t $(DOCKER_IMAGE):sysbench \
-		.
-
 docker-run: docker-build ##@ Run container with GPU support (profile mode)
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
@@ -118,32 +97,6 @@ docker-run: docker-build ##@ Run container with GPU support (profile mode)
 			-v $(OUTPUT_DIR):/output \
 			$(DOCKER_IMAGE):$(DOCKER_TAG); \
 	fi
-
-docker-run-serve: docker-build-serve ##@ Run serve mode (profiler on :8081, vLLM on :8000)
-	@echo "--- Running Docker Container (serve mode) ---"
-	@if [ -d "$(MODEL_DIR)" ]; then \
-		echo "Mounting model from $(MODEL_DIR)..."; \
-		docker run --rm \
-			--gpus all \
-			-p "8000:8000" \
-			-p "8081:8081" \
-			-v $(MODEL_DIR):/app/model \
-			$(DOCKER_IMAGE):serve; \
-	else \
-		echo "No local model at $(MODEL_DIR). Running without mount..."; \
-		docker run --rm \
-			--gpus all \
-			-p "8000:8000" \
-			-p "8081:8081" \
-			$(DOCKER_IMAGE):serve; \
-	fi
-
-docker-run-sysbench: docker-build-sysbench ##@ Run sysbench CPU profiling
-	@echo "--- Running Docker Container (sysbench) ---"
-	@mkdir -p $(OUTPUT_DIR)
-	docker run --rm \
-		-v $(OUTPUT_DIR):/output \
-		$(DOCKER_IMAGE):sysbench
 
 docker-clean: ##@ Remove Docker images
 	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
