@@ -1,4 +1,4 @@
-package collectors
+package types
 
 // StaticMetrics contains all static system information collected once at startup
 type StaticMetrics struct {
@@ -48,8 +48,8 @@ type StaticMetrics struct {
 type NetworkInterfaceStatic struct {
 	Name      string `json:"name"`
 	MAC       string `json:"mac"`
-	State     string `json:"state"`             // Operational state (up/down)
-	MTU       int64  `json:"mtu"`               // Maximum transmission unit
+	State     string `json:"state"`               // Operational state (up/down)
+	MTU       int64  `json:"mtu"`                 // Maximum transmission unit
 	SpeedMbps int64  `json:"speedMbps,omitempty"` // Link speed (if available)
 }
 

@@ -1,18 +1,17 @@
 package output
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
-
-	"InferenceProfiler/src/collectors"
 )
 
 // FlattenMetrics converts DynamicMetrics to a slice of flat records.
 // Each record contains all base metrics plus one GPU and optionally processes.
 // If there are no GPUs, returns a single record with base metrics only.
-func FlattenMetrics(m *collectors.DynamicMetrics) []map[string]interface{} {
+func FlattenMetrics(m *types.DynamicMetrics) []map[string]interface{} {
 	// Start with base metrics (convert struct to map)
 	base := structToMap(m)
 
@@ -52,7 +51,7 @@ func FlattenMetrics(m *collectors.DynamicMetrics) []map[string]interface{} {
 }
 
 // flattenGPU adds GPU metrics to the record with the given prefix
-func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic, prefix string) {
+func flattenGPU(record map[string]interface{}, gpu *types.NvidiaGPUDynamic, prefix string) {
 	// Use reflection to iterate over all fields
 	v := reflect.ValueOf(gpu).Elem()
 	t := v.Type()
@@ -83,7 +82,7 @@ func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic,
 			// Flatten NVLink bandwidth array
 			if !value.IsNil() {
 				for j := 0; j < value.Len(); j++ {
-					nvlink := value.Index(j).Interface().(collectors.NvLinkBandwidth)
+					nvlink := value.Index(j).Interface().(types.NvLinkBandwidth)
 					linkPrefix := fmt.Sprintf("%sNvLink%d", prefix, j)
 					record[linkPrefix+"RxKB"] = nvlink.RxKB
 					record[linkPrefix+"TxKB"] = nvlink.TxKB
@@ -94,7 +93,7 @@ func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic,
 			// Flatten NVLink errors array
 			if !value.IsNil() {
 				for j := 0; j < value.Len(); j++ {
-					nvlink := value.Index(j).Interface().(collectors.NvLinkErrors)
+					nvlink := value.Index(j).Interface().(types.NvLinkErrors)
 					linkPrefix := fmt.Sprintf("%sNvLink%d", prefix, j)
 					record[linkPrefix+"CRCErrors"] = nvlink.CRCErrors
 					record[linkPrefix+"ECCErrors"] = nvlink.ECCErrors
@@ -112,7 +111,7 @@ func flattenGPU(record map[string]interface{}, gpu *collectors.NvidiaGPUDynamic,
 }
 
 // flattenProcesses adds process metrics to the record
-func flattenProcesses(record map[string]interface{}, procs []collectors.ProcessMetrics) {
+func flattenProcesses(record map[string]interface{}, procs []types.ProcessMetrics) {
 	// Flatten up to MaxProcesses processes
 	const MaxProcesses = 10
 
@@ -172,6 +171,6 @@ func capitalize(s string) string {
 }
 
 // FlattenStaticMetrics converts StaticMetrics to a flat map for display/export
-func FlattenStaticMetrics(m *collectors.StaticMetrics) map[string]interface{} {
+func FlattenStaticMetrics(m *types.StaticMetrics) map[string]interface{} {
 	return structToMap(m)
 }

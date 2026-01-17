@@ -38,15 +38,15 @@ type Config struct {
 
 // CollectorConfig controls which collectors are enabled
 type CollectorConfig struct {
-	CPU       bool
-	Memory    bool
-	Disk      bool
-	Network   bool
-	Container bool
-	Processes bool
-	Nvidia    bool
+	CPU         bool
+	Memory      bool
+	Disk        bool
+	Network     bool
+	Container   bool
+	Processes   bool
+	Nvidia      bool
 	NvidiaProcs bool
-	VLLM      bool
+	VLLM        bool
 }
 
 // DefaultConfig returns configuration with sensible defaults

@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"bufio"
 	"encoding/json"
 	"math"
@@ -34,11 +35,11 @@ func (c *VLLMCollector) Name() string {
 	return "vLLM"
 }
 
-func (c *VLLMCollector) CollectStatic(m *StaticMetrics) {
+func (c *VLLMCollector) CollectStatic(m *types.StaticMetrics) {
 	// vLLM has no static metrics
 }
 
-func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
+func (c *VLLMCollector) CollectDynamic(m *types.DynamicMetrics) {
 	scrapeTime := GetTimestamp()
 
 	resp, err := c.client.Get(c.metricsURL)
@@ -56,7 +57,7 @@ func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
 	m.VLLMAvailable = true
 	m.VLLMTimestamp = scrapeTime
 
-	histograms := &VLLMHistograms{}
+	histograms := &types.VLLMHistograms{}
 
 	// Parse Prometheus text format
 	scanner := bufio.NewScanner(resp.Body)
@@ -183,7 +184,7 @@ func splitLabels(s string) []string {
 	return result
 }
 
-func addHistogramBucket(h *VLLMHistograms, name, le string, value float64) {
+func addHistogramBucket(h *types.VLLMHistograms, name, le string, value float64) {
 	if le == "+Inf" {
 		le = "inf"
 	}
@@ -252,7 +253,7 @@ func addHistogramBucket(h *VLLMHistograms, name, le string, value float64) {
 	}
 }
 
-func setHistogramSum(m *DynamicMetrics, name string, value float64) {
+func setHistogramSum(m *types.DynamicMetrics, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "time_to_first_token_seconds":
@@ -270,7 +271,7 @@ func setHistogramSum(m *DynamicMetrics, name string, value float64) {
 	}
 }
 
-func setHistogramCount(m *DynamicMetrics, name string, value float64) {
+func setHistogramCount(m *types.DynamicMetrics, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "time_to_first_token_seconds":
@@ -288,7 +289,7 @@ func setHistogramCount(m *DynamicMetrics, name string, value float64) {
 	}
 }
 
-func setGaugeOrCounter(m *DynamicMetrics, name string, value float64) {
+func setGaugeOrCounter(m *types.DynamicMetrics, name string, value float64) {
 	value = sanitizeFloat(value)
 	switch name {
 	case "num_requests_running":

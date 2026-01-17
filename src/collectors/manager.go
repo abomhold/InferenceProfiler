@@ -1,6 +1,8 @@
 package collectors
 
 import (
+	"InferenceProfiler/src/collectors/types"
+	"InferenceProfiler/src/collectors/vm"
 	"log"
 
 	"github.com/google/uuid"
@@ -32,16 +34,16 @@ func NewCollectorManager(cfg CollectorConfig) *CollectorManager {
 
 	// Register enabled collectors
 	if cfg.CPU {
-		cm.Register(NewCPUCollector())
+		cm.Register(vm.NewCPUCollector())
 	}
 	if cfg.Memory {
-		cm.Register(NewMemoryCollector())
+		cm.Register(vm.NewMemoryCollector())
 	}
 	if cfg.Disk {
-		cm.Register(NewDiskCollector())
+		cm.Register(vm.NewDiskCollector())
 	}
 	if cfg.Network {
-		cm.Register(NewNetworkCollector())
+		cm.Register(vm.NewNetworkCollector())
 	}
 	if cfg.Container {
 		if c := NewContainerCollector(); c != nil {
@@ -72,8 +74,8 @@ func (cm *CollectorManager) Register(c Collector) {
 }
 
 // CollectStaticMetrics collects all static system information
-func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *StaticMetrics {
-	m := &StaticMetrics{
+func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *types.StaticMetrics {
+	m := &types.StaticMetrics{
 		UUID: sessionUUID.String(),
 	}
 
@@ -85,8 +87,8 @@ func (cm *CollectorManager) CollectStaticMetrics(sessionUUID uuid.UUID) *StaticM
 }
 
 // CollectDynamicMetrics collects all dynamic metrics
-func (cm *CollectorManager) CollectDynamicMetrics() *DynamicMetrics {
-	m := &DynamicMetrics{
+func (cm *CollectorManager) CollectDynamicMetrics() *types.DynamicMetrics {
+	m := &types.DynamicMetrics{
 		Timestamp: GetTimestamp(),
 	}
 

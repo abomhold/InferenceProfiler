@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"encoding/json"
 	"log"
 	"os"
@@ -31,13 +32,13 @@ func (c *ContainerCollector) Name() string {
 	return "Container"
 }
 
-func (c *ContainerCollector) CollectStatic(m *StaticMetrics) {
+func (c *ContainerCollector) CollectStatic(m *types.StaticMetrics) {
 	m.ContainerID = getContainerID()
 	m.ContainerNumCPUs = int64(runtime.NumCPU())
 	m.CgroupVersion = c.cgroupVersion
 }
 
-func (c *ContainerCollector) CollectDynamic(m *DynamicMetrics) {
+func (c *ContainerCollector) CollectDynamic(m *types.DynamicMetrics) {
 	// Network stats (common to both versions)
 	netRecv, netSent, tNet := getContainerNetStats()
 	m.ContainerNetworkBytesRecvd = netRecv
@@ -112,7 +113,7 @@ func getContainerNetStats() (int64, int64, int64) {
 // Cgroup v1 Collection
 // =============================================================================
 
-func (c *ContainerCollector) collectV1(m *DynamicMetrics) {
+func (c *ContainerCollector) collectV1(m *types.DynamicMetrics) {
 	cpuPath := filepath.Join(CgroupDir, "cpuacct")
 	memPath := filepath.Join(CgroupDir, "memory")
 	blkioPath := filepath.Join(CgroupDir, "blkio")
@@ -222,7 +223,7 @@ func getBlkioV1() (int64, int64, int64) {
 // Cgroup v2 Collection
 // =============================================================================
 
-func (c *ContainerCollector) collectV2(m *DynamicMetrics) {
+func (c *ContainerCollector) collectV2(m *types.DynamicMetrics) {
 	cpuStats, tCpu := ProbeFileKV(filepath.Join(CgroupDir, "cpu.stat"), " ")
 	memUsage, tMem := ProbeFileInt(filepath.Join(CgroupDir, "memory.current"))
 	memPeak, tPeak := ProbeFileInt(filepath.Join(CgroupDir, "memory.peak"))

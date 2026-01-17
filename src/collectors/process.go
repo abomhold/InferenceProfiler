@@ -1,6 +1,7 @@
 package collectors
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -24,11 +25,11 @@ func (c *ProcessCollector) Name() string {
 	return "Process"
 }
 
-func (c *ProcessCollector) CollectStatic(m *StaticMetrics) {
+func (c *ProcessCollector) CollectStatic(m *types.StaticMetrics) {
 	// Process collector has no static metrics
 }
 
-func (c *ProcessCollector) CollectDynamic(m *DynamicMetrics) {
+func (c *ProcessCollector) CollectDynamic(m *types.DynamicMetrics) {
 	dirs, err := filepath.Glob("/proc/[0-9]*")
 	if err != nil {
 		return
@@ -41,7 +42,7 @@ func (c *ProcessCollector) CollectDynamic(m *DynamicMetrics) {
 	}
 }
 
-func (c *ProcessCollector) collectSingleProcess(pidPath string) *ProcessMetrics {
+func (c *ProcessCollector) collectSingleProcess(pidPath string) *types.ProcessMetrics {
 	pid, err := strconv.ParseInt(filepath.Base(pidPath), 10, 64)
 	if err != nil {
 		return nil
@@ -75,7 +76,7 @@ func (c *ProcessCollector) collectSingleProcess(pidPath string) *ProcessMetrics 
 		}
 	}
 
-	return &ProcessMetrics{
+	return &types.ProcessMetrics{
 		PID:                          pid,
 		PIDT:                         tStat,
 		Name:                         pName,

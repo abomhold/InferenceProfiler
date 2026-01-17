@@ -1,6 +1,8 @@
-package collectors
+package vm
 
 import (
+	"InferenceProfiler/src/collectors"
+	"InferenceProfiler/src/collectors/types"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,7 +11,7 @@ import (
 
 // NetworkCollector collects network metrics from /proc/net/dev
 type NetworkCollector struct {
-	BaseCollector
+	collectors.BaseCollector
 }
 
 // NewNetworkCollector creates a new network collector
@@ -21,24 +23,24 @@ func (c *NetworkCollector) Name() string {
 	return "Network"
 }
 
-func (c *NetworkCollector) CollectStatic(m *StaticMetrics) {
+func (c *NetworkCollector) CollectStatic(m *types.StaticMetrics) {
 	interfaces, _ := os.ReadDir("/sys/class/net/")
-	var netInterfaces []NetworkInterfaceStatic
+	var netInterfaces []types.NetworkInterfaceStatic
 
 	for _, entry := range interfaces {
 		iface := entry.Name()
-		if iface == LoopbackInterface {
+		if iface == collectors.LoopbackInterface {
 			continue
 		}
 
 		basePath := filepath.Join("/sys/class/net", iface)
 
-		mac, _ := ProbeFile(filepath.Join(basePath, "address"))
-		state, _ := ProbeFile(filepath.Join(basePath, "operstate"))
-		mtu, _ := ProbeFileInt(filepath.Join(basePath, "mtu"))
-		speed, _ := ProbeFileInt(filepath.Join(basePath, "speed"))
+		mac, _ := collectors.ProbeFile(filepath.Join(basePath, "address"))
+		state, _ := collectors.ProbeFile(filepath.Join(basePath, "operstate"))
+		mtu, _ := collectors.ProbeFileInt(filepath.Join(basePath, "mtu"))
+		speed, _ := collectors.ProbeFileInt(filepath.Join(basePath, "speed"))
 
-		ni := NetworkInterfaceStatic{
+		ni := types.NetworkInterfaceStatic{
 			Name:  iface,
 			MAC:   strings.TrimSpace(mac),
 			State: strings.TrimSpace(state),
@@ -60,8 +62,8 @@ func (c *NetworkCollector) CollectStatic(m *StaticMetrics) {
 	}
 }
 
-func (c *NetworkCollector) CollectDynamic(m *DynamicMetrics) {
-	lines, ts := ProbeFileLines("/proc/net/dev")
+func (c *NetworkCollector) CollectDynamic(m *types.DynamicMetrics) {
+	lines, ts := collectors.ProbeFileLines("/proc/net/dev")
 	var bRecv, pRecv, eRecv, dRecv int64
 	var bSent, pSent, eSent, dSent int64
 
@@ -78,7 +80,7 @@ func (c *NetworkCollector) CollectDynamic(m *DynamicMetrics) {
 		}
 
 		iface := strings.TrimSpace(parts[0])
-		if iface == LoopbackInterface {
+		if iface == collectors.LoopbackInterface {
 			continue
 		}
 
@@ -87,14 +89,14 @@ func (c *NetworkCollector) CollectDynamic(m *DynamicMetrics) {
 			continue
 		}
 
-		bRecv += parseInt64(fields[0])
-		pRecv += parseInt64(fields[1])
-		eRecv += parseInt64(fields[2])
-		dRecv += parseInt64(fields[3])
-		bSent += parseInt64(fields[8])
-		pSent += parseInt64(fields[9])
-		eSent += parseInt64(fields[10])
-		dSent += parseInt64(fields[11])
+		bRecv += collectors.parseInt64(fields[0])
+		pRecv += collectors.parseInt64(fields[1])
+		eRecv += collectors.parseInt64(fields[2])
+		dRecv += collectors.parseInt64(fields[3])
+		bSent += collectors.parseInt64(fields[8])
+		pSent += collectors.parseInt64(fields[9])
+		eSent += collectors.parseInt64(fields[10])
+		dSent += collectors.parseInt64(fields[11])
 	}
 
 	m.NetworkBytesRecvd = bRecv

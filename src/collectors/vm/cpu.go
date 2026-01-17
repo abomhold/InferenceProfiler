@@ -1,6 +1,8 @@
-package collectors
+package vm
 
 import (
+	"InferenceProfiler/src/collectors"
+	"InferenceProfiler/src/collectors/types"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -12,7 +14,7 @@ import (
 
 // CPUCollector collects CPU metrics from /proc/stat and related sources
 type CPUCollector struct {
-	BaseCollector
+	collectors.BaseCollector
 }
 
 // NewCPUCollector creates a new CPU collector
@@ -24,7 +26,7 @@ func (c *CPUCollector) Name() string {
 	return "CPU"
 }
 
-func (c *CPUCollector) CollectStatic(m *StaticMetrics) {
+func (c *CPUCollector) CollectStatic(m *types.StaticMetrics) {
 	m.VMID = getVMID()
 	m.BootTime = getBootTime()
 	m.CPUType = getCPUType()
@@ -38,7 +40,7 @@ func (c *CPUCollector) CollectStatic(m *StaticMetrics) {
 	getKernelInfo(m)
 }
 
-func (c *CPUCollector) CollectDynamic(m *DynamicMetrics) {
+func (c *CPUCollector) CollectDynamic(m *types.DynamicMetrics) {
 	// /proc/stat metrics
 	statMetrics, tStat := getProcStat()
 	m.CPUTimeUserMode = statMetrics["user"]
@@ -74,7 +76,7 @@ func (c *CPUCollector) CollectDynamic(m *DynamicMetrics) {
 // =============================================================================
 
 func getCPUType() string {
-	lines, _ := ProbeFileLines("/proc/cpuinfo")
+	lines, _ := collectors.ProbeFileLines("/proc/cpuinfo")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "model name") {
 			parts := strings.SplitN(line, ":", 2)
@@ -92,10 +94,10 @@ func getCPUCache() string {
 
 	dirs, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cache/index*")
 	for _, dir := range dirs {
-		level, _ := ProbeFile(filepath.Join(dir, "level"))
-		cType, _ := ProbeFile(filepath.Join(dir, "type"))
-		sizeStr, _ := ProbeFile(filepath.Join(dir, "size"))
-		shared, _ := ProbeFile(filepath.Join(dir, "shared_cpu_map"))
+		level, _ := collectors.ProbeFile(filepath.Join(dir, "level"))
+		cType, _ := collectors.ProbeFile(filepath.Join(dir, "type"))
+		sizeStr, _ := collectors.ProbeFile(filepath.Join(dir, "size"))
+		shared, _ := collectors.ProbeFile(filepath.Join(dir, "shared_cpu_map"))
 
 		// Generate unique ID to prevent double counting shared caches
 		cacheID := fmt.Sprintf("L%s-%s-%s", level, cType, shared)
@@ -162,7 +164,7 @@ func getCPUCache() string {
 	return strings.Join(parts, " ")
 }
 
-func getKernelInfo(m *StaticMetrics) {
+func getKernelInfo(m *types.StaticMetrics) {
 	var uname unix.Utsname
 	if err := unix.Uname(&uname); err != nil {
 		return
@@ -190,7 +192,7 @@ func getKernelInfo(m *StaticMetrics) {
 }
 
 func getBootTime() int64 {
-	lines, _ := ProbeFileLines("/proc/stat")
+	lines, _ := collectors.ProbeFileLines("/proc/stat")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "btime") {
 			parts := strings.Fields(line)
@@ -204,17 +206,17 @@ func getBootTime() int64 {
 }
 
 func getVMID() string {
-	content, _ := ProbeFile("/sys/class/dmi/id/product_uuid")
+	content, _ := collectors.ProbeFile("/sys/class/dmi/id/product_uuid")
 	if content != "" && content != "None" {
 		return content
 	}
 
-	content, _ = ProbeFile("/etc/machine-id")
+	content, _ = collectors.ProbeFile("/etc/machine-id")
 	if content != "" {
 		return content
 	}
 
-	content, _ = ProbeFile("/etc/hostname")
+	content, _ = collectors.ProbeFile("/etc/hostname")
 	if content != "" {
 		return content
 	}
@@ -228,7 +230,7 @@ func getProcStat() (map[string]int64, int64) {
 		"iowait": 0, "irq": 0, "softirq": 0, "steal": 0, "ctxt": 0,
 	}
 
-	lines, ts := ProbeFileLines("/proc/stat")
+	lines, ts := collectors.ProbeFileLines("/proc/stat")
 	for _, line := range lines {
 		parts := strings.Fields(line)
 		if len(parts) == 0 {
@@ -252,7 +254,7 @@ func getProcStat() (map[string]int64, int64) {
 }
 
 func getLoadAvg() (float64, int64) {
-	content, ts := ProbeFile("/proc/loadavg")
+	content, ts := collectors.ProbeFile("/proc/loadavg")
 	if content == "" {
 		return 0.0, ts
 	}
@@ -265,7 +267,7 @@ func getLoadAvg() (float64, int64) {
 }
 
 func getCPUFreq() (float64, int64) {
-	ts := GetTimestamp()
+	ts := collectors.GetTimestamp()
 
 	// Method 1: SysFS
 	files, _ := filepath.Glob("/sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq")
@@ -273,7 +275,7 @@ func getCPUFreq() (float64, int64) {
 		var total int64
 		var count int64
 		for _, f := range files {
-			val, _ := ProbeFileInt(f)
+			val, _ := collectors.ProbeFileInt(f)
 			if val > 0 {
 				total += val
 				count++
@@ -285,7 +287,7 @@ func getCPUFreq() (float64, int64) {
 	}
 
 	// Method 2: /proc/cpuinfo fallback
-	lines, _ := ProbeFileLines("/proc/cpuinfo")
+	lines, _ := collectors.ProbeFileLines("/proc/cpuinfo")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "cpu MHz") {
 			parts := strings.SplitN(line, ":", 2)

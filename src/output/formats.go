@@ -123,10 +123,10 @@ func (w *JSONLWriter) Extension() string {
 // CSVWriter writes records as CSV or TSV (delimiter-configurable).
 // First row contains column headers; subsequent rows contain values.
 type CSVWriter struct {
-	file      *os.File
-	writer    *csv.Writer
-	schema    []string
-	delimiter rune
+	file          *os.File
+	writer        *csv.Writer
+	schema        []string
+	delimiter     rune
 	headerWritten bool
 }
 
@@ -303,13 +303,13 @@ func (w *ParquetWriter) buildParquetSchema(sample map[string]interface{}) string
 	for _, key := range w.schema {
 		val := sample[key]
 		parquetType := inferParquetType(val)
-		
+
 		// Parquet field definition
 		field := fmt.Sprintf(`{"Tag": "name=%s, type=%s, repetitiontype=OPTIONAL"}`, key, parquetType)
 		fields = append(fields, field)
 	}
 
-	return fmt.Sprintf(`{"Tag": "name=metrics, repetitiontype=REQUIRED", "Fields": [%s]}`, 
+	return fmt.Sprintf(`{"Tag": "name=metrics, repetitiontype=REQUIRED", "Fields": [%s]}`,
 		strings.Join(fields, ", "))
 }
 
@@ -338,12 +338,12 @@ func (w *ParquetWriter) flushBatch() error {
 		if err != nil {
 			return fmt.Errorf("failed to marshal record for parquet: %w", err)
 		}
-		
+
 		if err := w.pw.Write(string(data)); err != nil {
 			return fmt.Errorf("failed to write parquet record: %w", err)
 		}
 	}
-	
+
 	// Clear buffer
 	w.records = w.records[:0]
 	return nil
@@ -407,7 +407,7 @@ func (l *JSONLLoader) Load(path string) ([]map[string]interface{}, error) {
 
 	var records []map[string]interface{}
 	scanner := bufio.NewScanner(f)
-	
+
 	// Increase buffer size for large lines
 	buf := make([]byte, 0, 1024*1024)
 	scanner.Buffer(buf, 10*1024*1024)

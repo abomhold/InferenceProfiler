@@ -1,6 +1,7 @@
 package output
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,8 +9,6 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
-
-	"InferenceProfiler/src/collectors"
 )
 
 // Exporter handles writing profiler metrics to various output formats.
@@ -124,7 +123,7 @@ func (e *Exporter) SessionUUID() uuid.UUID {
 
 // WriteStaticMetrics writes static metrics to a JSON file.
 // Called once at the start of profiling.
-func (e *Exporter) WriteStaticMetrics(metrics *collectors.StaticMetrics) error {
+func (e *Exporter) WriteStaticMetrics(metrics *types.StaticMetrics) error {
 	path := filepath.Join(e.outputDir, fmt.Sprintf("static_%s.json", e.sessionUUID.String()))
 
 	data, err := json.MarshalIndent(metrics, "", "  ")
@@ -138,7 +137,7 @@ func (e *Exporter) WriteStaticMetrics(metrics *collectors.StaticMetrics) error {
 // WriteDynamicMetrics writes a dynamic metrics snapshot.
 // In streaming mode, writes directly to final output.
 // In batch mode, writes to a snapshot file for later conversion.
-func (e *Exporter) WriteDynamicMetrics(metrics *collectors.DynamicMetrics) error {
+func (e *Exporter) WriteDynamicMetrics(metrics *types.DynamicMetrics) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -149,7 +148,7 @@ func (e *Exporter) WriteDynamicMetrics(metrics *collectors.DynamicMetrics) error
 }
 
 // writeStreamingRecord writes a record directly to the final output
-func (e *Exporter) writeStreamingRecord(metrics *collectors.DynamicMetrics) error {
+func (e *Exporter) writeStreamingRecord(metrics *types.DynamicMetrics) error {
 	records := e.metricsToRecords(metrics)
 
 	for _, record := range records {
@@ -169,7 +168,7 @@ func (e *Exporter) writeStreamingRecord(metrics *collectors.DynamicMetrics) erro
 }
 
 // writeSnapshotFile writes metrics to a numbered snapshot file
-func (e *Exporter) writeSnapshotFile(metrics *collectors.DynamicMetrics) error {
+func (e *Exporter) writeSnapshotFile(metrics *types.DynamicMetrics) error {
 	path := filepath.Join(e.snapshotDir, fmt.Sprintf("snapshot_%06d.json", e.snapshotCount))
 	e.snapshotCount++
 
@@ -223,7 +222,7 @@ func (e *Exporter) convertSnapshots() error {
 			continue
 		}
 
-		var metrics collectors.DynamicMetrics
+		var metrics types.DynamicMetrics
 		if err := json.Unmarshal(data, &metrics); err != nil {
 			continue
 		}
@@ -268,7 +267,7 @@ func (e *Exporter) Cleanup() error {
 }
 
 // metricsToRecords converts DynamicMetrics to flat records
-func (e *Exporter) metricsToRecords(m *collectors.DynamicMetrics) []map[string]interface{} {
+func (e *Exporter) metricsToRecords(m *types.DynamicMetrics) []map[string]interface{} {
 	if !e.flatten {
 		// Return single record with nested structure
 		data, _ := json.Marshal(m)

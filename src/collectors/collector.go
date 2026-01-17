@@ -1,5 +1,7 @@
 package collectors
 
+import "InferenceProfiler/src/collectors/types"
+
 // Collector defines the interface for all metric collectors
 type Collector interface {
 	// Name returns a human-readable name for this collector
@@ -7,11 +9,11 @@ type Collector interface {
 
 	// CollectStatic gathers one-time system information at startup
 	// Implementations should gracefully handle missing data
-	CollectStatic(m *StaticMetrics)
+	CollectStatic(m *types.StaticMetrics)
 
 	// CollectDynamic gathers periodic metrics during profiling
 	// Implementations should gracefully handle missing data
-	CollectDynamic(m *DynamicMetrics)
+	CollectDynamic(m *types.DynamicMetrics)
 
 	// Close releases any resources held by the collector
 	// Called once when profiling ends

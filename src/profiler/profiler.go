@@ -3,6 +3,7 @@
 package main
 
 import (
+	"InferenceProfiler/src/collectors/types"
 	"context"
 	"fmt"
 	"log"
@@ -32,7 +33,7 @@ type Profiler struct {
 	exporter *output.Exporter
 
 	// State
-	staticMetrics *collectors.StaticMetrics
+	staticMetrics *types.StaticMetrics
 	sampleCount   int
 	startTime     time.Time
 	stopRequested bool
@@ -304,7 +305,7 @@ type Statistics struct {
 	SampleCount   int
 	Duration      time.Duration
 	OutputPath    string
-	StaticMetrics *collectors.StaticMetrics
+	StaticMetrics *types.StaticMetrics
 }
 
 // Stats returns current profiling statistics

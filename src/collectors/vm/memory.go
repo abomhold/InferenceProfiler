@@ -1,6 +1,8 @@
-package collectors
+package vm
 
 import (
+	"InferenceProfiler/src/collectors"
+	"InferenceProfiler/src/collectors/types"
 	"regexp"
 	"strconv"
 	"strings"
@@ -8,7 +10,7 @@ import (
 
 // MemoryCollector collects memory metrics from /proc/meminfo and /proc/vmstat
 type MemoryCollector struct {
-	BaseCollector
+	collectors.BaseCollector
 }
 
 // NewMemoryCollector creates a new memory collector
@@ -20,13 +22,13 @@ func (c *MemoryCollector) Name() string {
 	return "Memory"
 }
 
-func (c *MemoryCollector) CollectStatic(m *StaticMetrics) {
+func (c *MemoryCollector) CollectStatic(m *types.StaticMetrics) {
 	memInfo, _ := getMeminfo()
 	m.MemoryTotalBytes = memInfo["MemTotal"]
 	m.SwapTotalBytes = memInfo["SwapTotal"]
 }
 
-func (c *MemoryCollector) CollectDynamic(m *DynamicMetrics) {
+func (c *MemoryCollector) CollectDynamic(m *types.DynamicMetrics) {
 	memInfo, tMem := getMeminfo()
 	pgFault, pgMajFault, tVmstat := getPageFaults()
 
@@ -74,7 +76,7 @@ func (c *MemoryCollector) CollectDynamic(m *DynamicMetrics) {
 }
 
 func getMeminfo() (map[string]int64, int64) {
-	rawInfo, ts := ProbeFileKV("/proc/meminfo", ":")
+	rawInfo, ts := collectors.ProbeFileKV("/proc/meminfo", ":")
 	processed := make(map[string]int64)
 
 	for k, v := range rawInfo {
@@ -89,7 +91,7 @@ func getMeminfo() (map[string]int64, int64) {
 }
 
 func getPageFaults() (int64, int64, int64) {
-	content, ts := ProbeFile("/proc/vmstat")
+	content, ts := collectors.ProbeFile("/proc/vmstat")
 	if content == "" {
 		return 0, 0, ts
 	}

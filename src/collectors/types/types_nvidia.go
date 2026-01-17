@@ -1,4 +1,4 @@
-package collectors
+package types
 
 // NvidiaGPUDynamic contains dynamic metrics for a single NVIDIA GPU
 type NvidiaGPUDynamic struct {
@@ -16,9 +16,9 @@ type NvidiaGPUDynamic struct {
 	UtilizationEncoderT     int64 `json:"utilizationEncoderT"`
 	UtilizationDecoder      int64 `json:"utilizationDecoder"`
 	UtilizationDecoderT     int64 `json:"utilizationDecoderT"`
-	UtilizationJpeg         int64 `json:"utilizationJpeg,omitempty"`  // Turing+
+	UtilizationJpeg         int64 `json:"utilizationJpeg,omitempty"` // Turing+
 	UtilizationJpegT        int64 `json:"utilizationJpegT,omitempty"`
-	UtilizationOfa          int64 `json:"utilizationOfa,omitempty"`   // Optical Flow, Turing+
+	UtilizationOfa          int64 `json:"utilizationOfa,omitempty"` // Optical Flow, Turing+
 	UtilizationOfaT         int64 `json:"utilizationOfaT,omitempty"`
 	EncoderSamplingPeriodUs int64 `json:"encoderSamplingPeriodUs,omitempty"`
 	DecoderSamplingPeriodUs int64 `json:"decoderSamplingPeriodUs,omitempty"`
@@ -48,7 +48,7 @@ type NvidiaGPUDynamic struct {
 
 	TemperatureGpuC     int64 `json:"temperatureGpuC"`
 	TemperatureGpuCT    int64 `json:"temperatureGpuCT"`
-	TemperatureMemoryC  int64 `json:"temperatureMemoryC,omitempty"`  // HBM, Ampere+
+	TemperatureMemoryC  int64 `json:"temperatureMemoryC,omitempty"` // HBM, Ampere+
 	TemperatureMemoryCT int64 `json:"temperatureMemoryCT,omitempty"`
 
 	// =========================================================================
@@ -102,7 +102,7 @@ type NvidiaGPUDynamic struct {
 	// PCIe
 	// =========================================================================
 
-	PcieTxBytesPerSec     int64 `json:"pcieTxBytesPerSec"`     // bytes/sec (converted from KB/s)
+	PcieTxBytesPerSec     int64 `json:"pcieTxBytesPerSec"` // bytes/sec (converted from KB/s)
 	PcieTxBytesPerSecT    int64 `json:"pcieTxBytesPerSecT"`
 	PcieRxBytesPerSec     int64 `json:"pcieRxBytesPerSec"`
 	PcieRxBytesPerSecT    int64 `json:"pcieRxBytesPerSecT"`
@@ -110,14 +110,14 @@ type NvidiaGPUDynamic struct {
 	PcieCurrentLinkGenT   int64 `json:"pcieCurrentLinkGenT"`
 	PcieCurrentLinkWidth  int   `json:"pcieCurrentLinkWidth"`
 	PcieCurrentLinkWidthT int64 `json:"pcieCurrentLinkWidthT"`
-	PcieReplayCounter     int64 `json:"pcieReplayCounter"`     // Error count
+	PcieReplayCounter     int64 `json:"pcieReplayCounter"` // Error count
 	PcieReplayCounterT    int64 `json:"pcieReplayCounterT"`
 
 	// =========================================================================
 	// Throttling / Clock Event Reasons
 	// =========================================================================
 
-	ClocksEventReasons    uint64   `json:"clocksEventReasons"`           // Raw bitmask
+	ClocksEventReasons    uint64   `json:"clocksEventReasons"` // Raw bitmask
 	ClocksEventReasonsT   int64    `json:"clocksEventReasonsT"`
 	ThrottleReasonsActive []string `json:"throttleReasonsActive,omitempty"` // Decoded names
 
@@ -140,9 +140,9 @@ type NvidiaGPUDynamic struct {
 	// =========================================================================
 
 	// Volatile errors (since last driver load)
-	EccVolatileSbe  int64 `json:"eccVolatileSbe"`  // Single-bit errors (corrected)
+	EccVolatileSbe  int64 `json:"eccVolatileSbe"` // Single-bit errors (corrected)
 	EccVolatileSbeT int64 `json:"eccVolatileSbeT"`
-	EccVolatileDbe  int64 `json:"eccVolatileDbe"`  // Double-bit errors (uncorrected)
+	EccVolatileDbe  int64 `json:"eccVolatileDbe"` // Double-bit errors (uncorrected)
 	EccVolatileDbeT int64 `json:"eccVolatileDbeT"`
 
 	// Aggregate errors (lifetime)

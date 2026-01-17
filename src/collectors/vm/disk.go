@@ -1,6 +1,8 @@
-package collectors
+package vm
 
 import (
+	"InferenceProfiler/src/collectors"
+	"InferenceProfiler/src/collectors/types"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,14 +12,14 @@ import (
 
 // DiskCollector collects disk I/O metrics from /proc/diskstats
 type DiskCollector struct {
-	BaseCollector
+	collectors.BaseCollector
 	diskPattern *regexp.Regexp
 }
 
 // NewDiskCollector creates a new disk collector
 func NewDiskCollector() *DiskCollector {
 	return &DiskCollector{
-		diskPattern: regexp.MustCompile(DiskRegex),
+		diskPattern: regexp.MustCompile(collectors.DiskRegex),
 	}
 }
 
@@ -25,9 +27,9 @@ func (c *DiskCollector) Name() string {
 	return "Disk"
 }
 
-func (c *DiskCollector) CollectStatic(m *StaticMetrics) {
+func (c *DiskCollector) CollectStatic(m *types.StaticMetrics) {
 	entries, _ := os.ReadDir("/sys/class/block/")
-	var disks []DiskStatic
+	var disks []types.DiskStatic
 
 	for _, entry := range entries {
 		devName := entry.Name()
@@ -37,15 +39,15 @@ func (c *DiskCollector) CollectStatic(m *StaticMetrics) {
 
 		basePath := filepath.Join("/sys/class/block", devName)
 
-		model, _ := ProbeFile(filepath.Join(basePath, "device/model"))
-		vendor, _ := ProbeFile(filepath.Join(basePath, "device/vendor"))
-		sizeSectors, _ := ProbeFileInt(filepath.Join(basePath, "size"))
+		model, _ := collectors.ProbeFile(filepath.Join(basePath, "device/model"))
+		vendor, _ := collectors.ProbeFile(filepath.Join(basePath, "device/vendor"))
+		sizeSectors, _ := collectors.ProbeFileInt(filepath.Join(basePath, "size"))
 
-		disks = append(disks, DiskStatic{
+		disks = append(disks, types.DiskStatic{
 			Name:      devName,
 			Model:     strings.TrimSpace(model),
 			Vendor:    strings.TrimSpace(vendor),
-			SizeBytes: sizeSectors * SectorSize,
+			SizeBytes: sizeSectors * collectors.SectorSize,
 		})
 	}
 
@@ -56,8 +58,8 @@ func (c *DiskCollector) CollectStatic(m *StaticMetrics) {
 	}
 }
 
-func (c *DiskCollector) CollectDynamic(m *DynamicMetrics) {
-	lines, ts := ProbeFileLines("/proc/diskstats")
+func (c *DiskCollector) CollectDynamic(m *types.DynamicMetrics) {
+	lines, ts := collectors.ProbeFileLines("/proc/diskstats")
 
 	var readCount, mergedReads, sectorReads, readTimeMs int64
 	var writeCount, mergedWrites, sectorWrites, writeTimeMs int64
@@ -74,26 +76,26 @@ func (c *DiskCollector) CollectDynamic(m *DynamicMetrics) {
 			continue
 		}
 
-		readCount += parseInt64(fields[3])
-		mergedReads += parseInt64(fields[4])
-		sectorReads += parseInt64(fields[5])
-		readTimeMs += parseInt64(fields[6])
-		writeCount += parseInt64(fields[7])
-		mergedWrites += parseInt64(fields[8])
-		sectorWrites += parseInt64(fields[9])
-		writeTimeMs += parseInt64(fields[10])
-		ioInProgress += parseInt64(fields[11])
-		ioTimeMs += parseInt64(fields[12])
-		weightedIOTimeMs += parseInt64(fields[13])
+		readCount += collectors.parseInt64(fields[3])
+		mergedReads += collectors.parseInt64(fields[4])
+		sectorReads += collectors.parseInt64(fields[5])
+		readTimeMs += collectors.parseInt64(fields[6])
+		writeCount += collectors.parseInt64(fields[7])
+		mergedWrites += collectors.parseInt64(fields[8])
+		sectorWrites += collectors.parseInt64(fields[9])
+		writeTimeMs += collectors.parseInt64(fields[10])
+		ioInProgress += collectors.parseInt64(fields[11])
+		ioTimeMs += collectors.parseInt64(fields[12])
+		weightedIOTimeMs += collectors.parseInt64(fields[13])
 	}
 
 	m.DiskSectorReads = sectorReads
 	m.DiskSectorReadsT = ts
 	m.DiskSectorWrites = sectorWrites
 	m.DiskSectorWritesT = ts
-	m.DiskReadBytes = sectorReads * SectorSize
+	m.DiskReadBytes = sectorReads * collectors.SectorSize
 	m.DiskReadBytesT = ts
-	m.DiskWriteBytes = sectorWrites * SectorSize
+	m.DiskWriteBytes = sectorWrites * collectors.SectorSize
 	m.DiskWriteBytesT = ts
 	m.DiskSuccessfulReads = readCount
 	m.DiskSuccessfulReadsT = ts
