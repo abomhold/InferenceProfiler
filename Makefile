@@ -65,27 +65,42 @@ bench,: ##@ Run all benchmarks with comma formatting
 	@echo "--- Running All Benchmarks ---"
 	go test -bench=. -benchmem -run=^$$ ./... | python3 -c "import re,sys;[print(re.sub(r'(\d)(?=(\d{3})+(?!\d))',r'\1,',l),end='')for l in sys.stdin]"
 
-bench-hf: build ## Compare sequential vs concurrent with hyperfine
-	@echo "--- Hyperfine Comparison ---"
-	@hyperfine --style none --export-csv /dev/stdout --warmup 10 \
-		'./$(GO_BINARY) ss' \
-		'./$(GO_BINARY) ss --concurrent' \
-		'./$(GO_BINARY) ss --static' \
-		'./$(GO_BINARY) ss --static --concurrent' \
-		'./$(GO_BINARY) ss --dynamic' \
-		'./$(GO_BINARY) ss --dynamic --concurrent' \
-		2>/dev/null | column -t -s,
-#		'./$(GO_BINARY) ss --dynamic --no-procs' \
-#		'./$(GO_BINARY) ss --dynamic --no-procs --concurrent' \
-#		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs' \
-#		'./$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs --concurrent' \
-#		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia' \
-#		'./$(GO_BINARY) ss --dynamic --no-procs --no-nvidia --concurrent' \
-         #		| python3 -c "import sys \
-#					  lines=[l for l in sys.stdin.readlines() if ':---' not in l] \
-#					  rows=[[c.strip() for c in l.split('|')[1:-1]] for l in lines if '|' in l] \
-#					  widths=[max(len(r[i]) for r in rows) for i in range(len(rows[0]))] if rows else [] \
-#					  [print('| '+' | '.join(c.strip().ljust(w) for c,w in zip(l.split('|')[1:-1],widths))+' |') if '|' in l else print(l.rstrip()) for l in lines]"
+bench-hf: build ## Benchmark & Plot (Numbered, Tall, Safe Legend)
+	$(eval RESULTS := $(shell mktemp))
+	$(eval PLOT := $(shell mktemp))
+	@echo "--- Running Benchmarks ---"
+	@hyperfine --style full --export-csv $(RESULTS) --warmup 5 \
+	   './$(GO_BINARY) ss' \
+	   './$(GO_BINARY) ss --concurrent' \
+	   './$(GO_BINARY) ss --static' \
+	   './$(GO_BINARY) ss --static --concurrent' \
+	   './$(GO_BINARY) ss --dynamic' \
+	   './$(GO_BINARY) ss --dynamic --concurrent' \
+	   './$(GO_BINARY) ss --dynamic --no-procs'	\
+	   './$(GO_BINARY) ss --dynamic --no-procs --concurrent' \
+	   './$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs' \
+	   './$(GO_BINARY) ss --dynamic --no-procs --no-gpu-procs --concurrent' \
+	   './$(GO_BINARY) ss --dynamic --no-procs --no-nvidia' \
+	   './$(GO_BINARY) ss --dynamic --no-procs --no-nvidia --concurrent'
+	@sed -i 's|\./$(GO_BINARY) ||g' $(RESULTS)
+	@echo 'set terminal dumb size 120, 45 ansi256' > $(PLOT)
+	@echo 'set datafile separator ","' >> $(PLOT)
+	@echo 'set title "Benchmark Results"' >> $(PLOT)
+	@echo 'set xlabel "Time (ms)"' >> $(PLOT)
+	@echo 'set ylabel "ID"' >> $(PLOT)
+	@echo 'set tmargin 2' >> $(PLOT)
+	@echo 'set lmargin 6' >> $(PLOT)
+	@echo 'set offsets 0, 0, 0.5, 0.5' >> $(PLOT)
+	@echo 'set yrange [0:*]' >> $(PLOT)
+	@echo 'set mxtics 3' >> $(PLOT)
+	@echo 'unset key' >> $(PLOT)
+	@echo 'plot "$(RESULTS)" every ::1 using ($$2*1000):0:($$7*1000):($$8*1000):ytic(sprintf("%.0f", $$0+1)) with xerrorbars lc rgb "cyan", \\' >> $(PLOT)
+	@echo '     ""          every ::1 using ($$2*1000):0:("*") with labels tc rgb "green" offset 0,0' >> $(PLOT)
+	@gnuplot $(PLOT)
+	@echo ""
+	@echo "Legend:"
+	@sed '1d' $(RESULTS) | cut -d, -f1 | nl -w2 -s ' : '
+	@rm $(RESULTS) $(PLOT)
 
 docker-build: ##@ Build Docker image (profile mode)
 	@echo "--- Building Docker Image ---"
