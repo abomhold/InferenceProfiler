@@ -79,7 +79,7 @@ func Serve(args []string) {
 }
 
 func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	record := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
+	record := CollectSnapshot(s.ctx.Manager, ShouldExpandAll(s.ctx.Config))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(record)
@@ -109,7 +109,7 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	info := map[string]interface{}{
 		"collectors":      s.ctx.Manager.CollectorNames(),
 		"concurrent":      s.ctx.Config.Concurrent,
-		"flatten":         ShouldFlatten(s.ctx.Config),
+		"expandAll":       ShouldExpandAll(s.ctx.Config),
 		"active_sessions": activeSessions,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -126,7 +126,7 @@ func (s *server) handleProfileStart(w http.ResponseWriter, r *http.Request) {
 	sessionID := utils.GenerateUUID()
 
 	// Capture initial snapshot
-	initialRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
+	initialRecord := CollectSnapshot(s.ctx.Manager, ShouldExpandAll(s.ctx.Config))
 
 	// Store session
 	s.mu.Lock()
@@ -179,7 +179,7 @@ func (s *server) handleProfileStop(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	// Capture final snapshot
-	finalRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
+	finalRecord := CollectSnapshot(s.ctx.Manager, ShouldExpandAll(s.ctx.Config))
 	elapsed := time.Since(session.startTime)
 
 	// Calculate delta
@@ -221,7 +221,7 @@ func (s *server) handleProfileDelta(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	// Capture current snapshot (without stopping session)
-	currentRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
+	currentRecord := CollectSnapshot(s.ctx.Manager, ShouldExpandAll(s.ctx.Config))
 	elapsed := time.Since(startTime)
 
 	// Calculate delta
@@ -300,10 +300,10 @@ func (s *server) handleProfileSnapshot(w http.ResponseWriter, r *http.Request) {
 		duration = time.Duration(durationMs) * time.Millisecond
 	}
 
-	flatten := ShouldFlatten(s.ctx.Config)
+	expandAll := ShouldExpandAll(s.ctx.Config)
 
 	// Capture initial snapshot
-	initialRecord := CollectSnapshot(s.ctx.Manager, flatten)
+	initialRecord := CollectSnapshot(s.ctx.Manager, expandAll)
 	startTime := time.Now()
 
 	// Wait for duration
@@ -312,7 +312,7 @@ func (s *server) handleProfileSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Capture final snapshot
-	finalRecord := CollectSnapshot(s.ctx.Manager, flatten)
+	finalRecord := CollectSnapshot(s.ctx.Manager, expandAll)
 	elapsed := time.Since(startTime)
 
 	// Calculate delta

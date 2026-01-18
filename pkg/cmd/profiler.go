@@ -65,7 +65,7 @@ func Profiler(args []string) {
 
 func profilerDeltaMode(runCtx context.Context, ctx *CmdContext) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
 	log.Printf("Delta profiler started")
 	log.Printf("  Output: %s", cfg.OutputFile)
@@ -77,7 +77,7 @@ func profilerDeltaMode(runCtx context.Context, ctx *CmdContext) {
 	}
 
 	// Use common RunDelta which waits on context
-	capture := RunDelta(runCtx, ctx.Manager, flatten)
+	capture := RunDelta(runCtx, ctx.Manager, expandAll)
 
 	// Write output
 	log.Printf("Writing delta record to %s...", cfg.OutputFile)
@@ -94,9 +94,9 @@ func profilerDeltaMode(runCtx context.Context, ctx *CmdContext) {
 
 func profilerStreamMode(runCtx context.Context, ctx *CmdContext) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
-	sc, err := NewStreamCollector(ctx.Manager, cfg.Format, cfg.OutputFile, flatten, cfg.Interval)
+	sc, err := NewStreamCollector(ctx.Manager, cfg.Format, cfg.OutputFile, expandAll, cfg.Interval)
 	if err != nil {
 		log.Fatalf("Failed to initialize writer: %v", err)
 	}
@@ -129,7 +129,7 @@ func profilerStreamMode(runCtx context.Context, ctx *CmdContext) {
 
 func profilerBatchMode(runCtx context.Context, ctx *CmdContext) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
 	log.Printf("Profiler started (batch mode)")
 	log.Printf("  Interval: %dms", cfg.Interval)
@@ -140,7 +140,7 @@ func profilerBatchMode(runCtx context.Context, ctx *CmdContext) {
 	}
 	log.Println("  Collecting in memory, will write at end...")
 
-	bc := NewBatchCollector(ctx.Manager, false, cfg.Interval) // Don't flatten during collection
+	bc := NewBatchCollector(ctx.Manager, false, cfg.Interval) // Don't expand during collection
 	start := time.Now()
 	bc.Run(runCtx)
 	elapsed := time.Since(start)
@@ -149,7 +149,7 @@ func profilerBatchMode(runCtx context.Context, ctx *CmdContext) {
 	log.Printf("Collected %d records in %v", len(records), elapsed)
 
 	log.Printf("Writing to %s...", cfg.OutputFile)
-	if err := SaveBatch(cfg.OutputFile, records, flatten); err != nil {
+	if err := SaveBatch(cfg.OutputFile, records, expandAll); err != nil {
 		log.Fatalf("Failed to write records: %v", err)
 	}
 	log.Printf("Successfully wrote %d records", len(records))

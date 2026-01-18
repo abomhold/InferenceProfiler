@@ -55,7 +55,7 @@ func runSingleSnapshot(cfg *utils.Config) {
 	}
 
 	if cfg.CollectDynamic {
-		dRecord := CollectSnapshot(manager, ShouldFlatten(cfg))
+		dRecord := CollectSnapshot(manager, ShouldExpandAll(cfg))
 
 		for k, v := range dRecord {
 			record[k] = v

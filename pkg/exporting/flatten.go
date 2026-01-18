@@ -13,31 +13,33 @@ const (
 	keyGPUs      = "_gpus"
 )
 
-// FlattenMode controls how arrays are handled
+// FlattenMode controls how arrays and JSON strings are handled
 type FlattenMode int
 
 const (
-	// FlattenAll expands all arrays into top-level prefixed fields
-	// nvidia0UtilizationGpu, nvidia0proc0Pid, proc0PId, etc.
-	FlattenAll FlattenMode = iota
+	// FlattenDefault expands nvidia GPU dynamic metrics only.
+	// Keeps as JSON strings: processes, disks, networkInterfaces, nvidiaGpus (static), GPU processes
+	FlattenDefault FlattenMode = iota
 
-	// FlattenNvidiaOnly expands nvidia GPUs but keeps processes as JSON strings
-	// nvidia0UtilizationGpu, nvidia0proc0Pid (expanded), processesJson (string)
-	FlattenNvidiaOnly
+	// FlattenAll expands everything into top-level prefixed fields (--no-json-string).
+	// Expands: nvidia dynamic, processes, disks, networkInterfaces, nvidiaGpus (static), GPU processes
+	FlattenAll
 )
 
-// FlattenRecord processes a Record with full flattening (default behavior).
+// FlattenRecord processes a Record with default flattening.
 // - Expands GPU dynamic metrics: nvidia0*, nvidia1*, etc.
-// - Expands GPU processes: nvidia0proc0*, nvidia0proc1*, etc.
-// - Expands OS processes: proc0*, proc1*, etc.
+// - Keeps as JSON: processesJson, disks, networkInterfaces, nvidiaGpus, nvidia0ProcessesJson
 func FlattenRecord(r Record) Record {
-	return FlattenRecordWithMode(r, FlattenAll)
+	return FlattenRecordWithMode(r, FlattenDefault)
 }
 
-// FlattenRecordNoProcesses flattens nvidia but keeps processes as JSON string.
-// Use this when --no-flatten is specified (processes become JSON, nvidia always expanded).
-func FlattenRecordNoProcesses(r Record) Record {
-	return FlattenRecordWithMode(r, FlattenNvidiaOnly)
+// FlattenRecordExpandAll expands everything into top-level fields (--no-json-string mode).
+// - Expands GPU dynamic: nvidia0*, nvidia1*, etc.
+// - Expands GPU processes: nvidia0Proc0*, nvidia0Proc1*, etc.
+// - Expands OS processes: proc0*, proc1*, etc.
+// - Expands static: disk0*, net0*, gpuStatic0*, etc.
+func FlattenRecordExpandAll(r Record) Record {
+	return FlattenRecordWithMode(r, FlattenAll)
 }
 
 // FlattenRecordWithMode processes a Record based on the specified mode.
@@ -48,7 +50,18 @@ func FlattenRecordWithMode(r Record, mode FlattenMode) Record {
 
 	_, hasProcs := r[keyProcesses]
 	_, hasGPUs := r[keyGPUs]
-	if !hasProcs && !hasGPUs {
+
+	// Check if we have any JSON string fields that might need expansion
+	hasJsonFields := false
+	for k := range r {
+		if strings.HasSuffix(k, "Json") || strings.HasSuffix(k, "JSON") ||
+			k == "disks" || k == "networkInterfaces" || k == "nvidiaGpus" {
+			hasJsonFields = true
+			break
+		}
+	}
+
+	if !hasProcs && !hasGPUs && !hasJsonFields {
 		return r
 	}
 
@@ -60,28 +73,33 @@ func FlattenRecordWithMode(r Record, mode FlattenMode) Record {
 		result[k] = v
 	}
 
-	// Always flatten nvidia GPUs into top-level fields
+	// Always flatten nvidia GPU dynamic metrics into top-level fields
 	if gpus, ok := r[keyGPUs]; ok && gpus != nil {
-		flattenGPUs(gpus, result, mode)
+		flattenGPUsDynamic(gpus, result, mode)
 	}
 
-	// Processes: either flatten or serialize to JSON based on mode
+	// Handle OS processes based on mode
 	if procs, ok := r[keyProcesses]; ok && procs != nil {
 		if mode == FlattenAll {
 			flattenProcesses(procs, result, "proc")
 		} else {
-			// FlattenNvidiaOnly: serialize processes to JSON string
+			// Default: serialize to JSON string
 			if data, err := json.Marshal(procs); err == nil {
 				result["processesJson"] = string(data)
 			}
 		}
 	}
 
+	// Handle static JSON strings based on mode
+	if mode == FlattenAll {
+		expandStaticJsonFields(result)
+	}
+
 	return result
 }
 
-// flattenGPUs expands GPU dynamic metrics into top-level fields with nvidia{index} prefix.
-func flattenGPUs(gpus interface{}, result Record, mode FlattenMode) {
+// flattenGPUsDynamic expands GPU dynamic metrics into top-level fields with nvidia{index} prefix.
+func flattenGPUsDynamic(gpus interface{}, result Record, mode FlattenMode) {
 	slice := toSlice(gpus)
 	if slice == nil {
 		return
@@ -113,6 +131,11 @@ func flattenGPUs(gpus interface{}, result Record, mode FlattenMode) {
 				handleGPUProcessUtilization(v, result, prefix, mode)
 				continue
 			}
+			// Handle nvlink JSON fields
+			if (k == "nvlinkBandwidthJson" || k == "nvlinkErrorsJson") && v != nil {
+				handleNvlinkJson(k, v, result, prefix, mode)
+				continue
+			}
 
 			// Capitalize first letter for camelCase: nvidia0UtilizationGpu
 			fieldName := prefix + capitalizeFirst(k)
@@ -123,16 +146,15 @@ func flattenGPUs(gpus interface{}, result Record, mode FlattenMode) {
 
 // handleGPUProcesses handles the processesJson field within a GPU.
 func handleGPUProcesses(v interface{}, result Record, gpuPrefix string, mode FlattenMode) {
-	switch mode {
-	case FlattenAll:
-		// Parse JSON and flatten: nvidia0proc0Pid, nvidia0proc1UsedMemoryBytes
+	if mode == FlattenAll {
+		// Parse JSON and flatten: nvidia0Proc0Pid, nvidia0Proc1UsedMemoryBytes
 		procs := parseJSONStringToSlice(v)
 		if procs != nil {
-			flattenProcesses(procs, result, gpuPrefix+"proc")
+			flattenProcesses(procs, result, gpuPrefix+"Proc")
 		}
-	case FlattenNvidiaOnly:
-		// Keep as JSON string: nvidia0ProcessesJson
-		if str, ok := v.(string); ok {
+	} else {
+		// Default: keep as JSON string: nvidia0ProcessesJson
+		if str, ok := v.(string); ok && str != "" {
 			result[gpuPrefix+"ProcessesJson"] = str
 		}
 	}
@@ -140,9 +162,8 @@ func handleGPUProcesses(v interface{}, result Record, gpuPrefix string, mode Fla
 
 // handleGPUProcessUtilization handles the processUtilizationJson field within a GPU.
 func handleGPUProcessUtilization(v interface{}, result Record, gpuPrefix string, mode FlattenMode) {
-	switch mode {
-	case FlattenAll:
-		// Parse JSON and flatten: nvidia0procUtil0SmUtil, etc.
+	if mode == FlattenAll {
+		// Parse JSON and flatten: nvidia0ProcUtil0SmUtil, etc.
 		utils := parseJSONStringToSlice(v)
 		if utils != nil {
 			for i, util := range utils {
@@ -150,22 +171,116 @@ func handleGPUProcessUtilization(v interface{}, result Record, gpuPrefix string,
 				if utilMap == nil {
 					continue
 				}
-				prefix := fmt.Sprintf("%sprocUtil%d", gpuPrefix, i)
+				prefix := fmt.Sprintf("%sProcUtil%d", gpuPrefix, i)
 				for k, val := range utilMap {
 					result[prefix+capitalizeFirst(k)] = val
 				}
 			}
 		}
-	case FlattenNvidiaOnly:
-		// Keep as JSON string
-		if str, ok := v.(string); ok {
+	} else {
+		// Default: keep as JSON string
+		if str, ok := v.(string); ok && str != "" {
 			result[gpuPrefix+"ProcessUtilizationJson"] = str
 		}
 	}
 }
 
+// handleNvlinkJson handles nvlink bandwidth and error JSON fields.
+func handleNvlinkJson(key string, v interface{}, result Record, gpuPrefix string, mode FlattenMode) {
+	if mode == FlattenAll {
+		items := parseJSONStringToSlice(v)
+		if items != nil {
+			var prefix string
+			if key == "nvlinkBandwidthJson" {
+				prefix = gpuPrefix + "Nvlink"
+			} else {
+				prefix = gpuPrefix + "NvlinkErr"
+			}
+			for i, item := range items {
+				itemMap := toMap(item)
+				if itemMap == nil {
+					continue
+				}
+				itemPrefix := fmt.Sprintf("%s%d", prefix, i)
+				for k, val := range itemMap {
+					if k != "link" { // skip redundant link index
+						result[itemPrefix+capitalizeFirst(k)] = val
+					}
+				}
+			}
+		}
+	} else {
+		// Default: keep as JSON string
+		if str, ok := v.(string); ok && str != "" {
+			fieldName := gpuPrefix + capitalizeFirst(key)
+			result[fieldName] = str
+		}
+	}
+}
+
+// expandStaticJsonFields parses and expands static JSON string fields when in FlattenAll mode.
+func expandStaticJsonFields(result Record) {
+	// Expand disks: disk0Name, disk0Size, etc.
+	if disksJson, ok := result["disks"].(string); ok && disksJson != "" {
+		if disks := parseJSONStringToSlice(interface{}(disksJson)); disks != nil {
+			for i, disk := range disks {
+				diskMap := toMap(disk)
+				if diskMap == nil {
+					continue
+				}
+				prefix := fmt.Sprintf("disk%d", i)
+				for k, v := range diskMap {
+					result[prefix+capitalizeFirst(k)] = v
+				}
+			}
+			delete(result, "disks")
+		}
+	}
+
+	// Expand networkInterfaces: net0Name, net0Mac, etc.
+	if netJson, ok := result["networkInterfaces"].(string); ok && netJson != "" {
+		if nets := parseJSONStringToSlice(interface{}(netJson)); nets != nil {
+			for i, net := range nets {
+				netMap := toMap(net)
+				if netMap == nil {
+					continue
+				}
+				prefix := fmt.Sprintf("net%d", i)
+				for k, v := range netMap {
+					result[prefix+capitalizeFirst(k)] = v
+				}
+			}
+			delete(result, "networkInterfaces")
+		}
+	}
+
+	// Expand nvidiaGpus (static GPU info): gpuStatic0Name, gpuStatic0MemoryTotalBytes, etc.
+	if gpusJson, ok := result["nvidiaGpus"].(string); ok && gpusJson != "" {
+		if gpus := parseJSONStringToSlice(interface{}(gpusJson)); gpus != nil {
+			for i, gpu := range gpus {
+				gpuMap := toMap(gpu)
+				if gpuMap == nil {
+					continue
+				}
+				// Use index from the data if available
+				idx := i
+				if index, ok := gpuMap["index"]; ok {
+					idx = toInt(index)
+				}
+				prefix := fmt.Sprintf("gpuStatic%d", idx)
+				for k, v := range gpuMap {
+					if k != "index" { // skip index, it's in the prefix
+						result[prefix+capitalizeFirst(k)] = v
+					}
+				}
+			}
+			delete(result, "nvidiaGpus")
+		}
+	}
+}
+
 // flattenProcesses expands a process slice into top-level fields with prefix.
-// prefix is "proc" for OS processes or "nvidia0proc" for GPU processes.
+// prefix is "proc" for OS processes or "nvidia0Proc" for GPU processes.
 func flattenProcesses(procs interface{}, result Record, prefix string) {
 	slice := toSlice(procs)
 	if slice == nil {
@@ -180,7 +295,7 @@ func flattenProcesses(procs interface{}, result Record, prefix string) {
 
 		procPrefix := fmt.Sprintf("%s%d", prefix, i)
 		for k, v := range procMap {
-			// proc0PId, proc0PName, nvidia0proc0Pid, etc.
+			// proc0PId, proc0PName, nvidia0Proc0Pid, etc.
 			fieldName := procPrefix + capitalizeFirst(k)
 			result[fieldName] = v
 		}

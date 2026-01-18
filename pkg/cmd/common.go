@@ -1,121 +1,316 @@
-// Package exporting provides the service for persisting metrics data.
-package exporting
+package cmd
 
 import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
+	"InferenceProfiler/pkg/collecting"
+	"InferenceProfiler/pkg/exporting"
+	"InferenceProfiler/pkg/utils"
+	"context"
+	"flag"
+	"log"
+	"time"
 )
 
-// Exporter handles writing metrics to various output formats.
-type Exporter struct {
-	path        string
-	format      string
-	writer      Writer
-	flattenMode FlattenMode
+// CmdContext holds initialized command resources
+type CmdContext struct {
+	Manager *collecting.Manager
+	Config  *utils.Config
 }
 
-// ExporterOption configures an Exporter.
-type ExporterOption func(*Exporter)
+// InitCmd initializes common command resources: parses flags, creates manager, collects static metrics
+func InitCmd(name string, args []string) (*CmdContext, func()) {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	cfg := utils.NewConfig()
+	applyFlags := utils.GetFlags(fs, cfg)
+	fs.Parse(args)
+	applyFlags()
 
-// WithFlattenMode sets the flattening mode for the exporter.
-func WithFlattenMode(mode FlattenMode) ExporterOption {
-	return func(e *Exporter) {
-		e.flattenMode = mode
+	manager := collecting.NewManager(cfg)
+
+	static := &collecting.StaticMetrics{
+		UUID:     cfg.UUID,
+		Hostname: cfg.Hostname,
 	}
+	manager.CollectStatic(static)
+
+	ctx := &CmdContext{
+		Manager: manager,
+		Config:  cfg,
+	}
+
+	cleanup := func() {
+		manager.Close()
+	}
+
+	return ctx, cleanup
 }
 
-// NewExporter creates a new exporter for the given path and format.
-func NewExporter(path, format string, opts ...ExporterOption) (*Exporter, error) {
-	// Ensure output directory exists
-	dir := filepath.Dir(path)
-	if dir != "" && dir != "." {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return nil, fmt.Errorf("failed to create output directory: %w", err)
+// InitCmdWithSeparator initializes command with -- separator for sub-command args
+// Returns CmdContext, cleanup func, and sub-command args after --
+func InitCmdWithSeparator(name string, args []string) (*CmdContext, func(), []string) {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	cfg := utils.NewConfig()
+	applyFlags := utils.GetFlags(fs, cfg)
+
+	dashIdx := -1
+	for i, arg := range args {
+		if arg == utils.CMDSeparator {
+			dashIdx = i
+			break
 		}
 	}
 
-	// Get format handler
-	f, ok := Get(format)
+	var flagArgs, cmdArgs []string
+	if dashIdx >= 0 {
+		flagArgs = args[:dashIdx]
+		cmdArgs = args[dashIdx+1:]
+	} else {
+		flagArgs = args
+	}
+
+	fs.Parse(flagArgs)
+	applyFlags()
+
+	manager := collecting.NewManager(cfg)
+
+	static := &collecting.StaticMetrics{
+		UUID:     cfg.UUID,
+		Hostname: cfg.Hostname,
+	}
+	manager.CollectStatic(static)
+
+	ctx := &CmdContext{
+		Manager: manager,
+		Config:  cfg,
+	}
+
+	cleanup := func() {
+		manager.Close()
+	}
+
+	return ctx, cleanup, cmdArgs
+}
+
+// CollectSnapshot collects a single dynamic snapshot with appropriate processing.
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func CollectSnapshot(manager *collecting.Manager, expandAll bool) exporting.Record {
+	dynamic := &collecting.DynamicMetrics{}
+	record := manager.CollectDynamic(dynamic)
+	if expandAll {
+		record = exporting.FlattenRecordExpandAll(record)
+	} else {
+		// Default: flatten nvidia dynamic, keep everything else as JSON strings
+		record = exporting.FlattenRecord(record)
+	}
+	return record
+}
+
+// ComputeDelta takes initial and final snapshots and computes the delta
+func ComputeDelta(initial, final exporting.Record, durationMs int64) exporting.Record {
+	return exporting.DeltaRecord(initial, final, durationMs)
+}
+
+// DeltaCapture performs a complete delta capture: initial snapshot -> wait/context -> final snapshot -> delta
+type DeltaCapture struct {
+	InitialRecord exporting.Record
+	FinalRecord   exporting.Record
+	DeltaRecord   exporting.Record
+	Duration      time.Duration
+}
+
+// RunDelta executes a delta capture waiting on context cancellation.
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func RunDelta(ctx context.Context, manager *collecting.Manager, expandAll bool) *DeltaCapture {
+	log.Println("Capturing initial snapshot...")
+	initial := CollectSnapshot(manager, expandAll)
+	startTime := time.Now()
+
+	<-ctx.Done()
+
+	log.Println("Capturing final snapshot...")
+	final := CollectSnapshot(manager, expandAll)
+	elapsed := time.Since(startTime)
+
+	delta := ComputeDelta(initial, final, elapsed.Milliseconds())
+
+	return &DeltaCapture{
+		InitialRecord: initial,
+		FinalRecord:   final,
+		DeltaRecord:   delta,
+		Duration:      elapsed,
+	}
+}
+
+// RunDeltaWithDuration executes a delta capture for a specific duration.
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func RunDeltaWithDuration(manager *collecting.Manager, duration time.Duration, expandAll bool) *DeltaCapture {
+	log.Println("Capturing initial snapshot...")
+	initial := CollectSnapshot(manager, expandAll)
+	startTime := time.Now()
+
+	if duration > 0 {
+		log.Printf("Waiting %v for final snapshot...", duration)
+		time.Sleep(duration)
+	}
+
+	log.Println("Capturing final snapshot...")
+	final := CollectSnapshot(manager, expandAll)
+	elapsed := time.Since(startTime)
+
+	delta := ComputeDelta(initial, final, elapsed.Milliseconds())
+
+	return &DeltaCapture{
+		InitialRecord: initial,
+		FinalRecord:   final,
+		DeltaRecord:   delta,
+		Duration:      elapsed,
+	}
+}
+
+// StreamCollector handles streaming collection with periodic writes
+type StreamCollector struct {
+	manager   *collecting.Manager
+	writer    exporting.Writer
+	expandAll bool
+	interval  time.Duration
+	count     int
+}
+
+// NewStreamCollector creates a new streaming collector
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func NewStreamCollector(manager *collecting.Manager, format, outputFile string, expandAll bool, intervalMs int) (*StreamCollector, error) {
+	f, ok := exporting.Get(format)
 	if !ok {
-		return nil, fmt.Errorf("unsupported format: %s", format)
+		return nil, nil
 	}
 
-	// Create writer
 	writer := f.Writer()
-	if err := writer.Init(path); err != nil {
-		return nil, fmt.Errorf("failed to initialize writer: %w", err)
+	if err := writer.Init(outputFile); err != nil {
+		return nil, err
 	}
 
-	e := &Exporter{
-		path:        path,
-		format:      format,
-		writer:      writer,
-		flattenMode: FlattenAll, // default to full flattening
-	}
-
-	// Apply options
-	for _, opt := range opts {
-		opt(e)
-	}
-
-	return e, nil
+	return &StreamCollector{
+		manager:   manager,
+		writer:    writer,
+		expandAll: expandAll,
+		interval:  time.Duration(intervalMs) * time.Millisecond,
+	}, nil
 }
 
-// NewParquetExporter creates an exporter specifically for Parquet format.
-func NewParquetExporter(path string) (*Exporter, error) {
-	return NewExporter(path, "parquet")
-}
+// Run starts the streaming collection until context is cancelled
+func (sc *StreamCollector) Run(ctx context.Context) int {
+	ticker := time.NewTicker(sc.interval)
+	defer ticker.Stop()
 
-// Path returns the output file path.
-func (e *Exporter) Path() string {
-	return e.path
-}
+	for {
+		select {
+		case <-ctx.Done():
+			sc.writer.Flush()
+			return sc.count
 
-// Format returns the output format.
-func (e *Exporter) Format() string {
-	return e.format
-}
+		case <-ticker.C:
+			record := CollectSnapshot(sc.manager, sc.expandAll)
+			sc.writer.Write(record)
+			sc.count++
 
-// Write writes a single record, flattening based on the configured mode.
-func (e *Exporter) Write(record Record) error {
-	return e.writer.Write(FlattenRecordWithMode(record, e.flattenMode))
-}
-
-// WriteBatch writes multiple records, flattening each based on the configured mode.
-func (e *Exporter) WriteBatch(records []Record) error {
-	for i, r := range records {
-		if err := e.writer.Write(FlattenRecordWithMode(r, e.flattenMode)); err != nil {
-			return fmt.Errorf("failed to write record %d: %w", i, err)
+			if sc.count%50 == 0 {
+				sc.writer.Flush()
+			}
 		}
 	}
-	return nil
 }
 
-// Flush ensures all buffered data is written.
-func (e *Exporter) Flush() error {
-	return e.writer.Flush()
+// Close closes the underlying writer
+func (sc *StreamCollector) Close() error {
+	return sc.writer.Close()
 }
 
-// Close finalizes and closes the exporter.
-func (e *Exporter) Close() error {
-	return e.writer.Close()
+// Count returns the number of records collected
+func (sc *StreamCollector) Count() int {
+	return sc.count
 }
 
-// WriteStatic writes static metrics to a separate JSON file.
-func (e *Exporter) WriteStatic(record Record) error {
-	dir := filepath.Dir(e.path)
-	base := filepath.Base(e.path)
-	ext := filepath.Ext(base)
-	name := base[:len(base)-len(ext)]
+// BatchCollector handles batch collection (in-memory until write)
+type BatchCollector struct {
+	manager   *collecting.Manager
+	records   []exporting.Record
+	expandAll bool
+	interval  time.Duration
+}
 
-	staticPath := filepath.Join(dir, name+"_static.json")
-
-	data, err := json.MarshalIndent(record, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal static metrics: %w", err)
+// NewBatchCollector creates a new batch collector
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func NewBatchCollector(manager *collecting.Manager, expandAll bool, intervalMs int) *BatchCollector {
+	return &BatchCollector{
+		manager:   manager,
+		expandAll: expandAll,
+		interval:  time.Duration(intervalMs) * time.Millisecond,
 	}
+}
 
-	return os.WriteFile(staticPath, data, 0644)
+// Run collects records until context is cancelled
+func (bc *BatchCollector) Run(ctx context.Context) {
+	ticker := time.NewTicker(bc.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-ticker.C:
+			dynamic := &collecting.DynamicMetrics{}
+			record := bc.manager.CollectDynamic(dynamic)
+			bc.records = append(bc.records, record)
+		}
+	}
+}
+
+// Records returns all collected records
+func (bc *BatchCollector) Records() []exporting.Record {
+	return bc.records
+}
+
+// Count returns the number of records collected
+func (bc *BatchCollector) Count() int {
+	return len(bc.records)
+}
+
+// SaveBatch saves batch records to file with appropriate processing.
+// expandAll=true (--no-json-string): expand all arrays/JSON into top-level fields
+// expandAll=false (default): expand nvidia GPU dynamic only, keep processes/static as JSON
+func SaveBatch(outputFile string, records []exporting.Record, expandAll bool) error {
+	for i := range records {
+		if expandAll {
+			records[i] = exporting.FlattenRecordExpandAll(records[i])
+		} else {
+			records[i] = exporting.FlattenRecord(records[i])
+		}
+	}
+	return exporting.SaveRecords(outputFile, records)
+}
+
+// SaveDelta saves a delta record to file
+func SaveDelta(outputFile string, delta exporting.Record) error {
+	return exporting.SaveRecords(outputFile, []exporting.Record{delta})
+}
+
+// GenerateOutputFilename generates a default output filename
+func GenerateOutputFilename(cmdName, mode, format string) string {
+	timestamp := time.Now().Format("20060102_150405")
+	ext := exporting.GetExtension(format)
+	if cmdName != "" {
+		return mode + "_" + cmdName + "_" + timestamp + ext
+	}
+	return mode + "_" + timestamp + ext
+}
+
+// ShouldExpandAll returns true if all JSON strings should be expanded to top-level fields.
+// This is enabled with --no-json-string flag.
+func ShouldExpandAll(cfg *utils.Config) bool {
+	return cfg.NoJsonString
 }

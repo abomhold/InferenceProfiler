@@ -87,11 +87,11 @@ func Profile(args []string) {
 
 func profileDeltaMode(ctx *CmdContext, targetCmd *exec.Cmd) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
 	// Take initial snapshot before command starts
 	log.Println("Capturing initial snapshot...")
-	initial := CollectSnapshot(ctx.Manager, flatten)
+	initial := CollectSnapshot(ctx.Manager, expandAll)
 	startTime := time.Now()
 
 	// Start command
@@ -105,7 +105,7 @@ func profileDeltaMode(ctx *CmdContext, targetCmd *exec.Cmd) {
 
 	// Take final snapshot after command completes
 	log.Println("Capturing final snapshot...")
-	final := CollectSnapshot(ctx.Manager, flatten)
+	final := CollectSnapshot(ctx.Manager, expandAll)
 
 	// Calculate and save delta
 	delta := ComputeDelta(initial, final, elapsed.Milliseconds())
@@ -128,9 +128,9 @@ func profileDeltaMode(ctx *CmdContext, targetCmd *exec.Cmd) {
 
 func profileStreamMode(runCtx context.Context, ctx *CmdContext) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
-	sc, err := NewStreamCollector(ctx.Manager, cfg.Format, cfg.OutputFile, flatten, cfg.Interval)
+	sc, err := NewStreamCollector(ctx.Manager, cfg.Format, cfg.OutputFile, expandAll, cfg.Interval)
 	if err != nil {
 		log.Printf("Stream collector init error: %v", err)
 		return
@@ -147,15 +147,15 @@ func profileStreamMode(runCtx context.Context, ctx *CmdContext) {
 
 func profileBatchMode(runCtx context.Context, ctx *CmdContext) {
 	cfg := ctx.Config
-	flatten := ShouldFlatten(cfg)
+	expandAll := ShouldExpandAll(cfg)
 
-	bc := NewBatchCollector(ctx.Manager, false, cfg.Interval) // Don't flatten during collection
+	bc := NewBatchCollector(ctx.Manager, false, cfg.Interval) // Don't expand during collection
 	bc.Run(runCtx)
 
 	records := bc.Records()
 	log.Printf("Writing %d records...", len(records))
 
-	if err := SaveBatch(cfg.OutputFile, records, flatten); err != nil {
+	if err := SaveBatch(cfg.OutputFile, records, expandAll); err != nil {
 		log.Printf("Failed to write records: %v", err)
 	}
 }

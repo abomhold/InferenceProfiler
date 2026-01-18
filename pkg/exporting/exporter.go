@@ -52,7 +52,7 @@ func NewExporter(path, format string, opts ...ExporterOption) (*Exporter, error)
 		path:        path,
 		format:      format,
 		writer:      writer,
-		flattenMode: FlattenAll, // default to full flattening
+		flattenMode: FlattenDefault, // default: nvidia dynamic expanded, processes/static as JSON
 	}
 
 	// Apply options

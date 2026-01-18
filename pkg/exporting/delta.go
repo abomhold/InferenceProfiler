@@ -137,7 +137,7 @@ func isProcessField(key string) bool {
 	// - proc0PId, proc1PName, proc12PCmdline (OS processes)
 	// - nvidia0proc0Pid, nvidia0proc1UsedMemoryBytes (GPU processes)
 	// - nvidia0procUtil0SmUtil (GPU process utilization)
-
+	
 	// Check for "proc" followed by a digit anywhere in the key
 	for i := 0; i < len(key)-4; i++ {
 		if key[i:i+4] == "proc" && i+4 < len(key) && key[i+4] >= '0' && key[i+4] <= '9' {
