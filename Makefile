@@ -113,7 +113,6 @@ docker-run: docker-build get-model ##@ Run container with GPU support (profile m
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
 	docker run --gpus all \
-		-p "8000:8000" \
 		-v $(OUTPUT_DIR):/profiler-output \
 		-v $(MODEL_DIR):/app/model \
 		$(DOCKER_IMAGE):$(DOCKER_TAG)

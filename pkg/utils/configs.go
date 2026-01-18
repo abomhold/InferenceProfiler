@@ -10,7 +10,7 @@ import (
 const (
 	CMDSeparator        = "--"
 	VLLMEnvVar          = "VLLM_METRICS_ENDPOINT"
-	DefaultVLLMEndpoint = "http://localhost:8000/metrics"
+	DefaultVLLMEndpoint = "http://127.0.0.1:8000/metrics"
 )
 
 type Config struct {

@@ -5,42 +5,23 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=1 GOOS=linux go build -o infpro main.go
 
-
-FROM ubuntu:24.04
-ENV DEBIAN_FRONTEND=noninteractive
-ARG MODEL_ID="meta-llama/Llama-3.2-1B-Instruct"
-ARG MODEL_PATH=/app/model
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    curl \
-    python3-pip \
-    python3-dev && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
-COPY --from=builder /app/infpro /usr/local/bin/infpro
+FROM vllm/vllm-openai:latest
 RUN mkdir -p /profiler-output
-
-RUN echo '#!/bin/sh \n\
+RUN cat <<'EOF' > /entrypoint.sh
+#!/bin/sh
 python3 -m vllm.entrypoints.openai.api_server \
---port 8000 \
---model /app/model \
---gpu-memory-utilization=0.7 \
---max-model-len=2048 \
---dtype=bfloat16 & \n\
-timeout 60s sh -c "until curl -s localhost:8000/health; do sleep 1; done" \n\
-exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+  --port 8000 \
+  --model /app/model \
+  --gpu-memory-utilization=0.7 \
+  --max-model-len=2048 \
+  --dtype=bfloat16 &
+timeout 60s sh -c 'until curl -s 127.0.0.1:8000/health; do sleep 1; done'
+export CUDA_VISIBLE_DEVICES=""
+infpro profile --output /profiler-output/delta.jsonl --dynamic --delta --no-json-string -- \
+  vllm bench serve --backend vllm --model /app/model --dataset-name random --num-prompts 100 \
+  --request-rate 20 --random-input-len 128 --random-output-len 64 \
+  --ready-check-timeout-sec 1
+EOF
+RUN chmod +x /entrypoint.sh
+COPY --from=builder /app/infpro /usr/local/bin/infpro
 ENTRYPOINT ["/entrypoint.sh"]
-
-CMD ["infpro", "profile", "--output", "/profiler-output/delta.jsonl", "--dynamic", "--delta", "--no-json-string", "--", \
-     "vllm", "bench", "serve", \
-     "--backend", "vllm", \
-     "--model", "/app/model", \
-     "--dataset-name", "random", \
-     "--num-prompts", "1000", \
-     "--request-rate", "inf", \
-     "--random-input-len", "1024", \
-     "--random-output-len", "512", \
-     "--random-range-ratio", "0.5", \
-     "--ready-check-timeout-sec", "0", \
-     "--endpoint", "http://localhost:8000/v1/completions"]
