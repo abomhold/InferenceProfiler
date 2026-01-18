@@ -19,15 +19,9 @@ func Snapshot(args []string) {
 	applyFlags := utils.GetFlags(fs, cfg)
 
 	// Additional delta-specific flags
-	var deltaMode bool
 	var deltaDuration time.Duration
 	var graphOutput string
 	var showErrors bool
-
-	fs.BoolVar(&deltaMode, "delta", false, "Enable delta mode: take two snapshots and compute difference")
-	fs.DurationVar(&deltaDuration, "delta-duration", 5*time.Second, "Duration between snapshots in delta mode")
-	fs.StringVar(&graphOutput, "graph", "", "Generate graph visualization to this directory")
-	fs.BoolVar(&showErrors, "show-errors", false, "Show delta computation errors in output")
 
 	parseArgs := args
 	if len(args) > 0 && args[0] == "ss" {
@@ -36,7 +30,7 @@ func Snapshot(args []string) {
 	fs.Parse(parseArgs)
 	applyFlags()
 
-	if deltaMode {
+	if cfg.Delta {
 		runDeltaSnapshot(cfg, deltaDuration, graphOutput, showErrors)
 	} else {
 		runSingleSnapshot(cfg)
@@ -61,13 +55,7 @@ func runSingleSnapshot(cfg *utils.Config) {
 	}
 
 	if cfg.CollectDynamic {
-		dynamic := &collecting.DynamicMetrics{}
-		dRecord := manager.CollectDynamic(dynamic)
-
-		// Check DisableFlatten (inverted)
-		if !cfg.DisableFlatten {
-			dRecord = exporting.FlattenRecord(dRecord)
-		}
+		dRecord := CollectSnapshot(manager, ShouldFlatten(cfg))
 
 		for k, v := range dRecord {
 			record[k] = v
@@ -95,30 +83,22 @@ func runDeltaSnapshot(cfg *utils.Config, duration time.Duration, graphOutput str
 
 	log.Printf("Taking initial snapshot...")
 
-	// Collect initial snapshot
-	initialDynamic := &collecting.DynamicMetrics{}
-	initialRecord := manager.CollectDynamic(initialDynamic)
+	// Collect initial snapshot (always flatten for delta)
+	initialRecord := CollectSnapshot(manager, true)
 	initialTime := time.Now()
-
-	// Flatten the initial record
-	initialFlat := exporting.FlattenRecord(initialRecord)
 
 	log.Printf("Waiting %v before taking final snapshot...", duration)
 	time.Sleep(duration)
 
 	log.Printf("Taking final snapshot...")
 
-	// Collect final snapshot
-	finalDynamic := &collecting.DynamicMetrics{}
-	finalRecord := manager.CollectDynamic(finalDynamic)
+	// Collect final snapshot (always flatten for delta)
+	finalRecord := CollectSnapshot(manager, true)
 	finalTime := time.Now()
-
-	// Flatten the final record
-	finalFlat := exporting.FlattenRecord(finalRecord)
 
 	// Compute delta with error tracking
 	durationMs := finalTime.Sub(initialTime).Milliseconds()
-	deltaResult := exporting.DeltaRecordWithErrors(initialFlat, finalFlat, durationMs)
+	deltaResult := exporting.DeltaRecordWithErrors(initialRecord, finalRecord, durationMs)
 
 	// Add static data if requested
 	if cfg.CollectStatic {
@@ -180,12 +160,12 @@ func runDeltaSnapshot(cfg *utils.Config, duration time.Duration, graphOutput str
 
 		// Also write the original and flattened records for debugging
 		origPath := filepath.Join(graphOutput, "original_initial.json")
-		if data, err := json.MarshalIndent(initialFlat, "", "  "); err == nil {
+		if data, err := json.MarshalIndent(initialRecord, "", "  "); err == nil {
 			os.WriteFile(origPath, data, 0644)
 		}
 
 		finalPath := filepath.Join(graphOutput, "original_final.json")
-		if data, err := json.MarshalIndent(finalFlat, "", "  "); err == nil {
+		if data, err := json.MarshalIndent(finalRecord, "", "  "); err == nil {
 			os.WriteFile(finalPath, data, 0644)
 		}
 	}

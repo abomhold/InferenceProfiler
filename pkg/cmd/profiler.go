@@ -1,12 +1,7 @@
 package cmd
 
 import (
-	"InferenceProfiler/pkg/collecting"
-	"InferenceProfiler/pkg/exporting"
-	"InferenceProfiler/pkg/utils"
 	"context"
-	"flag"
-	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -15,43 +10,33 @@ import (
 )
 
 func Profiler(args []string) {
-	fs := flag.NewFlagSet("profiler", flag.ExitOnError)
-	cfg := utils.NewConfig()
-	applyFlags := utils.GetFlags(fs, cfg)
-	fs.Parse(args)
-	applyFlags()
+	ctx, cleanup := InitCmd("profiler", args)
+	defer cleanup()
 
+	cfg := ctx.Config
+
+	// Default to stream mode if neither batch nor stream specified
 	if !cfg.Batch && !cfg.Stream {
 		cfg.Stream = true
 	}
 
+	// Generate output filename if not specified
 	if cfg.OutputFile == "" {
-		timestamp := time.Now().Format("20060102_150405")
-		ext := exporting.GetExtension(cfg.Format)
 		mode := "profiler"
 		if cfg.Delta {
 			mode = "delta"
 		}
-		cfg.OutputFile = fmt.Sprintf("%s_%s%s", mode, timestamp, ext)
+		cfg.OutputFile = GenerateOutputFilename("", mode, cfg.Format)
 	}
-
-	manager := collecting.NewManager(cfg)
-	defer manager.Close()
-
-	static := &collecting.StaticMetrics{
-		UUID:     cfg.UUID,
-		Hostname: cfg.Hostname,
-	}
-	manager.CollectStatic(static)
 
 	// Create base context
-	ctx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// If duration is set, create a timeout context
 	if cfg.Duration > 0 {
 		var timeoutCancel context.CancelFunc
-		ctx, timeoutCancel = context.WithTimeout(ctx, time.Duration(cfg.Duration)*time.Millisecond)
+		runCtx, timeoutCancel = context.WithTimeout(runCtx, time.Duration(cfg.Duration)*time.Millisecond)
 		defer timeoutCancel()
 	}
 
@@ -66,19 +51,22 @@ func Profiler(args []string) {
 
 	// Delta mode: take initial snapshot, wait, take final snapshot, compute diff
 	if cfg.Delta {
-		runDeltaMode(ctx, manager, cfg)
+		profilerDeltaMode(runCtx, ctx)
 		return
 	}
 
 	// Regular continuous profiling (with optional duration limit)
 	if cfg.Batch {
-		runBatchMode(ctx, manager, cfg)
+		profilerBatchMode(runCtx, ctx)
 	} else {
-		runStreamMode(ctx, manager, cfg)
+		profilerStreamMode(runCtx, ctx)
 	}
 }
 
-func runDeltaMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
+func profilerDeltaMode(runCtx context.Context, ctx *CmdContext) {
+	cfg := ctx.Config
+	flatten := ShouldFlatten(cfg)
+
 	log.Printf("Delta profiler started")
 	log.Printf("  Output: %s", cfg.OutputFile)
 	log.Printf("  Format: %s", cfg.Format)
@@ -88,59 +76,34 @@ func runDeltaMode(ctx context.Context, manager *collecting.Manager, cfg *utils.C
 		log.Printf("  Duration: until Ctrl+C")
 	}
 
-	// Take initial snapshot
-	log.Println("Capturing initial snapshot...")
-	initialDynamic := &collecting.DynamicMetrics{}
-	initialRecord := manager.CollectDynamic(initialDynamic)
-	if !cfg.DisableFlatten {
-		initialRecord = exporting.FlattenRecord(initialRecord)
-	}
-	startTime := time.Now()
-
-	// Wait for context (either timeout from duration or signal)
-	if cfg.Duration > 0 {
-		log.Printf("Waiting %v for final snapshot...", time.Duration(cfg.Duration)*time.Millisecond)
-	} else {
-		log.Println("Waiting for Ctrl+C to capture final snapshot...")
-	}
-	<-ctx.Done()
-
-	// Take final snapshot
-	log.Println("Capturing final snapshot...")
-	finalDynamic := &collecting.DynamicMetrics{}
-	finalRecord := manager.CollectDynamic(finalDynamic)
-	if !cfg.DisableFlatten {
-		finalRecord = exporting.FlattenRecord(finalRecord)
-	}
-	elapsed := time.Since(startTime)
-
-	// Calculate delta
-	deltaRecord := exporting.DeltaRecord(initialRecord, finalRecord, elapsed.Milliseconds())
+	// Use common RunDelta which waits on context
+	capture := RunDelta(runCtx, ctx.Manager, flatten)
 
 	// Write output
 	log.Printf("Writing delta record to %s...", cfg.OutputFile)
-	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}); err != nil {
+	if err := SaveDelta(cfg.OutputFile, capture.DeltaRecord); err != nil {
 		log.Fatalf("Failed to write delta record: %v", err)
 	}
 
-	log.Printf("Delta profiling completed in %v", elapsed)
+	log.Printf("Delta profiling completed in %v", capture.Duration)
 
 	if cfg.Graphs {
 		generateGraphs(cfg.OutputFile, cfg.GraphDir)
 	}
 }
 
-func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
-	f, ok := exporting.Get(cfg.Format)
-	if !ok {
-		log.Fatalf("Unsupported format: %s", cfg.Format)
-	}
+func profilerStreamMode(runCtx context.Context, ctx *CmdContext) {
+	cfg := ctx.Config
+	flatten := ShouldFlatten(cfg)
 
-	writer := f.Writer()
-	if err := writer.Init(cfg.OutputFile); err != nil {
+	sc, err := NewStreamCollector(ctx.Manager, cfg.Format, cfg.OutputFile, flatten, cfg.Interval)
+	if err != nil {
 		log.Fatalf("Failed to initialize writer: %v", err)
 	}
-	defer writer.Close()
+	if sc == nil {
+		log.Fatalf("Unsupported format: %s", cfg.Format)
+	}
+	defer sc.Close()
 
 	log.Printf("Profiler started (stream mode)")
 	log.Printf("  Output: %s", cfg.OutputFile)
@@ -152,49 +115,22 @@ func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.
 		log.Printf("  Duration: until Ctrl+C")
 	}
 
-	ticker := time.NewTicker(time.Duration(cfg.Interval) * time.Millisecond)
-	defer ticker.Stop()
-
-	count := 0
 	start := time.Now()
+	count := sc.Run(runCtx)
+	elapsed := time.Since(start)
 
-	for {
-		select {
-		case <-ctx.Done():
-			writer.Flush()
-			elapsed := time.Since(start)
-			log.Printf("Collected %d records in %v (%.2f records/sec)",
-				count, elapsed, float64(count)/elapsed.Seconds())
+	log.Printf("Collected %d records in %v (%.2f records/sec)",
+		count, elapsed, float64(count)/elapsed.Seconds())
 
-			if cfg.Graphs {
-				generateGraphs(cfg.OutputFile, cfg.GraphDir)
-			}
-			return
-
-		case <-ticker.C:
-			dynamic := &collecting.DynamicMetrics{}
-			record := manager.CollectDynamic(dynamic)
-
-			// Check DisableFlatten (inverted)
-			if !cfg.DisableFlatten {
-				record = exporting.FlattenRecord(record)
-			}
-
-			if err := writer.Write(record); err != nil {
-				log.Printf("Write error: %v", err)
-				continue
-			}
-
-			count++
-			if count%100 == 0 {
-				writer.Flush()
-				log.Printf("Progress: %d records", count)
-			}
-		}
+	if cfg.Graphs {
+		generateGraphs(cfg.OutputFile, cfg.GraphDir)
 	}
 }
 
-func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
+func profilerBatchMode(runCtx context.Context, ctx *CmdContext) {
+	cfg := ctx.Config
+	flatten := ShouldFlatten(cfg)
+
 	log.Printf("Profiler started (batch mode)")
 	log.Printf("  Interval: %dms", cfg.Interval)
 	if cfg.Duration > 0 {
@@ -204,58 +140,21 @@ func runBatchMode(ctx context.Context, manager *collecting.Manager, cfg *utils.C
 	}
 	log.Println("  Collecting in memory, will write at end...")
 
-	ticker := time.NewTicker(time.Duration(cfg.Interval) * time.Millisecond)
-	defer ticker.Stop()
-
-	var records []exporting.Record
+	bc := NewBatchCollector(ctx.Manager, false, cfg.Interval) // Don't flatten during collection
 	start := time.Now()
+	bc.Run(runCtx)
+	elapsed := time.Since(start)
 
-	tmpFile := ""
-	if cfg.Cleanup {
-		tmpFile = cfg.OutputFile + ".tmp.jsonl"
-		defer func() {
-			if tmpFile != "" {
-				os.Remove(tmpFile)
-			}
-		}()
+	records := bc.Records()
+	log.Printf("Collected %d records in %v", len(records), elapsed)
+
+	log.Printf("Writing to %s...", cfg.OutputFile)
+	if err := SaveBatch(cfg.OutputFile, records, flatten); err != nil {
+		log.Fatalf("Failed to write records: %v", err)
 	}
+	log.Printf("Successfully wrote %d records", len(records))
 
-	for {
-		select {
-		case <-ctx.Done():
-			elapsed := time.Since(start)
-			log.Printf("Collected %d records in %v", len(records), elapsed)
-
-			log.Printf("Writing to %s...", cfg.OutputFile)
-			// Check DisableFlatten (inverted)
-			if err := writeRecordsBatch(cfg.OutputFile, cfg.Format, records, !cfg.DisableFlatten); err != nil {
-				log.Fatalf("Failed to write records: %v", err)
-			}
-			log.Printf("Successfully wrote %d records", len(records))
-
-			if cfg.Graphs {
-				generateGraphs(cfg.OutputFile, cfg.GraphDir)
-			}
-			return
-
-		case <-ticker.C:
-			dynamic := &collecting.DynamicMetrics{}
-			record := manager.CollectDynamic(dynamic)
-			records = append(records, record)
-
-			if len(records)%100 == 0 {
-				log.Printf("Progress: %d records (in memory)", len(records))
-			}
-		}
+	if cfg.Graphs {
+		generateGraphs(cfg.OutputFile, cfg.GraphDir)
 	}
-}
-
-func writeRecordsBatch(path, format string, records []exporting.Record, flatten bool) error {
-	if flatten {
-		for i := range records {
-			records[i] = exporting.FlattenRecord(records[i])
-		}
-	}
-
-	return exporting.SaveRecords(path, records)
 }

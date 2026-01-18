@@ -28,6 +28,7 @@ func main() {
 		cmd.Graph(args)
 	case "help", "-h", "--help":
 		printUsage()
+		os.Exit(0)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", command)
 		printUsage()
@@ -42,11 +43,12 @@ Usage:
   infpro <command> [flags]
 
 Commands:
-  profiler, pr    Continuous profiling until Ctrl+C
-  profile, p      Profile a command until completion
-  snapshot, ss    Capture a single metrics snapshot
-  serve, s        Start HTTP metrics server
-  graph, g        Generate graphs from data files
+  profiler, pr     Continuous profiling until Ctrl+C
+  profile, p       Profile a command until completion
+  snapshot, ss     Capture a single metrics snapshot
+  serve, s         Start HTTP metrics server
+  graph, g         Generate graphs from data files
+  version, v       Print version information
 
 Collection Flags:
   -concurrent          Enable concurrent collection

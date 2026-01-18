@@ -1,11 +1,9 @@
 package cmd
 
 import (
-	"InferenceProfiler/pkg/collecting"
 	"InferenceProfiler/pkg/exporting"
 	"InferenceProfiler/pkg/utils"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -24,31 +22,17 @@ type profileSession struct {
 
 // server holds the HTTP server state
 type server struct {
-	manager  *collecting.Manager
-	cfg      *utils.Config
+	ctx      *CmdContext
 	sessions map[string]*profileSession
 	mu       sync.RWMutex
 }
 
 func Serve(args []string) {
-	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	cfg := utils.NewConfig()
-	applyFlags := utils.GetFlags(fs, cfg)
-	fs.Parse(args)
-	applyFlags()
-
-	manager := collecting.NewManager(cfg)
-	defer manager.Close()
-
-	static := &collecting.StaticMetrics{
-		UUID:     cfg.UUID,
-		Hostname: cfg.Hostname,
-	}
-	manager.CollectStatic(static)
+	ctx, cleanup := InitCmd("serve", args)
+	defer cleanup()
 
 	srv := &server{
-		manager:  manager,
-		cfg:      cfg,
+		ctx:      ctx,
 		sessions: make(map[string]*profileSession),
 	}
 
@@ -69,7 +53,7 @@ func Serve(args []string) {
 	// Convenience endpoint for one-shot delta profiling
 	mux.HandleFunc("/profile/snapshot", srv.handleProfileSnapshot)
 
-	addr := fmt.Sprintf(":%d", cfg.Port)
+	addr := fmt.Sprintf(":%d", ctx.Config.Port)
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
@@ -95,19 +79,14 @@ func Serve(args []string) {
 }
 
 func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
-	dynamic := &collecting.DynamicMetrics{}
-	record := s.manager.CollectDynamic(dynamic)
-
-	if !s.cfg.DisableFlatten {
-		record = exporting.FlattenRecord(record)
-	}
+	record := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(record)
 }
 
 func (s *server) handleStatic(w http.ResponseWriter, r *http.Request) {
-	staticRecord := s.manager.GetStaticRecord()
+	staticRecord := s.ctx.Manager.GetStaticRecord()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(staticRecord)
 }
@@ -128,9 +107,9 @@ func (s *server) handleInfo(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	info := map[string]interface{}{
-		"collectors":      s.manager.CollectorNames(),
-		"concurrent":      s.cfg.Concurrent,
-		"flatten":         !s.cfg.DisableFlatten,
+		"collectors":      s.ctx.Manager.CollectorNames(),
+		"concurrent":      s.ctx.Config.Concurrent,
+		"flatten":         ShouldFlatten(s.ctx.Config),
 		"active_sessions": activeSessions,
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -147,11 +126,7 @@ func (s *server) handleProfileStart(w http.ResponseWriter, r *http.Request) {
 	sessionID := utils.GenerateUUID()
 
 	// Capture initial snapshot
-	dynamic := &collecting.DynamicMetrics{}
-	initialRecord := s.manager.CollectDynamic(dynamic)
-	if !s.cfg.DisableFlatten {
-		initialRecord = exporting.FlattenRecord(initialRecord)
-	}
+	initialRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
 
 	// Store session
 	s.mu.Lock()
@@ -204,16 +179,11 @@ func (s *server) handleProfileStop(w http.ResponseWriter, r *http.Request) {
 	s.mu.Unlock()
 
 	// Capture final snapshot
-	dynamic := &collecting.DynamicMetrics{}
-	finalRecord := s.manager.CollectDynamic(dynamic)
-	if !s.cfg.DisableFlatten {
-		finalRecord = exporting.FlattenRecord(finalRecord)
-	}
-
+	finalRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
 	elapsed := time.Since(session.startTime)
 
 	// Calculate delta
-	deltaRecord := exporting.DeltaRecord(session.initialRecord, finalRecord, elapsed.Milliseconds())
+	deltaRecord := ComputeDelta(session.initialRecord, finalRecord, elapsed.Milliseconds())
 
 	response := map[string]interface{}{
 		"session_id":  sessionID,
@@ -251,16 +221,11 @@ func (s *server) handleProfileDelta(w http.ResponseWriter, r *http.Request) {
 	s.mu.RUnlock()
 
 	// Capture current snapshot (without stopping session)
-	dynamic := &collecting.DynamicMetrics{}
-	currentRecord := s.manager.CollectDynamic(dynamic)
-	if !s.cfg.DisableFlatten {
-		currentRecord = exporting.FlattenRecord(currentRecord)
-	}
-
+	currentRecord := CollectSnapshot(s.ctx.Manager, ShouldFlatten(s.ctx.Config))
 	elapsed := time.Since(startTime)
 
 	// Calculate delta
-	deltaRecord := exporting.DeltaRecord(initialRecord, currentRecord, elapsed.Milliseconds())
+	deltaRecord := ComputeDelta(initialRecord, currentRecord, elapsed.Milliseconds())
 
 	response := map[string]interface{}{
 		"session_id":  sessionID,
@@ -324,7 +289,7 @@ func (s *server) handleProfileSnapshot(w http.ResponseWriter, r *http.Request) {
 
 	// Get duration from query parameter (default to interval from config)
 	durationStr := r.URL.Query().Get("duration_ms")
-	duration := time.Duration(s.cfg.Interval) * time.Millisecond
+	duration := time.Duration(s.ctx.Config.Interval) * time.Millisecond
 
 	if durationStr != "" {
 		durationMs, err := strconv.ParseInt(durationStr, 10, 64)
@@ -335,12 +300,10 @@ func (s *server) handleProfileSnapshot(w http.ResponseWriter, r *http.Request) {
 		duration = time.Duration(durationMs) * time.Millisecond
 	}
 
+	flatten := ShouldFlatten(s.ctx.Config)
+
 	// Capture initial snapshot
-	dynamic := &collecting.DynamicMetrics{}
-	initialRecord := s.manager.CollectDynamic(dynamic)
-	if !s.cfg.DisableFlatten {
-		initialRecord = exporting.FlattenRecord(initialRecord)
-	}
+	initialRecord := CollectSnapshot(s.ctx.Manager, flatten)
 	startTime := time.Now()
 
 	// Wait for duration
@@ -349,16 +312,11 @@ func (s *server) handleProfileSnapshot(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Capture final snapshot
-	finalDynamic := &collecting.DynamicMetrics{}
-	finalRecord := s.manager.CollectDynamic(finalDynamic)
-	if !s.cfg.DisableFlatten {
-		finalRecord = exporting.FlattenRecord(finalRecord)
-	}
-
+	finalRecord := CollectSnapshot(s.ctx.Manager, flatten)
 	elapsed := time.Since(startTime)
 
 	// Calculate delta
-	deltaRecord := exporting.DeltaRecord(initialRecord, finalRecord, elapsed.Milliseconds())
+	deltaRecord := ComputeDelta(initialRecord, finalRecord, elapsed.Milliseconds())
 
 	response := map[string]interface{}{
 		"duration_ms": elapsed.Milliseconds(),

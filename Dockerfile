@@ -32,12 +32,12 @@ timeout 60s sh -c "until curl -s localhost:8000/health; do sleep 1; done" \n\
 exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-CMD ["infpro", "profile", "--output", "/profiler-output/delta.jsonl", "--delta", "--graphs", "--", \
+CMD ["infpro", "profile", "--no-flatten", "--output", "/profiler-output/delta.jsonl", "--dynamic", "--delta", "--graphs", "--", \
      "vllm", "bench", "serve", \
      "--backend", "vllm", \
      "--model", "/app/model", \
      "--dataset-name", "random", \
-     "--num-prompts", "10000", \
+     "--num-prompts", "1000", \
      "--request-rate", "inf", \
      "--ready-check-timeout-sec", "0", \
      "--endpoint", "http://localhost:8000/v1/completions"]
