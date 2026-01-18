@@ -131,14 +131,11 @@ docker-run: docker-build ##@ Run container with GPU support (profile mode)
 
 docker-clean: ##@ Remove Docker images
 	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
-	docker rmi $(DOCKER_IMAGE):serve || true
-	docker rmi $(DOCKER_IMAGE):run || true
-	docker rmi $(DOCKER_IMAGE):sysbench || true
 
 get-model: ##@ Download HuggingFace model
 	@echo "--- Downloading Model: $(MODEL_ID) ---"
 	@mkdir -p $(MODEL_DIR)
-	huggingface-cli download $(MODEL_ID) --local-dir $(MODEL_DIR)
+	hf download $(MODEL_ID) --local-dir $(MODEL_DIR)
 	@echo "--- Download Complete ---"
 
 test-vllm: ##@ Send test requests to local vLLM server
