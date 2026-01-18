@@ -122,6 +122,28 @@ func shouldSkipDelta(key string, val interface{}) bool {
 	if _, ok := val.(bool); ok {
 		return true
 	}
+	// Skip flattened process fields - delta on individual process metrics is meaningless
+	// because process indices can change between snapshots
+	if isProcessField(key) {
+		return true
+	}
+	return false
+}
+
+// isProcessField returns true for fields that represent per-process data.
+// These fields shouldn't have delta computed because process lists change between snapshots.
+func isProcessField(key string) bool {
+	// Match patterns like:
+	// - proc0PId, proc1PName, proc12PCmdline (OS processes)
+	// - nvidia0proc0Pid, nvidia0proc1UsedMemoryBytes (GPU processes)
+	// - nvidia0procUtil0SmUtil (GPU process utilization)
+
+	// Check for "proc" followed by a digit anywhere in the key
+	for i := 0; i < len(key)-4; i++ {
+		if key[i:i+4] == "proc" && i+4 < len(key) && key[i+4] >= '0' && key[i+4] <= '9' {
+			return true
+		}
+	}
 	return false
 }
 

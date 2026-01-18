@@ -95,7 +95,7 @@ func flattenGPUs(gpus interface{}, result Record, mode FlattenMode) {
 
 		index := 0
 		if idx, ok := gpuMap["index"]; ok {
-			index = idx.(int)
+			index = toInt(idx)
 		}
 		prefix := fmt.Sprintf("nvidia%d", index)
 
@@ -261,6 +261,20 @@ func toMap(v interface{}) map[string]interface{} {
 	}
 
 	return nil
+}
+
+// toInt converts an interface to int.
+func toInt(v interface{}) int {
+	switch n := v.(type) {
+	case int:
+		return n
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	default:
+		return 0
+	}
 }
 
 // capitalizeFirst capitalizes the first letter of a string.
