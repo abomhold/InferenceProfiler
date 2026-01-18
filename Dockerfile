@@ -11,8 +11,7 @@ ARG MODEL_ID="meta-llama/Llama-3.2-1B-Instruct"
 ARG MODEL_PATH=/app/model
 
 RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl python3-pip && \
-    pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext huggingface_hub
-RUN huggingface-cli download ${MODEL_ID} --local-dir ${MODEL_PATH} --local-dir-use-symlinks False
+    pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
 
 COPY --from=builder /app/profiler /usr/local/bin/profiler
 RUN echo '#!/bin/sh \n\
