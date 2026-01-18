@@ -109,25 +109,15 @@ docker-build: ##@ Build Docker image (profile mode)
 		-t $(DOCKER_IMAGE):$(DOCKER_TAG) \
 		.
 
-docker-run: docker-build ##@ Run container with GPU support (profile mode)
+docker-run: docker-build get-model ##@ Run container with GPU support (profile mode)
 	@echo "--- Running Docker Container ---"
 	@mkdir -p $(OUTPUT_DIR)
-	@if [ -d "$(MODEL_DIR)" ]; then \
-		echo "Mounting model from $(MODEL_DIR)..."; \
-		docker run --rm \
-			--gpus all \
-			-p "8000:8000" \
-			-v $(OUTPUT_DIR):/output \
-			-v $(MODEL_DIR):/app/model \
-			$(DOCKER_IMAGE):$(DOCKER_TAG); \
-	else \
-		echo "No local model at $(MODEL_DIR). Running without mount..."; \
-		docker run --rm \
-			--gpus all \
-			-p "8000:8000" \
-			-v $(OUTPUT_DIR):/output \
-			$(DOCKER_IMAGE):$(DOCKER_TAG); \
-	fi
+	docker run --rm \
+		--gpus all \
+		-p "8000:8000" \
+		-v $(OUTPUT_DIR):/output \
+		-v $(MODEL_DIR):/app/model \
+		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 docker-clean: ##@ Remove Docker images
 	docker rmi $(DOCKER_IMAGE):$(DOCKER_TAG) || true
