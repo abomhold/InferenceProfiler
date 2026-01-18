@@ -4,30 +4,15 @@ import (
 	"InferenceProfiler/pkg/utils"
 	"encoding/json"
 	"fmt"
-	"os/exec"
+	"log"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
-	"github.com/beevik/ntp"
-)
-
-const (
-	procStat      = "/proc/stat"
-	procCPUInfo   = "/proc/cpuinfo"
-	procLoadavg   = "/proc/loadavg"
-	procMeminfo   = "/proc/meminfo"
-	procVmstat    = "/proc/vmstat"
-	procDiskstats = "/proc/diskstats"
-	procNetDev    = "/proc/net/dev"
-	sysCPUPath    = "/sys/devices/system/cpu"
-	sysBlockPath  = "/sys/class/block"
-	sysNetPath    = "/sys/class/net"
-
-	nanosecondsPerSec = 1_000_000_000
-	jiffiesPerSecond  = 100
+	"golang.org/x/sys/unix"
 )
 
 var diskPattern = regexp.MustCompile(`^(sd[a-z]+|nvme\d+n\d+|vd[a-z]+|xvd[a-z]+|hd[a-z]+)$`)
@@ -52,8 +37,8 @@ func (c *CPUCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, tStat, _ := utils.FileLines(procStat)
-	mult := int64(nanosecondsPerSec / jiffiesPerSecond)
+	lines, tStat, _ := utils.FileLines("/proc/stat")
+	mult := int64(time.Nanosecond / jiffiesPerSecond)
 
 	for _, line := range lines {
 		fields := strings.Fields(line)
@@ -61,7 +46,7 @@ func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
 			continue
 		}
 
-		if fields[0] == "cpu" && len(fields) >= 9 {
+		if fields[0] == ("cpu") && len(fields) >= 9 {
 			d.CPUTimeUserMode = utils.ParseInt64(fields[1]) * mult
 			d.CPUTimeUserModeT = tStat
 			d.CPUNice = utils.ParseInt64(fields[2]) * mult
@@ -80,7 +65,7 @@ func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
 			d.CPUStealT = tStat
 			d.CPUTime = d.CPUTimeUserMode + d.CPUTimeKernelMode
 			d.CPUTimeT = tStat
-		} else if fields[0] == "ctxt" && len(fields) >= 2 {
+		} else if fields[0] == ("ctxt") && len(fields) >= 2 {
 			d.CPUContextSwitches = utils.ParseInt64(fields[1])
 			d.CPUContextSwitchesT = tStat
 		}
@@ -91,22 +76,22 @@ func (c *CPUCollector) CollectDynamic(d *DynamicMetrics) {
 }
 
 func getCPUType() string {
-	lines, _, _ := utils.FileLines(procCPUInfo)
+	lines, _, _ := utils.FileLines("/proc/cpuinfo")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "model name") {
-			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+			if parts := strings.SplitN(line, fieldSeparatorColon, 2); len(parts) == 2 {
 				return strings.TrimSpace(parts[1])
 			}
 		}
 	}
-	return "unknown"
+	return unknownValue
 }
 
 func getCPUCache() string {
 	result := make(map[string]int64)
 	seen := make(map[string]bool)
 
-	dirs, _ := filepath.Glob(filepath.Join(sysCPUPath, "cpu*/cache/index*"))
+	dirs, _ := filepath.Glob(filepath.Join("/sys/devices/system/cpu", "cpu*/cache/index*"))
 	for _, dir := range dirs {
 		level, _, _ := utils.File(filepath.Join(dir, "level"))
 		cType, _, _ := utils.File(filepath.Join(dir, "type"))
@@ -124,13 +109,13 @@ func getCPUCache() string {
 		fmt.Sscanf(sizeStr, "%d%c", &size, &unit)
 		switch unit {
 		case 'K':
-			size *= 1024
+			size *= bytesPerKilobyte
 		case 'M':
-			size *= 1024 * 1024
+			size *= bytesPerMegaByte
 		}
 
 		suffix := ""
-		if level == "1" {
+		if level == ("1") {
 			switch cType {
 			case "Data":
 				suffix = "d"
@@ -144,49 +129,55 @@ func getCPUCache() string {
 	var parts []string
 	for _, label := range []string{"L1d", "L1i", "L2", "L3", "L4"} {
 		if size, ok := result[label]; ok && size > 0 {
-			if size >= 1048576 {
-				parts = append(parts, fmt.Sprintf("%s:%dM", label, size/1048576))
+			if size >= bytesPerMegaByte {
+				parts = append(parts, fmt.Sprintf("%s:%dM", label, size/bytesPerMegaByte))
 			} else {
-				parts = append(parts, fmt.Sprintf("%s:%dK", label, size/1024))
+				parts = append(parts, fmt.Sprintf("%s:%dK", label, size/bytesPerKilobyte))
 			}
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(parts, fieldSeparatorSpace)
 }
 
 func getKernelInfo() string {
-	out, err := exec.Command("uname", "-a").Output()
-	if err != nil {
+	var uname syscall.Utsname
+	if err := syscall.Uname(&uname); err != nil {
+		log.Print("Failed to get kernel info: ", err)
 		return ""
 	}
-	return strings.TrimSpace(string(out))
+
+	var fields []string
+	fields = append(fields, utils.Int8SliceToString(uname.Sysname[:]))
+	fields = append(fields, utils.Int8SliceToString(uname.Nodename[:]))
+	fields = append(fields, utils.Int8SliceToString(uname.Release[:]))
+	fields = append(fields, utils.Int8SliceToString(uname.Version[:]))
+	fields = append(fields, utils.Int8SliceToString(uname.Machine[:]))
+	return strings.Join(fields, " ")
 }
 
-// Replace the entire getNTPInfo and all helper functions (getLinuxNTPInfo, etc)
-// with this single function.
 func getNTPInfo() (bool, float64, float64) {
-	return false, 0, 0
-	opts := ntp.QueryOptions{
-		Timeout: 5 * time.Second,
-	}
-
-	response, err := ntp.QueryWithOptions("pool.ntp.org", opts)
+	var buf unix.Timex
+	state, err := unix.Adjtimex(&buf)
 	if err != nil {
 		return false, 0, 0
 	}
 
-	if response.Stratum == 0 || response.Stratum >= 16 {
-		return false, 0, 0
+	synced := state == unix.TIME_OK || state == unix.TIME_INS || state == unix.TIME_DEL
+
+	var offset float64
+	if buf.Status&unix.STA_NANO != 0 {
+		offset = float64(buf.Offset) / float64(time.Nanosecond)
+	} else {
+		offset = float64(buf.Offset) / float64(time.Microsecond)
 	}
 
-	offset := response.ClockOffset.Seconds()
-	maxErr := (response.RootDelay.Seconds() / 2) + response.RootDispersion.Seconds()
+	maxErr := float64(buf.Maxerror) / float64(time.Microsecond)
 
-	return true, offset, maxErr
+	return synced, offset, maxErr
 }
 
 func getLoadAvg() (float64, int64) {
-	val, ts, _ := utils.File(procLoadavg)
+	val, ts, _ := utils.File("/proc/loadavg")
 	if parts := strings.Fields(val); len(parts) > 0 {
 		return utils.ParseFloat64(parts[0]), ts
 	}
@@ -195,7 +186,7 @@ func getLoadAvg() (float64, int64) {
 
 func getCPUFreq() (float64, int64) {
 	ts := utils.GetTimestamp()
-	files, err := filepath.Glob(filepath.Join(sysCPUPath, "cpu*/cpufreq/scaling_cur_freq"))
+	files, err := filepath.Glob(filepath.Join("/sys/devices/system/cpu", "cpu*/cpufreq/scaling_cur_freq"))
 	if err == nil && len(files) > 0 {
 		var total, count int64
 		for _, f := range files {
@@ -205,14 +196,14 @@ func getCPUFreq() (float64, int64) {
 			}
 		}
 		if count > 0 {
-			return float64(total) / float64(count) / 1000.0, ts
+			return float64(total) / float64(count) / float64(bytesPerKilobyte), ts
 		}
 	}
 
-	lines, ts, _ := utils.FileLines(procCPUInfo)
+	lines, ts, _ := utils.FileLines("/proc/cpuinfo")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "cpu MHz") {
-			if parts := strings.SplitN(line, ":", 2); len(parts) == 2 {
+			if parts := strings.SplitN(line, fieldSeparatorColon, 2); len(parts) == 2 {
 				return utils.ParseFloat64(parts[1]), ts
 			}
 		}
@@ -232,14 +223,14 @@ func (c *MemoryCollector) Name() string { return "Memory" }
 func (c *MemoryCollector) Close() error { return nil }
 
 func (c *MemoryCollector) CollectStatic(s *StaticMetrics) {
-	lines, _, _ := utils.FileLines(procMeminfo)
+	lines, _, _ := utils.FileLines("/proc/meminfo")
 	for _, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
+		parts := strings.SplitN(line, fieldSeparatorColon, 2)
 		if len(parts) != 2 {
 			continue
 		}
 		key := strings.TrimSpace(parts[0])
-		val := utils.ParseInt64(strings.Fields(parts[1])[0]) * 1024
+		val := utils.ParseInt64(strings.Fields(parts[1])[0]) * bytesPerKilobyte
 
 		switch key {
 		case "MemTotal":
@@ -251,9 +242,9 @@ func (c *MemoryCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := utils.FileLines(procMeminfo)
+	lines, ts, _ := utils.FileLines("/proc/meminfo")
 	for _, line := range lines {
-		parts := strings.SplitN(line, ":", 2)
+		parts := strings.SplitN(line, fieldSeparatorColon, 2)
 		if len(parts) != 2 {
 			continue
 		}
@@ -262,7 +253,7 @@ func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
 		if len(fields) == 0 {
 			continue
 		}
-		val := utils.ParseInt64(fields[0]) * 1024
+		val := utils.ParseInt64(fields[0]) * bytesPerKilobyte
 
 		switch key {
 		case "MemTotal":
@@ -289,7 +280,7 @@ func (c *MemoryCollector) CollectDynamic(d *DynamicMetrics) {
 		d.MemoryPercentT = ts
 	}
 
-	vmLines, vmTs, _ := utils.FileLines(procVmstat)
+	vmLines, vmTs, _ := utils.FileLines("/proc/vmstat")
 	for _, line := range vmLines {
 		fields := strings.Fields(line)
 		if len(fields) < 2 {
@@ -324,7 +315,7 @@ func (c *DiskCollector) CollectStatic(s *StaticMetrics) {
 	}
 
 	var disks []diskInfo
-	entries, _ := filepath.Glob(filepath.Join(sysBlockPath, "*"))
+	entries, _ := filepath.Glob(filepath.Join("/sys/class/block", "*"))
 	for _, entry := range entries {
 		name := filepath.Base(entry)
 		if !diskPattern.MatchString(name) {
@@ -336,9 +327,9 @@ func (c *DiskCollector) CollectStatic(s *StaticMetrics) {
 			di.Model = model
 		}
 		if size, _, err := utils.FileInt(filepath.Join(entry, "size")); err == nil {
-			di.Size = size * 512
+			di.Size = size * sectorBytes
 		}
-		if rot, _, _ := utils.File(filepath.Join(entry, "queue/rotational")); rot == "1" {
+		if rot, _, _ := utils.File(filepath.Join(entry, "queue/rotational")); rot == ("1") {
 			di.Rotational = true
 		}
 		disks = append(disks, di)
@@ -351,7 +342,7 @@ func (c *DiskCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *DiskCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := utils.FileLines(procDiskstats)
+	lines, ts, _ := utils.FileLines("/proc/diskstats")
 	for _, line := range lines {
 		fields := strings.Fields(line)
 		if len(fields) < 14 {
@@ -376,8 +367,8 @@ func (c *DiskCollector) CollectDynamic(d *DynamicMetrics) {
 		d.DiskWeightedIOTime += utils.ParseInt64(fields[13])
 	}
 
-	d.DiskReadBytes = d.DiskSectorReads * 512
-	d.DiskWriteBytes = d.DiskSectorWrites * 512
+	d.DiskReadBytes = d.DiskSectorReads * sectorBytes
+	d.DiskWriteBytes = d.DiskSectorWrites * sectorBytes
 
 	d.DiskSuccessfulReadsT = ts
 	d.DiskMergedReadsT = ts
@@ -414,15 +405,15 @@ func (c *NetworkCollector) CollectStatic(s *StaticMetrics) {
 	}
 
 	var ifaces []ifaceInfo
-	entries, _ := filepath.Glob(filepath.Join(sysNetPath, "*"))
+	entries, _ := filepath.Glob(filepath.Join("/sys/class/net", "*"))
 	for _, entry := range entries {
 		name := filepath.Base(entry)
-		if name == "lo" {
+		if name == ("lo") {
 			continue
 		}
 
 		info := ifaceInfo{Name: name}
-		if mac, _, _ := utils.File(filepath.Join(entry, "address")); mac != "" && mac != "00:00:00:00:00:00" {
+		if mac, _, _ := utils.File(filepath.Join(entry, "address")); mac != "" && mac != ("00:00:00:00:00:00") {
 			info.MAC = mac
 		}
 		if mtu, _, err := utils.FileInt(filepath.Join(entry, "mtu")); err == nil {
@@ -441,18 +432,18 @@ func (c *NetworkCollector) CollectStatic(s *StaticMetrics) {
 }
 
 func (c *NetworkCollector) CollectDynamic(d *DynamicMetrics) {
-	lines, ts, _ := utils.FileLines(procNetDev)
+	lines, ts, _ := utils.FileLines("/proc/net/dev")
 	for _, line := range lines {
-		if !strings.Contains(line, ":") {
+		if !strings.Contains(line, fieldSeparatorColon) {
 			continue
 		}
-		parts := strings.SplitN(line, ":", 2)
+		parts := strings.SplitN(line, fieldSeparatorColon, 2)
 		if len(parts) != 2 {
 			continue
 		}
 
 		name := strings.TrimSpace(parts[0])
-		if name == "lo" {
+		if name == ("lo") {
 			continue
 		}
 

@@ -82,7 +82,7 @@ type JSONLWriter struct {
 	mu     sync.Mutex
 }
 
-func (w *JSONLWriter) Init(path string, _ *Schema) error {
+func (w *JSONLWriter) Init(path string) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)

@@ -33,7 +33,7 @@ func NewExporter(path, format string) (*Exporter, error) {
 
 	// Create writer
 	writer := f.Writer()
-	if err := writer.Init(path, nil); err != nil {
+	if err := writer.Init(path); err != nil {
 		return nil, fmt.Errorf("failed to initialize writer: %w", err)
 	}
 

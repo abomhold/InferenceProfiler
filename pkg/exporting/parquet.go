@@ -147,7 +147,7 @@ type ParquetWriter struct {
 	mu         sync.Mutex
 }
 
-func (w *ParquetWriter) Init(path string, schema *Schema) error {
+func (w *ParquetWriter) Init(path string) error {
 	w.path = path
 	w.buffer = make([]parquet.Row, 0, ParquetBatchSize)
 	return nil

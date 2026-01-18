@@ -204,7 +204,7 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 	}
 
 	if pci, ret := device.GetPciInfo(); errors.Is(ret, nvml.SUCCESS) {
-		gpu.PciBusId = int8SliceToString(pci.BusId[:])
+		gpu.PciBusId = utils.Int8SliceToString(pci.BusId[:])
 		gpu.PciDeviceId = pci.PciDeviceId
 		gpu.PciSubsystemId = pci.PciSubSystemId
 	}
@@ -275,7 +275,7 @@ func (n *NvidiaCollector) collectDeviceStatic(device nvml.Device, index int) GPU
 
 func countActiveNvLinks(device nvml.Device) int {
 	count := 0
-	for link := 0; link < utils.MaxNvLinks; link++ {
+	for link := 0; link < maxNvlinks; link++ {
 		if _, ret := device.GetNvLinkState(link); !errors.Is(ret, nvml.SUCCESS) {
 			break
 		}
@@ -525,7 +525,7 @@ func (n *NvidiaCollector) collectNvLinkMetrics(device nvml.Device, gpu *GPUDynam
 	var bandwidths []NvLinkBandwidth
 	var linkErrors []NvLinkErrors
 
-	for link := 0; link < utils.MaxNvLinks; link++ {
+	for link := 0; link < maxNvlinks; link++ {
 		state, ret := device.GetNvLinkState(link)
 		if !errors.Is(ret, nvml.SUCCESS) || state != nvml.FEATURE_ENABLED {
 			break
@@ -650,15 +650,4 @@ func computeModeToString(mode nvml.ComputeMode) string {
 		nvml.COMPUTEMODE_PROHIBITED:        "Prohibited",
 		nvml.COMPUTEMODE_EXCLUSIVE_PROCESS: "ExclusiveProcess",
 	}, "ComputeMode")
-}
-
-func int8SliceToString(b []int8) string {
-	buf := make([]byte, 0, len(b))
-	for _, c := range b {
-		if c == 0 {
-			break
-		}
-		buf = append(buf, byte(c))
-	}
-	return string(buf)
 }

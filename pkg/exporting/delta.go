@@ -53,15 +53,15 @@ func DeltaRecord(initial, final Record, durationMs int64) Record {
 
 func computeDelta(initial, final interface{}) (interface{}, bool) {
 	if initInt, ok := utils.ToInt64Ok(initial); ok {
-		finalInt := utils.ToInt64(final)
-		return finalInt - initInt, true
+		if finalInt, ok := utils.ToInt64Ok(final); ok {
+			return finalInt - initInt, true
+		}
 	}
 
 	if initFloat, ok := utils.ToFloat64Ok(initial); ok {
-		finalFloat := utils.ToFloat64(final)
-		return finalFloat - initFloat, true
-
+		if finalFloat, ok := utils.ToFloat64Ok(final); ok {
+			return finalFloat - initFloat, true
+		}
 	}
-
 	return nil, false
 }

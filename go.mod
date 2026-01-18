@@ -4,8 +4,8 @@ go 1.24.9
 
 require (
 	github.com/NVIDIA/go-nvml v0.12.4-0
-	github.com/beevik/ntp v1.5.0
 	github.com/parquet-go/parquet-go v0.26.4
+	golang.org/x/sys v0.38.0
 	gonum.org/v1/plot v0.16.0
 )
 
@@ -24,9 +24,8 @@ require (
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	golang.org/x/image v0.25.0 // indirect
-	golang.org/x/net v0.44.0 // indirect
-	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/text v0.29.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )

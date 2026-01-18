@@ -7,13 +7,9 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 )
-
-func init() {
-	Register(&CSVFormat{})
-	Register(&TSVFormat{})
-}
 
 // CSVFormat handles CSV files.
 type CSVFormat struct{}
@@ -39,6 +35,7 @@ type DelimitedReader struct {
 	delimiter rune
 }
 
+// Open opens the file and reads the header row.
 func (r *DelimitedReader) Open(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
@@ -47,26 +44,29 @@ func (r *DelimitedReader) Open(path string) error {
 	r.file = file
 	r.reader = csv.NewReader(file)
 	r.reader.Comma = r.delimiter
-	r.reader.FieldsPerRecord = -1 // Allow variable field counts
+	r.reader.FieldsPerRecord = -1
 	r.reader.LazyQuotes = true
 
-	// Read header row
 	header, err := r.reader.Read()
 	if err != nil {
-		r.file.Close()
+		_ = r.file.Close()
 		return fmt.Errorf("failed to read header: %w", err)
 	}
 	r.header = header
 	return nil
 }
 
+// Read parses all records from the file.
 func (r *DelimitedReader) Read() ([]Record, error) {
 	var records []Record
 
 	for {
 		row, err := r.reader.Read()
 		if err != nil {
-			break // EOF or error
+			if err.Error() == "EOF" {
+				break
+			}
+			return nil, err
 		}
 		records = append(records, r.rowToRecord(row))
 	}
@@ -83,17 +83,19 @@ func (r *DelimitedReader) rowToRecord(row []string) Record {
 		}
 		key := r.header[i]
 
-		// Try to parse as number or bool
 		if f, err := strconv.ParseFloat(val, 64); err == nil {
-			// Check if it's actually an integer
-			if i64, err := strconv.ParseInt(val, 10, 64); err == nil {
-				record[key] = i64
-			} else {
+			if strings.Contains(val, ".") {
 				record[key] = f
+			} else {
+				if i64, err := strconv.ParseInt(val, 10, 64); err == nil {
+					record[key] = i64
+				} else {
+					record[key] = f
+				}
 			}
-		} else if val == "true" || val == "True" || val == "TRUE" {
+		} else if strings.EqualFold(val, "true") {
 			record[key] = true
-		} else if val == "false" || val == "False" || val == "FALSE" {
+		} else if strings.EqualFold(val, "false") {
 			record[key] = false
 		} else {
 			record[key] = val
@@ -103,6 +105,7 @@ func (r *DelimitedReader) rowToRecord(row []string) Record {
 	return record
 }
 
+// Close closes the underlying file handle.
 func (r *DelimitedReader) Close() error {
 	if r.file != nil {
 		return r.file.Close()
@@ -121,7 +124,8 @@ type DelimitedWriter struct {
 	mu        sync.Mutex
 }
 
-func (w *DelimitedWriter) Init(path string, schema *Schema) error {
+// Init creates the file and prepares the writer.
+func (w *DelimitedWriter) Init(path string) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
@@ -132,27 +136,32 @@ func (w *DelimitedWriter) Init(path string, schema *Schema) error {
 	w.writer = csv.NewWriter(file)
 	w.writer.Comma = w.delimiter
 
-	// If schema provided, write header immediately
-	if schema != nil && len(schema.Columns) > 0 {
-		w.header = make([]string, len(schema.Columns))
-		for i, col := range schema.Columns {
-			w.header[i] = col.Name
-		}
-		if err := w.writer.Write(w.header); err != nil {
-			w.file.Close()
-			return fmt.Errorf("failed to write header: %w", err)
-		}
-		w.headerSet = true
-	}
-
 	return nil
 }
 
+// Write writes a single record to the file.
 func (w *DelimitedWriter) Write(record Record) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// Initialize header from first record if not set
+	return w.writeRow(record)
+}
+
+// WriteBatch writes multiple records to the file efficiently.
+func (w *DelimitedWriter) WriteBatch(records []Record) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	for i, r := range records {
+		if err := w.writeRow(r); err != nil {
+			return fmt.Errorf("failed to write record %d: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// writeRow handles the internal writing logic without locking.
+func (w *DelimitedWriter) writeRow(record Record) error {
 	if !w.headerSet {
 		w.header = w.extractSortedKeys(record)
 		if err := w.writer.Write(w.header); err != nil {
@@ -161,7 +170,6 @@ func (w *DelimitedWriter) Write(record Record) error {
 		w.headerSet = true
 	}
 
-	// Build row in header order
 	row := make([]string, len(w.header))
 	for i, key := range w.header {
 		if val, ok := record[key]; ok {
@@ -172,19 +180,10 @@ func (w *DelimitedWriter) Write(record Record) error {
 	if err := w.writer.Write(row); err != nil {
 		return fmt.Errorf("failed to write row: %w", err)
 	}
-
 	return nil
 }
 
-func (w *DelimitedWriter) WriteBatch(records []Record) error {
-	for i, r := range records {
-		if err := w.Write(r); err != nil {
-			return fmt.Errorf("failed to write record %d: %w", i, err)
-		}
-	}
-	return nil
-}
-
+// Flush writes any buffered data to the underlying io.Writer.
 func (w *DelimitedWriter) Flush() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -196,8 +195,12 @@ func (w *DelimitedWriter) Flush() error {
 	return nil
 }
 
+// Close flushes the buffer and closes the file.
 func (w *DelimitedWriter) Close() error {
 	if err := w.Flush(); err != nil {
+		if w.file != nil {
+			_ = w.file.Close()
+		}
 		return err
 	}
 	if w.file != nil {
@@ -206,6 +209,7 @@ func (w *DelimitedWriter) Close() error {
 	return nil
 }
 
+// Path returns the file path.
 func (w *DelimitedWriter) Path() string {
 	return w.path
 }

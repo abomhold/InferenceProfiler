@@ -151,7 +151,7 @@ func profileDeltaMode(manager *collecting.Manager, cfg *utils.Config, targetCmd 
 
 	// Write output
 	log.Printf("Writing delta record to %s...", cfg.OutputFile)
-	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}, nil); err != nil {
+	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}); err != nil {
 		log.Fatalf("Failed to write delta record: %v", err)
 	}
 
@@ -169,7 +169,7 @@ func profileDeltaMode(manager *collecting.Manager, cfg *utils.Config, targetCmd 
 func profileStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.Config) {
 	f, _ := exporting.Get(cfg.Format)
 	writer := f.Writer()
-	if err := writer.Init(cfg.OutputFile, nil); err != nil {
+	if err := writer.Init(cfg.OutputFile); err != nil {
 		log.Printf("Writer init error: %v", err)
 		return
 	}

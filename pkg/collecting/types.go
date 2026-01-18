@@ -10,34 +10,29 @@ type Collector interface {
 
 // StaticMetrics contains all static system information collected once at startup.
 type StaticMetrics struct {
-	UUID     string `json:"uuid,omitempty"`
-	VMID     string `json:"vId,omitempty"`
-	Hostname string `json:"vHostname,omitempty"`
-	BootTime int64  `json:"vBootTime,omitempty"`
-
-	NumProcessors       int     `json:"vNumProcessors"`
-	CPUType             string  `json:"vCpuType"`
-	CPUCache            string  `json:"vCpuCache"`
-	KernelInfo          string  `json:"vKernelInfo"`
-	TimeSynced          bool    `json:"vTimeSynced"`
-	TimeOffsetSeconds   float64 `json:"vTimeOffsetSeconds"`
-	TimeMaxErrorSeconds float64 `json:"vTimeMaxErrorSeconds"`
-
-	MemoryTotalBytes int64 `json:"vMemoryTotalBytes"`
-	SwapTotalBytes   int64 `json:"vSwapTotalBytes"`
-
-	DisksJSON             string `json:"disks,omitempty"`
-	NetworkInterfacesJSON string `json:"networkInterfaces,omitempty"`
-
-	ContainerID      string `json:"cId,omitempty"`
-	ContainerNumCPUs int64  `json:"cNumProcessors,omitempty"`
-	CgroupVersion    int64  `json:"cCgroupVersion,omitempty"`
-
-	NvidiaDriverVersion string `json:"nvidiaDriverVersion,omitempty"`
-	NvidiaCudaVersion   string `json:"nvidiaCudaVersion,omitempty"`
-	NvmlVersion         string `json:"nvmlVersion,omitempty"`
-	NvidiaGPUCount      int    `json:"nvidiaGpuCount,omitempty"`
-	NvidiaGPUsJSON      string `json:"nvidiaGpus,omitempty"`
+	UUID                  string  `json:"uuid,omitempty"`
+	VMID                  string  `json:"vId,omitempty"`
+	Hostname              string  `json:"vHostname,omitempty"`
+	BootTime              int64   `json:"vBootTime,omitempty"`
+	NumProcessors         int     `json:"vNumProcessors"`
+	CPUType               string  `json:"vCpuType"`
+	CPUCache              string  `json:"vCpuCache"`
+	KernelInfo            string  `json:"vKernelInfo"`
+	TimeSynced            bool    `json:"vTimeSynced"`
+	TimeOffsetSeconds     float64 `json:"vTimeOffsetSeconds"`
+	TimeMaxErrorSeconds   float64 `json:"vTimeMaxErrorSeconds"`
+	MemoryTotalBytes      int64   `json:"vMemoryTotalBytes"`
+	SwapTotalBytes        int64   `json:"vSwapTotalBytes"`
+	DisksJSON             string  `json:"disks,omitempty"`
+	NetworkInterfacesJSON string  `json:"networkInterfaces,omitempty"`
+	ContainerID           string  `json:"cId,omitempty"`
+	ContainerNumCPUs      int64   `json:"cNumProcessors,omitempty"`
+	CgroupVersion         int64   `json:"cCgroupVersion,omitempty"`
+	NvidiaDriverVersion   string  `json:"nvidiaDriverVersion,omitempty"`
+	NvidiaCudaVersion     string  `json:"nvidiaCudaVersion,omitempty"`
+	NvmlVersion           string  `json:"nvmlVersion,omitempty"`
+	NvidiaGPUCount        int     `json:"nvidiaGpuCount,omitempty"`
+	NvidiaGPUsJSON        string  `json:"nvidiaGpus,omitempty"`
 }
 
 // DynamicMetrics contains all dynamic metrics collected during profiling.

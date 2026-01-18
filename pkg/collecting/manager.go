@@ -38,7 +38,7 @@ func NewManager(cfg *utils.Config) *Manager {
 	}
 
 	if !cfg.DisableProcess {
-		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent))
+		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent, false))
 	}
 
 	if !cfg.DisableNvidia {
@@ -89,13 +89,13 @@ func (m *Manager) collectStaticConcurrent(s *StaticMetrics) {
 func (m *Manager) CollectDynamic(d *DynamicMetrics) exporting.Record {
 	d.Timestamp = utils.GetTimestamp()
 
-	if m.concurrent {
-		m.collectDynamicConcurrent(d)
-	} else {
-		for _, c := range m.collectors {
-			c.CollectDynamic(d)
-		}
+	//if m.concurrent {
+	//	m.collectDynamicConcurrent(d)
+	//} else {
+	for _, c := range m.collectors {
+		c.CollectDynamic(d)
 	}
+	//}
 
 	record := structToRecord(d)
 

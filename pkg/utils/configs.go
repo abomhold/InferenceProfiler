@@ -7,6 +7,12 @@ import (
 	"os"
 )
 
+const (
+	CMDSeparator        = "--"
+	VLLMEnvVar          = "VLLM_METRICS_ENDPOINT"
+	DefaultVLLMEndpoint = "http://localhost:8000/metrics"
+)
+
 type Config struct {
 	DisableVM           bool
 	DisableContainer    bool
@@ -21,7 +27,7 @@ type Config struct {
 	OutputFile          string
 	DisableFlatten      bool
 	Interval            int
-	Duration            int // Duration in ms for delta mode (0 = use interval for profiler, or wait for command/signal)
+	Duration            int
 	Delta               bool
 	Batch               bool
 	Stream              bool

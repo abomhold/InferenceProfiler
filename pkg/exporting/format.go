@@ -10,27 +10,6 @@ import (
 // Record is a generic map representing a single metrics record.
 type Record = map[string]interface{}
 
-// Schema defines the structure of records.
-type Schema struct {
-	Columns []Column
-}
-
-// Column describes a single field in the schema.
-type Column struct {
-	Name string
-	Type ColumnType
-}
-
-// ColumnType indicates the data type of a column.
-type ColumnType int
-
-const (
-	TypeString ColumnType = iota
-	TypeInt64
-	TypeFloat64
-	TypeBool
-)
-
 // Format defines the interface for a data format.
 type Format interface {
 	Name() string
@@ -48,7 +27,7 @@ type Reader interface {
 
 // Writer writes records to a file.
 type Writer interface {
-	Init(path string, schema *Schema) error
+	Init(path string) error
 	Write(record Record) error
 	WriteBatch(records []Record) error
 	Flush() error
@@ -92,15 +71,6 @@ func GetByPath(path string) (Format, bool) {
 	return GetByExtension(filepath.Ext(path))
 }
 
-// List returns all registered format names.
-func List() []string {
-	names := make([]string, 0, len(registry))
-	for name := range registry {
-		names = append(names, name)
-	}
-	return names
-}
-
 // GetExtension returns the file extension for a format name.
 func GetExtension(format string) string {
 	switch strings.ToLower(format) {
@@ -139,14 +109,14 @@ func LoadRecords(path string) ([]Record, error) {
 }
 
 // SaveRecords writes records to a file.
-func SaveRecords(path string, records []Record, schema *Schema) error {
+func SaveRecords(path string, records []Record) error {
 	f, ok := GetByPath(path)
 	if !ok {
 		return fmt.Errorf("unsupported format for file: %s", path)
 	}
 
 	writer := f.Writer()
-	if err := writer.Init(path, schema); err != nil {
+	if err := writer.Init(path); err != nil {
 		return fmt.Errorf("failed to initialize writer: %w", err)
 	}
 
@@ -161,55 +131,4 @@ func SaveRecords(path string, records []Record, schema *Schema) error {
 	}
 
 	return writer.Close()
-}
-
-// ExtractSchema infers schema from records.
-func ExtractSchema(records []Record) *Schema {
-	if len(records) == 0 {
-		return &Schema{}
-	}
-
-	columns := make(map[string]ColumnType)
-	for _, r := range records {
-		for k, v := range r {
-			if _, exists := columns[k]; !exists {
-				columns[k] = inferType(v)
-			}
-		}
-	}
-
-	schema := &Schema{Columns: make([]Column, 0, len(columns))}
-	for name, typ := range columns {
-		schema.Columns = append(schema.Columns, Column{Name: name, Type: typ})
-	}
-	return schema
-}
-
-func inferType(v interface{}) ColumnType {
-	switch v.(type) {
-	case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-		return TypeInt64
-	case float32, float64:
-		return TypeFloat64
-	case bool:
-		return TypeBool
-	default:
-		return TypeString
-	}
-}
-
-// SplitLines splits a string into lines.
-func SplitLines(s string) []string {
-	var lines []string
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\n' {
-			lines = append(lines, s[start:i])
-			start = i + 1
-		}
-	}
-	if start < len(s) {
-		lines = append(lines, s[start:])
-	}
-	return lines
 }

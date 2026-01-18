@@ -36,137 +36,132 @@ func (c *VLLMCollector) Close() error { return nil }
 func (c *VLLMCollector) CollectStatic(m *StaticMetrics) {}
 
 func (c *VLLMCollector) CollectDynamic(m *DynamicMetrics) {
-	ts := utils.GetTimestamp()
-
 	resp, err := c.client.Get(c.endpoint)
-	if err != nil {
-		// vLLM endpoint not available - this is expected if vLLM isn't running
+	if err != nil || resp.StatusCode != http.StatusOK {
 		return
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return
-	}
-
 	m.VLLMAvailable = true
-	m.VLLMTimestamp = ts
-
+	m.VLLMTimestamp = utils.GetTimestamp()
 	histograms := &VLLMHistograms{}
+
 	scanner := bufio.NewScanner(resp.Body)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "#") || line == "" {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
+		fullKey, valStr, found := strings.Cut(line, " ")
+		if !found {
 			continue
 		}
 
-		name := parts[0]
-		value := utils.ParseFloat64(parts[1])
+		key := strings.TrimPrefix(fullKey, vllmBucketEnd)
+		value := utils.ParseFloat64(valStr)
 
-		switch {
-		case name == "vllm:num_requests_running":
+		if name, labels, hasLabels := strings.Cut(key, "{"); hasLabels {
+			if strings.HasSuffix(name, vllmBucketSuffix) {
+				parseBucket(name, labels, value, histograms)
+			}
+			continue
+		}
+
+		switch key {
+		case "num_requests_running":
 			m.VLLMRequestsRunning = value
-		case name == "vllm:num_requests_waiting":
+		case "num_requests_waiting":
 			m.VLLMRequestsWaiting = value
-		case name == "vllm:engine_sleep_state":
+		case "engine_sleep_state":
 			m.VLLMEngineSleepState = value
-		case name == "vllm:num_preemptions_total":
+		case "num_preemptions_total":
 			m.VLLMPreemptionsTotal = value
-		case name == "vllm:gpu_cache_usage_perc":
+		case "gpu_cache_usage_perc":
 			m.VLLMKvCacheUsagePercent = value
-		case name == "vllm:prefix_cache_hit_rate":
+		case "prefix_cache_hit_rate":
 			m.VLLMPrefixCacheHits = value
-		case name == "vllm:prefix_cache_queries_total":
+		case "prefix_cache_queries_total":
 			m.VLLMPrefixCacheQueries = value
-		case name == "vllm:request_success_total":
+		case "request_success_total":
 			m.VLLMRequestsFinishedTotal = value
-		case name == "vllm:request_corrupted_total":
+		case "request_corrupted_total":
 			m.VLLMRequestsCorruptedTotal = value
-		case name == "vllm:prompt_tokens_total":
+		case "prompt_tokens_total":
 			m.VLLMTokensPromptTotal = value
-		case name == "vllm:generation_tokens_total":
+		case "generation_tokens_total":
 			m.VLLMTokensGenerationTotal = value
-		case name == "vllm:time_to_first_token_seconds_sum":
+		case "time_to_first_token_seconds_sum":
 			m.VLLMLatencyTtftSum = value
-		case name == "vllm:time_to_first_token_seconds_count":
+		case "time_to_first_token_seconds_count":
 			m.VLLMLatencyTtftCount = value
-		case name == "vllm:e2e_request_latency_seconds_sum":
+		case "e2e_request_latency_seconds_sum":
 			m.VLLMLatencyE2eSum = value
-		case name == "vllm:e2e_request_latency_seconds_count":
+		case "e2e_request_latency_seconds_count":
 			m.VLLMLatencyE2eCount = value
-		case name == "vllm:request_queue_time_seconds_sum":
+		case "request_queue_time_seconds_sum":
 			m.VLLMLatencyQueueSum = value
-		case name == "vllm:request_queue_time_seconds_count":
+		case "request_queue_time_seconds_count":
 			m.VLLMLatencyQueueCount = value
-		case name == "vllm:request_inference_time_seconds_sum":
+		case "request_inference_time_seconds_sum":
 			m.VLLMLatencyInferenceSum = value
-		case name == "vllm:request_inference_time_seconds_count":
+		case "request_inference_time_seconds_count":
 			m.VLLMLatencyInferenceCount = value
-		case name == "vllm:request_prefill_time_seconds_sum":
+		case "request_prefill_time_seconds_sum":
 			m.VLLMLatencyPrefillSum = value
-		case name == "vllm:request_prefill_time_seconds_count":
+		case "request_prefill_time_seconds_count":
 			m.VLLMLatencyPrefillCount = value
-		case name == "vllm:request_decode_time_seconds_sum":
+		case "request_decode_time_seconds_sum":
 			m.VLLMLatencyDecodeSum = value
-		case name == "vllm:request_decode_time_seconds_count":
+		case "request_decode_time_seconds_count":
 			m.VLLMLatencyDecodeCount = value
-		default:
-			parseHistogramBucket(name, value, histograms)
 		}
 	}
 
 	if hasHistogramData(histograms) {
-		data, _ := json.Marshal(histograms)
-		m.VLLMHistogramsJSON = string(data)
+		if data, err := json.Marshal(histograms); err == nil {
+			m.VLLMHistogramsJSON = string(data)
+		}
 	}
 }
 
-func parseHistogramBucket(name string, value float64, h *VLLMHistograms) {
-	if !strings.Contains(name, "_bucket{") {
+func parseBucket(name, labels string, value float64, h *VLLMHistograms) {
+	_, afterLe, found := strings.Cut(labels, "le=\"")
+	if !found {
+		return
+	}
+	bucket, _, found := strings.Cut(afterLe, "\"")
+	if !found {
 		return
 	}
 
-	start := strings.Index(name, "{le=\"")
-	if start == -1 {
-		return
-	}
-	end := strings.Index(name[start+5:], "\"}")
-	if end == -1 {
-		return
-	}
-	bucket := name[start+5 : start+5+end]
-	metricName := name[:strings.Index(name, "_bucket")]
-
+	baseName := strings.TrimSuffix(name, vllmBucketSuffix)
 	var target *map[string]float64
-	switch metricName {
-	case "vllm:num_tokens_generated_per_step":
+
+	switch baseName {
+	case "num_tokens_generated_per_step":
 		target = &h.TokensPerStep
-	case "vllm:time_to_first_token_seconds":
+	case "time_to_first_token_seconds":
 		target = &h.LatencyTtft
-	case "vllm:e2e_request_latency_seconds":
+	case "e2e_request_latency_seconds":
 		target = &h.LatencyE2e
-	case "vllm:request_queue_time_seconds":
+	case "request_queue_time_seconds":
 		target = &h.LatencyQueue
-	case "vllm:request_inference_time_seconds":
+	case "request_inference_time_seconds":
 		target = &h.LatencyInference
-	case "vllm:request_prefill_time_seconds":
+	case "request_prefill_time_seconds":
 		target = &h.LatencyPrefill
-	case "vllm:request_decode_time_seconds":
+	case "request_decode_time_seconds":
 		target = &h.LatencyDecode
-	case "vllm:inter_token_latency_seconds":
+	case "inter_token_latency_seconds":
 		target = &h.LatencyInterToken
-	case "vllm:request_prompt_tokens":
+	case "request_prompt_tokens":
 		target = &h.ReqSizePromptTokens
-	case "vllm:request_generation_tokens":
+	case "request_generation_tokens":
 		target = &h.ReqSizeGenerationTokens
-	case "vllm:request_max_tokens":
+	case "request_max_tokens":
 		target = &h.ReqParamsMaxTokens
-	case "vllm:request_n":
+	case "request_n":
 		target = &h.ReqParamsN
 	}
 
@@ -179,8 +174,7 @@ func parseHistogramBucket(name string, value float64, h *VLLMHistograms) {
 }
 
 func hasHistogramData(h *VLLMHistograms) bool {
-	return len(h.TokensPerStep) > 0 || len(h.LatencyTtft) > 0 ||
-		len(h.LatencyE2e) > 0 || len(h.LatencyQueue) > 0 ||
-		len(h.LatencyInference) > 0 || len(h.LatencyPrefill) > 0 ||
-		len(h.LatencyDecode) > 0 || len(h.LatencyInterToken) > 0
+	return h.TokensPerStep != nil || h.LatencyTtft != nil || h.LatencyE2e != nil ||
+		h.LatencyQueue != nil || h.LatencyInference != nil || h.LatencyPrefill != nil ||
+		h.LatencyDecode != nil || h.LatencyInterToken != nil
 }

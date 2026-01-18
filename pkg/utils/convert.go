@@ -179,3 +179,13 @@ func FormatValue(v interface{}) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
+func Int8SliceToString(b []int8) string {
+	buf := make([]byte, 0, len(b))
+	for _, c := range b {
+		if c == 0 {
+			break
+		}
+		buf = append(buf, byte(c))
+	}
+	return string(buf)
+}

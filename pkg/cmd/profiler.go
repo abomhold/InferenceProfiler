@@ -119,7 +119,7 @@ func runDeltaMode(ctx context.Context, manager *collecting.Manager, cfg *utils.C
 
 	// Write output
 	log.Printf("Writing delta record to %s...", cfg.OutputFile)
-	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}, nil); err != nil {
+	if err := exporting.SaveRecords(cfg.OutputFile, []exporting.Record{deltaRecord}); err != nil {
 		log.Fatalf("Failed to write delta record: %v", err)
 	}
 
@@ -137,7 +137,7 @@ func runStreamMode(ctx context.Context, manager *collecting.Manager, cfg *utils.
 	}
 
 	writer := f.Writer()
-	if err := writer.Init(cfg.OutputFile, nil); err != nil {
+	if err := writer.Init(cfg.OutputFile); err != nil {
 		log.Fatalf("Failed to initialize writer: %v", err)
 	}
 	defer writer.Close()
@@ -257,5 +257,5 @@ func writeRecordsBatch(path, format string, records []exporting.Record, flatten 
 		}
 	}
 
-	return exporting.SaveRecords(path, records, nil)
+	return exporting.SaveRecords(path, records)
 }

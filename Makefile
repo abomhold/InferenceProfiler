@@ -69,7 +69,7 @@ bench-hf: build ## Benchmark & Plot (Numbered, Tall, Safe Legend)
 	$(eval RESULTS := $(shell mktemp))
 	$(eval PLOT := $(shell mktemp))
 	@echo "--- Running Benchmarks ---"
-	@hyperfine --style full --export-csv $(RESULTS) --warmup 5 \
+	@hyperfine --style full --export-csv $(RESULTS) --warmup 10 \
 	   './$(GO_BINARY) ss' \
 	   './$(GO_BINARY) ss --concurrent' \
 	   './$(GO_BINARY) ss --static' \
@@ -95,7 +95,7 @@ bench-hf: build ## Benchmark & Plot (Numbered, Tall, Safe Legend)
 	@echo 'set mxtics 3' >> $(PLOT)
 	@echo 'unset key' >> $(PLOT)
 	@echo 'plot "$(RESULTS)" every ::1 using ($$2*1000):0:($$7*1000):($$8*1000):ytic(sprintf("%.0f", $$0+1)) with xerrorbars lc rgb "cyan", \\' >> $(PLOT)
-	@echo '     ""          every ::1 using ($$2*1000):0:("*") with labels tc rgb "green" offset 0,0' >> $(PLOT)
+	@echo '     ""           every ::1 using ($$2*1000):0:("*") with labels tc rgb "green" offset 0,0' >> $(PLOT)
 	@gnuplot $(PLOT)
 	@echo ""
 	@echo "Legend:"
