@@ -39,5 +39,8 @@ CMD ["infpro", "profile", "--output", "/profiler-output/delta.jsonl", "--dynamic
      "--dataset-name", "random", \
      "--num-prompts", "1000", \
      "--request-rate", "inf", \
+     "--random-input-len", "1024", \
+     "--random-output-len", "512", \
+     "--random-range-ratio", "0.5", \
      "--ready-check-timeout-sec", "0", \
      "--endpoint", "http://localhost:8000/v1/completions"]
