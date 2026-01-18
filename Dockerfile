@@ -15,11 +15,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends build-essential
 
 COPY --from=builder /app/profiler /usr/local/bin/profiler
 RUN echo '#!/bin/sh \n\
-vllm --model $MODEL_PATH --port 8000 --gpu-memory-utilization 0.7 & \n\
+vllm serve --port 8000 --model /app/model --gpu-memory-utilization=0.7 --max-model-len=2048 --dtype=bfloat16 & \n\
 timeout 60s sh -c "until curl -s localhost:8000/health; do sleep 1; done" \n\
 exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
-CMD ["profiler", "--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "--delta", "--", \
+CMD ["profiler", "ss", "--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "--delta", "--", \
      "vllm", "bench", "serve", \
      "--backend", "vllm", \
      "--model", "/app/model", \
