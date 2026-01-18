@@ -10,13 +10,24 @@ import (
 
 // Exporter handles writing metrics to various output formats.
 type Exporter struct {
-	path   string
-	format string
-	writer Writer
+	path        string
+	format      string
+	writer      Writer
+	flattenMode FlattenMode
+}
+
+// ExporterOption configures an Exporter.
+type ExporterOption func(*Exporter)
+
+// WithFlattenMode sets the flattening mode for the exporter.
+func WithFlattenMode(mode FlattenMode) ExporterOption {
+	return func(e *Exporter) {
+		e.flattenMode = mode
+	}
 }
 
 // NewExporter creates a new exporter for the given path and format.
-func NewExporter(path, format string) (*Exporter, error) {
+func NewExporter(path, format string, opts ...ExporterOption) (*Exporter, error) {
 	// Ensure output directory exists
 	dir := filepath.Dir(path)
 	if dir != "" && dir != "." {
@@ -37,11 +48,19 @@ func NewExporter(path, format string) (*Exporter, error) {
 		return nil, fmt.Errorf("failed to initialize writer: %w", err)
 	}
 
-	return &Exporter{
-		path:   path,
-		format: format,
-		writer: writer,
-	}, nil
+	e := &Exporter{
+		path:        path,
+		format:      format,
+		writer:      writer,
+		flattenMode: FlattenAll, // default to full flattening
+	}
+
+	// Apply options
+	for _, opt := range opts {
+		opt(e)
+	}
+
+	return e, nil
 }
 
 // NewParquetExporter creates an exporter specifically for Parquet format.
@@ -59,15 +78,15 @@ func (e *Exporter) Format() string {
 	return e.format
 }
 
-// Write writes a single record, flattening any deferred slice data.
+// Write writes a single record, flattening based on the configured mode.
 func (e *Exporter) Write(record Record) error {
-	return e.writer.Write(FlattenRecord(record))
+	return e.writer.Write(FlattenRecordWithMode(record, e.flattenMode))
 }
 
-// WriteBatch writes multiple records, flattening each.
+// WriteBatch writes multiple records, flattening each based on the configured mode.
 func (e *Exporter) WriteBatch(records []Record) error {
 	for i, r := range records {
-		if err := e.writer.Write(FlattenRecord(r)); err != nil {
+		if err := e.writer.Write(FlattenRecordWithMode(r, e.flattenMode)); err != nil {
 			return fmt.Errorf("failed to write record %d: %w", i, err)
 		}
 	}

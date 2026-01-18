@@ -90,12 +90,18 @@ func InitCmdWithSeparator(name string, args []string) (*CmdContext, func(), []st
 	return ctx, cleanup, cmdArgs
 }
 
-// CollectSnapshot collects a single dynamic snapshot, optionally flattened
+// CollectSnapshot collects a single dynamic snapshot with appropriate flattening.
+// flatten=true: expand all arrays (procs, gpu procs, gpu metrics) into top-level fields
+// flatten=false: keep procs as JSON strings but still expand nvidia GPU metrics
 func CollectSnapshot(manager *collecting.Manager, flatten bool) exporting.Record {
 	dynamic := &collecting.DynamicMetrics{}
 	record := manager.CollectDynamic(dynamic)
 	if flatten {
 		record = exporting.FlattenRecord(record)
+	} else {
+		// Even with --no-flatten, always flatten nvidia GPU metrics
+		// Only processes become JSON strings
+		record = exporting.FlattenRecordNoProcesses(record)
 	}
 	return record
 }
@@ -113,7 +119,9 @@ type DeltaCapture struct {
 	Duration      time.Duration
 }
 
-// RunDelta executes a delta capture waiting on context cancellation
+// RunDelta executes a delta capture waiting on context cancellation.
+// flatten=true: expand all arrays into top-level prefixed fields
+// flatten=false: keep processes as JSON, but still expand nvidia GPU metrics
 func RunDelta(ctx context.Context, manager *collecting.Manager, flatten bool) *DeltaCapture {
 	log.Println("Capturing initial snapshot...")
 	initial := CollectSnapshot(manager, flatten)
@@ -135,7 +143,9 @@ func RunDelta(ctx context.Context, manager *collecting.Manager, flatten bool) *D
 	}
 }
 
-// RunDeltaWithDuration executes a delta capture for a specific duration
+// RunDeltaWithDuration executes a delta capture for a specific duration.
+// flatten=true: expand all arrays into top-level prefixed fields
+// flatten=false: keep processes as JSON, but still expand nvidia GPU metrics
 func RunDeltaWithDuration(manager *collecting.Manager, duration time.Duration, flatten bool) *DeltaCapture {
 	log.Println("Capturing initial snapshot...")
 	initial := CollectSnapshot(manager, flatten)
@@ -267,11 +277,15 @@ func (bc *BatchCollector) Count() int {
 	return len(bc.records)
 }
 
-// SaveBatch saves batch records to file, optionally flattening them
+// SaveBatch saves batch records to file with appropriate flattening.
+// flatten=true: expand all arrays into top-level prefixed fields
+// flatten=false: keep processes as JSON, but still expand nvidia GPU metrics
 func SaveBatch(outputFile string, records []exporting.Record, flatten bool) error {
-	if flatten {
-		for i := range records {
+	for i := range records {
+		if flatten {
 			records[i] = exporting.FlattenRecord(records[i])
+		} else {
+			records[i] = exporting.FlattenRecordNoProcesses(records[i])
 		}
 	}
 	return exporting.SaveRecords(outputFile, records)

@@ -57,7 +57,7 @@ func GetFlags(fs *flag.FlagSet, cfg *Config) func() {
 	fs.BoolVar(&cfg.DisableNvidia, "no-nvidia", false, "Disable NVIDIA GPU metrics")
 	fs.BoolVar(&cfg.DisableVLLM, "no-vllm", false, "Disable vLLM metrics")
 	fs.BoolVar(&cfg.DisableGPUProcesses, "no-gpu-procs", false, "Disable GPU process info")
-	fs.BoolVar(&cfg.DisableFlatten, "no-flatten", false, "Do not flatten nested structures")
+	fs.BoolVar(&cfg.DisableFlatten, "no-flatten", false, "Keep processes as JSON strings (nvidia GPU metrics are always expanded)")
 	fs.StringVar(&cfg.Format, "format", cfg.Format, "Output format")
 	fs.StringVar(&cfg.OutputFile, "output", "", "Output file path")
 	fs.IntVar(&cfg.Interval, "interval", cfg.Interval, "Collection interval (ms)")
