@@ -2,4 +2,6 @@
 /bin/
 /.idea/
 .DS*
+/output/
+
 
