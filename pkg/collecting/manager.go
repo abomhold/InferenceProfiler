@@ -38,7 +38,7 @@ func NewManager(cfg *utils.Config) *Manager {
 	}
 
 	if !cfg.DisableProcess {
-		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent, false))
+		m.collectors = append(m.collectors, NewProcessCollector(cfg.Concurrent))
 	}
 
 	if !cfg.DisableNvidia {

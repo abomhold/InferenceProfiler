@@ -1,26 +1,30 @@
-# Build
+# 1. Builder
 FROM golang:1.25 AS builder
 WORKDIR /app
 COPY . .
-RUN go mod tidy
-RUN CGO_ENABLED=1 GOOS=linux go build -o profiler src/main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -o profiler main.go
 
-# Profile
+# 2. Runtime
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    python3-dev \
-    python3-pip \
-    && rm -rf /var/lib/apt/lists/*
+ARG MODEL_ID="meta-llama/Llama-3.2-1B-Instruct"
+ARG MODEL_PATH=/app/model
 
-RUN pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
-
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential curl python3-pip && \
+    pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext huggingface_hub
+RUN huggingface-cli download ${MODEL_ID} --local-dir ${MODEL_PATH} --local-dir-use-symlinks False
 
 COPY --from=builder /app/profiler /usr/local/bin/profiler
-RUN mkdir -p /profiler-output
-ENTRYPOINT ["/usr/local/bin/profiler","--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "-t", "100", "-f", "parquet", "--stream", "--"]
-
-# Workload: 'vllm' is now in the global PATH
-CMD ["vllm", "serve", "/app/model/", "--gpu-memory-utilization=0.7", "--max-model-len=2048", "--dtype=bfloat16"]
+RUN echo '#!/bin/sh \n\
+vllm --model $MODEL_PATH --port 8000 --gpu-memory-utilization 0.7 & \n\
+timeout 60s sh -c "until curl -s localhost:8000/health; do sleep 1; done" \n\
+exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["profiler", "--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "--delta", "--", \
+     "vllm", "bench", "serve", \
+     "--backend", "vllm", \
+     "--model", "/app/model", \
+     "--dataset-name", "random", \
+     "--num-prompts", "100", \
+     "--request-rate", "inf", \
+     "--endpoint", "http://localhost:8000/v1/completions"]
