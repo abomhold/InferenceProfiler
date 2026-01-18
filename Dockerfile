@@ -1,8 +1,10 @@
-# 1. Builder
 FROM golang:1.25 AS builder
 WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
 COPY . .
-RUN CGO_ENABLED=1 GOOS=linux go build -o profiler main.go
+RUN CGO_ENABLED=1 GOOS=linux go build -o infpro main.go
+
 
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
@@ -16,7 +18,8 @@ RUN apt-get update && \
     python3-dev && \
     rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir --break-system-packages vllm torch-c-dlpack-ext
-COPY --from=builder /app/profiler /usr/local/bin/profiler
+COPY --from=builder /app/infpro /usr/local/bin/infpro
+RUN mkdir -p /profiler-output
 
 RUN echo '#!/bin/sh \n\
 python3 -m vllm.entrypoints.openai.api_server \
@@ -29,11 +32,12 @@ timeout 60s sh -c "until curl -s localhost:8000/health; do sleep 1; done" \n\
 exec "$@"' > /entrypoint.sh && chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 
-CMD ["profiler", "ss", "--no-procs", "--no-gpu-procs", "-o", "/profiler-output", "--delta", "--", \
+CMD ["infpro", "profile", "--output", "/profiler-output/delta.jsonl", "--delta", "--graphs", "--", \
      "vllm", "bench", "serve", \
      "--backend", "vllm", \
      "--model", "/app/model", \
      "--dataset-name", "random", \
-     "--num-prompts", "100", \
+     "--num-prompts", "10000", \
      "--request-rate", "inf", \
+     "--ready-check-timeout-sec", "0", \
      "--endpoint", "http://localhost:8000/v1/completions"]

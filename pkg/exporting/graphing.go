@@ -456,3 +456,165 @@ func sanitizeFilename(name string) string {
 	name = strings.ReplaceAll(name, " ", "_")
 	return strings.ToLower(name)
 }
+
+// GenerateDeltaGraph creates a bar chart visualization of delta values.
+func GenerateDeltaGraph(delta DeltaResult, outputDir string) error {
+	if outputDir == "" {
+		outputDir = "delta_graphs"
+	}
+
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Extract numeric fields from delta record
+	var fields []fieldValue
+	for key, val := range delta.Record {
+		// Skip metadata and non-numeric fields
+		if strings.HasPrefix(key, "_delta_") {
+			continue
+		}
+		if strings.HasSuffix(key, "Json") || strings.HasSuffix(key, "JSON") {
+			continue
+		}
+		if strings.HasSuffix(key, "T") {
+			continue
+		}
+		if key == "timestamp" || key == "uuid" {
+			continue
+		}
+
+		if f, ok := utils.ToFloat64Ok(val); ok {
+			fields = append(fields, fieldValue{name: key, value: f})
+		}
+	}
+
+	if len(fields) == 0 {
+		return fmt.Errorf("no numeric fields found in delta")
+	}
+
+	// Sort by name for consistent output
+	sort.Slice(fields, func(i, j int) bool {
+		return fields[i].name < fields[j].name
+	})
+
+	// Group fields by category for separate charts
+	categories := map[string][]fieldValue{
+		"cpu":       {},
+		"memory":    {},
+		"disk":      {},
+		"network":   {},
+		"gpu":       {},
+		"container": {},
+		"process":   {},
+		"other":     {},
+	}
+
+	for _, f := range fields {
+		lowerName := strings.ToLower(f.name)
+		switch {
+		case strings.HasPrefix(lowerName, "vcpu") || strings.HasPrefix(lowerName, "cpu"):
+			categories["cpu"] = append(categories["cpu"], f)
+		case strings.HasPrefix(lowerName, "vmemory") || strings.HasPrefix(lowerName, "mem"):
+			categories["memory"] = append(categories["memory"], f)
+		case strings.HasPrefix(lowerName, "vdisk") || strings.HasPrefix(lowerName, "disk"):
+			categories["disk"] = append(categories["disk"], f)
+		case strings.HasPrefix(lowerName, "vnetwork") || strings.HasPrefix(lowerName, "network"):
+			categories["network"] = append(categories["network"], f)
+		case strings.HasPrefix(lowerName, "nvidia") || strings.HasPrefix(lowerName, "gpu"):
+			categories["gpu"] = append(categories["gpu"], f)
+		case strings.HasPrefix(lowerName, "c") && (strings.Contains(lowerName, "cpu") || strings.Contains(lowerName, "mem") || strings.Contains(lowerName, "disk") || strings.Contains(lowerName, "network")):
+			categories["container"] = append(categories["container"], f)
+		case strings.HasPrefix(lowerName, "p") && (strings.Contains(lowerName, "cpu") || strings.Contains(lowerName, "mem")):
+			categories["process"] = append(categories["process"], f)
+		default:
+			categories["other"] = append(categories["other"], f)
+		}
+	}
+
+	// Generate chart for each non-empty category
+	for category, catFields := range categories {
+		if len(catFields) == 0 {
+			continue
+		}
+
+		if err := generateDeltaBarChart(catFields, category, outputDir); err != nil {
+			log.Printf("Warning: failed to generate %s chart: %v", category, err)
+		}
+	}
+
+	// Generate summary chart with top changes (by absolute value)
+	topFields := make([]fieldValue, len(fields))
+	copy(topFields, fields)
+	sort.Slice(topFields, func(i, j int) bool {
+		return absFloat(topFields[i].value) > absFloat(topFields[j].value)
+	})
+	if len(topFields) > 20 {
+		topFields = topFields[:20]
+	}
+	if err := generateDeltaBarChart(topFields, "top_changes", outputDir); err != nil {
+		log.Printf("Warning: failed to generate top changes chart: %v", err)
+	}
+
+	return nil
+}
+
+func absFloat(x float64) float64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+func generateDeltaBarChart(fields []fieldValue, title, outputDir string) error {
+	if len(fields) == 0 {
+		return nil
+	}
+
+	p := plot.New()
+	p.Title.Text = fmt.Sprintf("Delta: %s", formatName(title))
+	p.X.Label.Text = "Metric"
+	p.Y.Label.Text = "Delta Value"
+
+	// Create bar values
+	values := make(plotter.Values, len(fields))
+	labels := make([]string, len(fields))
+
+	for i, f := range fields {
+		values[i] = f.value
+		// Truncate long labels
+		label := f.name
+		if len(label) > 25 {
+			label = label[:22] + "..."
+		}
+		labels[i] = label
+	}
+
+	bars, err := plotter.NewBarChart(values, vg.Points(15))
+	if err != nil {
+		return err
+	}
+
+	// Color bars based on positive/negative
+	bars.Color = plotutil.Color(0)
+	p.Add(bars)
+	p.Add(plotter.NewGrid())
+
+	// Set x-axis labels
+	p.NominalX(labels...)
+
+	// Rotate labels if there are many
+	if len(fields) > 5 {
+		p.X.Tick.Label.Rotation = 0.8 // ~45 degrees
+		p.X.Tick.Label.XAlign = 1
+		p.X.Tick.Label.YAlign = 0.5
+	}
+
+	filename := fmt.Sprintf("delta_%s.png", sanitizeFilename(title))
+	return p.Save(defaultWidth, defaultHeight, filepath.Join(outputDir, filename))
+}
+
+type fieldValue struct {
+	name  string
+	value float64
+}
