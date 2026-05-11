@@ -114,12 +114,12 @@ A Postman collection covering the full surface is at
 Quick smoke test against a local server:
 
 ```bash
-curl -s localhost:8888/health
-curl -s localhost:8888/snapshot | jq .
-curl -sX PUT  localhost:8888/collect -d '{}'
-curl -s        localhost:8888/collect
-curl -sX DELETE localhost:8888/collect
-curl -s localhost:8888/files
+curl localhost:8888/health
+curl localhost:8888/snapshot
+curl -X PUT  localhost:8888/collect
+curl localhost:8888/collect
+curl -X DELETE localhost:8888/collect
+curl localhost:8888/files
 ```
 
 ## Environment overrides
@@ -176,13 +176,28 @@ TF_VAR_PROFILE=your-aws-profile-name
 Typical end-to-end flow:
 
 ```bash
-make infra-up            # tofu init + build + apply (creates server + client)
-make deploy              # rsync binary, env, scripts, systemd units to nodes
-                         # then daemon-reload + restart vllm + infpro on server
-make ssh-server          # poke around on the server
-make pull-snapshot       # live tick from the server (uses GET /snapshot + jq)
-make pull-results        # rsync benchmark results from client
-make infra-down          # destroy
+# tofu init + build + apply (creates server + client)
+make infra-up  
+# rsync binary, env, scripts, systemd units to nodes then start services
+make deploy  
+# ssh into server node
+make ssh-server  
+# wait for server bootstrap
+server$ tail -f /var/log/cloud-init-output.log 
+# wait for vLLM to start
+server$ journalctl -u vllm -f  
+# verify infpro is running
+server$ journalctl -u infpro -f  
+# get live tick from the server (uses GET /snapshot + jq)
+make pull-snapshot 
+# ssh into client node
+make ssh-client  
+# starts benchmarking on client and tails logs
+client$ start_bench  
+# rsync benchmark results from client
+make pull-results  
+# destroy
+make infra-down  
 ```
 
 `make help` lists every target.
@@ -196,3 +211,33 @@ server when to start and stop each run via the HTTP API above.
 
 See [`docs/InferenceProfilerDataDictionary.csv`](docs/InferenceProfilerDataDictionary.csv)
 for the full list of collected fields.
+
+## Dependencies
+
+### Host (local dev node)
+* Go>=1.24.0 — make build-local, make refresh
+* Docker — make build (ephemeral golang:latest container for cross-compile)
+* OpenTofu — make infra-* targets; uses hashicorp/aws ~> 5.0 provider
+* rsync — make deploy*, make pull-results
+* ssh — make ssh-server, make ssh-client, all remote targets
+* curl — make test-vllm, make pull-snapshot
+* jq — make pull-snapshot
+* uv — running bench.py and collect.py (shebang: uv run --script)
+
+### Server (remote inference node)
+* Base OS: Ubuntu Noble 24.04
+* curl (apt) — cloud-init fetch of CUDA keyring
+* nvidia-driver-590-server-open (apt) — GPU driver, open kernel module required for Ada Lovelace
+* cuda-nvcc-13-0 (NVIDIA CUDA repo) — CUDA compiler toolkit
+* datacenter-gpu-manager-4-cuda13 (NVIDIA CUDA repo) — DCGM libraries for GPU field queries
+* python3.12, python3.12-venv, python3.12-dev (apt) — vLLM runtime
+* ninja-build (apt) — vLLM compilation dependency
+* vllm 0.18.0+cu130 (pip, GitHub release wheel) — inference server
+
+### Client (remote benchmark node)
+* Base OS: Ubuntu Noble 24.04
+* build-essential (apt) — native extension compilation for pip packages
+* python3.12, python3.12-venv, python3.12-dev (apt) — bench.py runtime
+* vllm[bench]==0.18.0 (pip) — vllm bench serve benchmark CLI
+* requests (pip) — HTTP calls to infpro server API
+* python-dotenv (pip) — reads experiment.env for bench config
