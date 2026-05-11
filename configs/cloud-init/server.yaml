@@ -12,7 +12,7 @@ runcmd:
   - curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb
   - dpkg -i /tmp/cuda-keyring.deb
   - apt-get update
-  - apt-get install -y cuda-nvcc-13-0 datacenter-gpu-manager-4-cuda13
+  - apt-get install -y cuda-nvcc-13-0
   - modprobe nvidia
   - python3.12 -m venv /opt/vllm
   - /opt/vllm/bin/pip install "https://github.com/vllm-project/vllm/releases/download/v0.18.0/vllm-0.18.0+cu130-cp38-abi3-manylinux_2_35_x86_64.whl"
