@@ -11,7 +11,7 @@ import (
 func main() {
 	args := os.Args[1:]
 
-	if hasFlag(args, "-h", "--help", "-help") {
+	if hasHelp(args) {
 		printUsage()
 		return
 	}
@@ -19,8 +19,8 @@ func main() {
 	cmd.Run(args)
 }
 
-func hasFlag(args []string, flags ...string) bool {
-	for _, flag := range flags {
+func hasHelp(args []string) bool {
+	for _, flag := range []string{"-h", "--h", "-help", "--help"} {
 		if slices.Contains(args, flag) {
 			return true
 		}
