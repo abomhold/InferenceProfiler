@@ -34,19 +34,19 @@ help:
 refresh: ## Tidy, format and vet
 	go mod tidy && go fmt ./... && go vet ./...
 
-build-local: $(GO_SOURCES) ## Compile Go binary for Linux amd64 locally (might need a C cross-compilation setup)
-	@mkdir -p $(BIN_DIR)
-	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $(GO_BINARY) $(GO_MAIN)
-	chmod +x $(GO_BINARY)
-
-build: $(GO_BINARY) ## Compile Go binary for Linux amd64 using an ephemeral Docker container
-$(GO_BINARY): $(GO_SOURCES)
+build-docker: $(GO_SOURCES) ## Compile Go binary for Linux amd64 locally (might need a C cross-compilation setup)
 	@mkdir -p $(BIN_DIR)
 	docker run --rm --user $(shell id -u):$(shell id -g) \
 		-e GOPATH=/tmp/go -e GOCACHE=/tmp/go-cache \
 		-v $(CURDIR):/app -w /app golang:latest \
 		sh -c "CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $@ $(GO_MAIN)"
 	chmod +x $@
+
+build: $(GO_BINARY) ## Compile Go binary for Linux amd64 using an ephemeral Docker container
+$(GO_BINARY): $(GO_SOURCES)
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $(GO_BINARY) $(GO_MAIN)
+	chmod +x $(GO_BINARY)
 
 infra-init: $(TOFU_LOCK) ## Initialize Terraform (only on first run or if lockfile is missing)
 $(TOFU_LOCK):
@@ -58,20 +58,8 @@ infra-plan: infra-init ## Show execution plan
 infra-up: infra-init build ## Provision infrastructure
 	tofu apply -auto-approve
 
-infra-up-client: infra-init build ## Provision only client node
-	tofu apply -target=aws_instance.client -auto-approve
-
-infra-up-server: infra-init build ## Provision only server nodes
-	tofu apply -target=aws_instance.servers -auto-approve
-
 infra-down: ## Destroy cluster
 	tofu destroy -auto-approve
-
-infra-down-client: ## Destroy only client node
-	tofu destroy -target=aws_instance.client -auto-approve
-
-infra-down-server: ## Destroy only server nodes
-	tofu destroy -target=module.servers -auto-approve
 
 infra-clean: infra-down ## Destroy + remove state
 	rm -rf .terraform *.tfstate *.tfstate.backup $(TOFU_LOCK)

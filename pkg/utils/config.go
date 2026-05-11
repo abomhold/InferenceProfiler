@@ -25,7 +25,6 @@ type Config struct {
 	Flatten               bool
 	Interval              int
 	Debug                 bool
-	PollStats             bool
 	DisableVM             bool
 	DisableContainer      bool
 	DisableProcess        bool
@@ -56,7 +55,6 @@ func ParseArgs(args []string) *Config {
 	fs.StringVar(&cfg.Pprof, "pprof", "", "Enable pprof profiling on the given address")
 	fs.IntVar(&cfg.ServerPort, "port", 8888, "HTTP port (server mode)")
 	fs.BoolVar(&cfg.Debug, "debug", false, "Enable verbose debug logging")
-	fs.BoolVar(&cfg.PollStats, "poll-stats", false, "Show poller statistics on exit")
 
 	var disabled string
 	fs.StringVar(&disabled, "disabled", "", "Comma-separated list of collectors to disable (vm,container,process,nvidia,vllm,vllm-hist)")
@@ -77,8 +75,8 @@ func ParseArgs(args []string) *Config {
 
 	applyDisabled(disabled, cfg)
 
-	Debugf("config: mode=%s uuid=%s interval=%dms output=%q flatten=%v port=%d poll-stats=%v",
-		cfg.Mode, cfg.UUID, cfg.Interval, cfg.OutputDir, cfg.Flatten, cfg.ServerPort, cfg.PollStats)
+	Debugf("config: mode=%s uuid=%s interval=%dms output=%q flatten=%v port=%d",
+		cfg.Mode, cfg.UUID, cfg.Interval, cfg.OutputDir, cfg.Flatten, cfg.ServerPort)
 	Debugf("config: disabled vm=%v container=%v process=%v nvidia=%v vllm=%v vllm-hist=%v",
 		cfg.DisableVM, cfg.DisableContainer, cfg.DisableProcess,
 		cfg.DisableNvidia, cfg.DisableVLLM, cfg.DisableVLLMHistograms)

@@ -14,7 +14,9 @@ The NVIDIA collector uses [go-nvml](https://github.com/NVIDIA/go-nvml) and
 loads `libnvidia-ml.so` at runtime via dlopen. The binary builds on hosts
 without a GPU; collectors that fail to initialize are disabled at startup.
 
-`make build` cross-builds a Linux/amd64 binary in an ephemeral Docker
+`make build` builds a Linux/amd64 binary on the host machine.
+
+`make build-docker` cross-builds a Linux/amd64 binary in an ephemeral Docker
 container — useful when developing on macOS or arm64.
 
 ## Usage
@@ -49,7 +51,6 @@ infpro [command] [flags]
 | `-disabled LIST`     | (none) | Comma-separated collectors to disable (`vm,container,process,nvidia,vllm,vllm-hist`) |
 | `-port PORT`         | 8888   | HTTP port (server mode) |
 | `-debug`             | false  | Verbose debug logging to stderr |
-| `-poll-stats`        | false  | Show per-collector poller statistics on exit |
 | `-pprof ADDR`        | (off)  | Enable pprof server (e.g. `localhost:6060`) |
 
 ### Examples
@@ -91,8 +92,7 @@ Subsequent records are dynamic ticks, one per interval:
 ```
 
 Section keys depend on which collectors initialized successfully. Dynamic
-metric values are `{V, T}` pairs where `T` is a per-field timestamp for
-rate calculations.
+metric values are `{V, T}` pairs where `T` is a per-field timestamp.
 
 ## HTTP API (server mode)
 
@@ -148,6 +148,8 @@ The repo includes a self-contained OpenTofu + Make deployment for running
 a vLLM server alongside `infpro` on EC2 spot instances, with a separate
 client node for driving benchmarks.
 
+`make help` lists every target.
+
 Layout:
 
 ```
@@ -177,11 +179,11 @@ Typical end-to-end flow:
 
 ```bash
 # tofu init + build + apply (creates server + client)
-make infra-up  
+local$ make infra-up  
 # rsync binary, env, scripts, systemd units to nodes then start services
-make deploy  
+local$ make deploy  
 # ssh into server node
-make ssh-server  
+local$ make ssh-server  
 # wait for server bootstrap
 server$ tail -f /var/log/cloud-init-output.log 
 # wait for vLLM to start
@@ -189,18 +191,17 @@ server$ journalctl -u vllm -f
 # verify infpro is running
 server$ journalctl -u infpro -f  
 # get live tick from the server (uses GET /snapshot + jq)
-make pull-snapshot 
+local$ make pull-snapshot 
 # ssh into client node
-make ssh-client  
+local$ make ssh-client  
 # starts benchmarking on client and tails logs
 client$ start_bench  
 # rsync benchmark results from client
-make pull-results  
+local$ make pull-results  
 # destroy
-make infra-down  
+local$ make infra-down  
 ```
 
-`make help` lists every target.
 
 The `start_bench` script on the client (installed by `make deploy-client`)
 runs `scripts/bench.py`, which drives `vllm bench serve` through a matrix
@@ -216,7 +217,6 @@ for the full list of collected fields.
 
 ### Host (local dev node)
 * Go>=1.24.0 — make build-local, make refresh
-* Docker — make build (ephemeral golang:latest container for cross-compile)
 * OpenTofu — make infra-* targets; uses hashicorp/aws ~> 5.0 provider
 * rsync — make deploy*, make pull-results
 * ssh — make ssh-server, make ssh-client, all remote targets
