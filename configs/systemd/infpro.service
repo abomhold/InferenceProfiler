@@ -1,0 +1,17 @@
+# infpro.service — InferenceProfiler under profiler.slice
+[Unit]
+Description=InferenceProfiler Metrics Collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Slice=profiler.slice
+Type=simple
+EnvironmentFile=/opt/infpro/experiment.env
+ExecStartPre=/usr/bin/nvidia-smi -pm 1
+ExecStart=infpro server -output /tmp
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

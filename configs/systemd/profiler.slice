@@ -1,0 +1,8 @@
+# profiler.slice — cgroup slice for the profiler (infpro)
+[Unit]
+Description=Profiler slice
+Before=slices.target
+
+[Slice]
+AllowedCPUs=0-1
+MemoryMax=1G

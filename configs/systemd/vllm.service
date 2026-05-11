@@ -1,0 +1,31 @@
+# vllm.service — vLLM inference server under benchmark.slice
+[Unit]
+Description=vLLM Inference Server
+After=network-online.target nvidia-persistenced.service
+Wants=network-online.target nvidia-persistenced.service
+
+[Service]
+Slice=benchmark.slice
+Type=simple
+EnvironmentFile=/opt/infpro/experiment.env
+# bash -c is required because systemd does not word-split ExecStart lines.
+# Without it, empty env vars (ENABLE_EAGER, DISABLE_REQUEST_LOGS) become
+# literal empty-string arguments that vLLM rejects as "unrecognized arguments".
+# Inside bash -c, unquoted $VAR expands to nothing when empty.
+ExecStart=/bin/bash -c '/opt/vllm/bin/python -m vllm.entrypoints.openai.api_server \
+    --model "$MODEL_ID" \
+    --host 0.0.0.0 \
+    --port "$VLLM_PORT" \
+    --max-model-len "$MAX_MODEL_LEN" \
+    --dtype "$DTYPE" \
+    --tensor-parallel-size "$TENSOR_PARALLEL_SIZE" \
+    --pipeline-parallel-size "$PIPELINE_PARALLEL_SIZE" \
+    --gpu-memory-utilization "$GPU_MEMORY_UTILIZATION" \
+    $CHUNKED_PREFILL \
+    $ENABLE_EAGER \
+    $DISABLE_REQUEST_LOGS'
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,16 @@
+#cloud-config
+package_update: true
+packages:
+  - build-essential
+  - curl
+  - python3.12
+  - python3.12-venv
+  - python3.12-dev
+runcmd:
+  - python3.12 -m venv /opt/vllm
+  - /opt/vllm/bin/pip install "vllm[bench]==0.18.0" requests python-dotenv
+  - ln -sf /opt/vllm/bin/vllm /usr/local/bin/vllm
+  - ln -sf /opt/vllm/bin/hf /usr/local/bin/hf
+  - mkdir -p /opt/infpro/{bin,scripts,results}
+  - chown -R ubuntu:ubuntu /opt/infpro
+  - touch /var/log/setup-complete

@@ -1,0 +1,225 @@
+{
+	"info": {
+		"_postman_id": "fd6f47a5-9013-4dae-ad5c-aeadd4910a31",
+		"name": "InferenceProfiler Server API",
+		"description": "HTTP API for the InferenceProfiler system metrics collector.\n\nA running server collects metrics in **continuous** mode (background polling at the configured interval) and exposes the current state via a snapshot endpoint. Output files are listed and downloadable by UUID prefix.\n\nSet the `base_url` variable to your server address (e.g., `http://localhost:8888`).\n\n## API Surface\n\n| Method | Path | Description |\n|--------|------|-------------|\n| GET | /health | Health check |\n| GET | /snapshot | Live state: static + most-recent dynamic tick |\n| GET | /collect | Collection status |\n| PUT | /collect | Start continuous collection |\n| DELETE | /collect | Stop collection |\n| GET | /files | List output files |\n| GET | /files/{uuid} | Download file by UUID prefix |\n\n## Suggested test order\n\n1. Health Check\n2. Status (Idle)\n3. Start Continuous\n4. Status (Collecting)\n5. Take Snapshot\n6. Stop Collection\n7. List Files\n8. Download File (by UUID)",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Health Check",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/health",
+					"host": ["{{base_url}}"],
+					"path": ["health"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Status",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/collect",
+					"host": ["{{base_url}}"],
+					"path": ["collect"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Start Continuous",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"var json = pm.response.json();",
+							"if (json.uuid) {",
+							"    pm.collectionVariables.set(\"test_uuid\", json.uuid);",
+							"}"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "PUT",
+				"header": [
+					{
+						"key": "Content-Type",
+						"value": "application/json"
+					}
+				],
+				"body": {
+					"mode": "raw",
+					"raw": "{}"
+				},
+				"url": {
+					"raw": "{{base_url}}/collect",
+					"host": ["{{base_url}}"],
+					"path": ["collect"]
+				},
+				"description": "Body may optionally include `{\"uuid\": \"...\"}` to pin a run identifier. With an empty body the server generates one and returns it."
+			},
+			"response": []
+		},
+		{
+			"name": "Take Snapshot",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test(\"Has static and tick\", function () {",
+							"    var json = pm.response.json();",
+							"    pm.expect(json).to.have.property(\"static\");",
+							"    pm.expect(json).to.have.property(\"tick\");",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/snapshot",
+					"host": ["{{base_url}}"],
+					"path": ["snapshot"]
+				},
+				"description": "Triggers a fresh parallel poll across collectors and returns `{static, tick}`. Works whether or not a continuous run is active."
+			},
+			"response": []
+		},
+		{
+			"name": "Stop Collection",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "DELETE",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/collect",
+					"host": ["{{base_url}}"],
+					"path": ["collect"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "List Files",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/files",
+					"host": ["{{base_url}}"],
+					"path": ["files"]
+				}
+			},
+			"response": []
+		},
+		{
+			"name": "Download File",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test(\"Status 200\", function () {",
+							"    pm.response.to.have.status(200);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{base_url}}/files/{{test_uuid}}",
+					"host": ["{{base_url}}"],
+					"path": ["files", "{{test_uuid}}"]
+				},
+				"description": "Path value is a UUID prefix; the server streams the first matching file (e.g. `{uuid}.jsonl`)."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8888",
+			"type": "string"
+		},
+		{
+			"key": "test_uuid",
+			"value": "",
+			"type": "string"
+		}
+	]
+}
