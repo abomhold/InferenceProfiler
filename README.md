@@ -229,7 +229,6 @@ for the full list of collected fields.
 * curl (apt) — cloud-init fetch of CUDA keyring
 * nvidia-driver-590-server-open (apt) — GPU driver, open kernel module required for Ada Lovelace
 * cuda-nvcc-13-0 (NVIDIA CUDA repo) — CUDA compiler toolkit
-* datacenter-gpu-manager-4-cuda13 (NVIDIA CUDA repo) — DCGM libraries for GPU field queries
 * python3.12, python3.12-venv, python3.12-dev (apt) — vLLM runtime
 * ninja-build (apt) — vLLM compilation dependency
 * vllm 0.18.0+cu130 (pip, GitHub release wheel) — inference server
