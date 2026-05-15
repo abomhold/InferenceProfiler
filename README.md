@@ -169,11 +169,6 @@ configs/
 
 Secrets and the AWS profile name go in a `secrets.env` **one directory
 above the repo** (the Makefile sources it via `-include ../secrets.env`).
-At minimum it needs:
-
-```
-TF_VAR_PROFILE=your-aws-profile-name
-```
 
 Typical end-to-end flow:
 

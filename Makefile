@@ -71,7 +71,7 @@ deploy: ## Push binaries, scripts, env, and service files to all nodes
 	$(MAKE) restart-services
 
 deploy-env: ## Deploy experiment env to both nodes
-	@cat configs/default.env configs/cloud.env ../secrets.env > /tmp/experiment.env
+	@cat configs/default.env configs/cloud.env ../secrets.env > /tmp/experiment.env 2>/dev/null
 	@for ip in $(shell tofu output -raw all_ips | tr ',' ' '); do \
   		echo "-> Deploying combined env file to $$ip"; \
   		rsync -az --rsync-path="sudo rsync" -e "$(SSH)" /tmp/experiment.env ubuntu@$$ip:/opt/infpro/; \

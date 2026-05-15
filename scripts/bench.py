@@ -1,11 +1,4 @@
-#!/usr/bin/env -S uv run --script
-# /// script
-# requires-python = ">=3.12"
-# dependencies = [
-#     "requests",
-#     "python-dotenv",
-# ]
-# ///
+#!/opt/vllm/bin/python
 """
 Run vLLM benchmarks with InferenceProfiler telemetry.
 
@@ -76,19 +69,6 @@ def main():
     base_in = median(in_lens)
     base_out = median(out_lens)
     base_concur = median(concurs)
-
-    instance_type, az = "", ""
-    try:
-        tok = requests.put("http://169.254.169.254/latest/api/token",
-                           headers={"X-aws-ec2-metadata-token-ttl-seconds": "300"},
-                           timeout=2).text
-        h = {"X-aws-ec2-metadata-token": tok}
-        instance_type = requests.get("http://169.254.169.254/latest/meta-data/instance-type",
-                                     headers=h, timeout=2).text
-        az = requests.get("http://169.254.169.254/latest/meta-data/placement/availability-zone",
-                          headers=h, timeout=2).text
-    except requests.RequestException:
-        log.warning("could not fetch EC2 metadata")
 
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "exp.env"), "w") as f:
