@@ -24,12 +24,16 @@ MAKEFLAGS += --no-print-directory
         restart-services restart-vllm restart-infpro restart-nodes \
         pull-snapshot pull-results
 
-all: help
+all: help deps
 
 help:
 	@echo 'Usage: make [target]'
 	@echo 'Targets:'
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
+
+deps: ## Check required tools and SSH key
+	@for t in go docker tofu ssh rsync curl jq; do command -v $$t >/dev/null || { echo "missing: $$t"; exit 1; }; done
+	@echo "ok"
 
 refresh: ## Tidy, format and vet
 	go mod tidy && go fmt ./... && go vet ./...
