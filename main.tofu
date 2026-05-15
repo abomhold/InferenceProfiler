@@ -5,7 +5,7 @@ variable "CLIENT_INSTANCE_TYPE" { type = string }
 variable "AVAILABILITY_ZONE" { type = number }
 variable "PROFILE" {
   type = string
-  default = "personal"
+  default = "default"
 }
 
 terraform {
