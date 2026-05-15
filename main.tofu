@@ -3,7 +3,10 @@ variable "PROJECT" { type = string }
 variable "SERVER_INSTANCE_TYPE" { type = string }
 variable "CLIENT_INSTANCE_TYPE" { type = string }
 variable "AVAILABILITY_ZONE" { type = number }
-variable "PROFILE" { type = string }
+variable "PROFILE" {
+  type = string
+  default = "personal"
+}
 
 terraform {
   required_version = ">= 1.6"
