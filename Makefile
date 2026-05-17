@@ -38,7 +38,7 @@ deps: ## Check required tools and SSH key
 refresh: ## Tidy, format and vet
 	go mod tidy && go fmt ./... && go vet ./...
 
-build-docker: $(GO_SOURCES) ## Compile Go binary for Linux amd64 locally (might need a C cross-compilation setup)
+build-docker: $(GO_SOURCES) ## Compile Go binary for Linux amd64 using an ephemeral Docker container
 	@mkdir -p $(BIN_DIR)
 	docker run --rm --user $(shell id -u):$(shell id -g) \
 		-e GOPATH=/tmp/go -e GOCACHE=/tmp/go-cache \
@@ -46,7 +46,7 @@ build-docker: $(GO_SOURCES) ## Compile Go binary for Linux amd64 locally (might 
 		sh -c "CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $@ $(GO_MAIN)"
 	chmod +x $@
 
-build: $(GO_BINARY) ## Compile Go binary for Linux amd64 using an ephemeral Docker container
+build: $(GO_BINARY)  ## Compile Go binary for Linux amd64 locally (might need a C cross-compilation setup)
 $(GO_BINARY): $(GO_SOURCES)
 	@mkdir -p $(BIN_DIR)
 	CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o $(GO_BINARY) $(GO_MAIN)
@@ -83,20 +83,22 @@ deploy-env: ## Deploy experiment env to both nodes
 	@rm -f /tmp/experiment.env
 
 deploy-client: ## Deploy scripts to client node
-	rsync -az --rsync-path="sudo rsync" -e "$(SSH)" scripts/ ubuntu@$(shell tofu output -raw client_ip):/opt/infpro/scripts/
-	$(SSH) ubuntu@$(shell tofu output -raw client_ip) "sudo ln -sf /opt/infpro/scripts/start_bench /usr/local/bin/start_bench"
+	@echo "-> Deploying scripts"
+	@rsync -az --rsync-path="sudo rsync" -e "$(SSH)" scripts/ ubuntu@$(shell tofu output -raw client_ip):/opt/infpro/scripts/
+	@echo "-> Linking start_bench script"
+	@$(SSH) ubuntu@$(shell tofu output -raw client_ip) "sudo ln -sf /opt/infpro/scripts/start_bench /usr/local/bin/start_bench"
 
 deploy-server: build ## Deploy binaries, env, and systemd files to server nodes
-	@echo "-> Deploying binary to server"
+	@echo "-> Deploying binary"
 	@rsync -az --mkpath --rsync-path="sudo rsync" -e "$(SSH)" bin/ ubuntu@$(shell tofu output -raw server_ip):/usr/local/bin
-	@echo "-> Deploying services files to server"
+	@echo "-> Deploying services files"
 	@rsync -az --mkpath --rsync-path="sudo rsync" -e "$(SSH)" configs/systemd/ ubuntu@$(shell tofu output -raw server_ip):/etc/systemd/system/
 
 restart-services: ## Restart infpro + vllm on server nodes
-	@echo "-> Starting services on server"
+	@echo "-> Reloading systemd on server"
 	@$(SSH) ubuntu@$(shell tofu output -raw server_ip) "sudo systemctl daemon-reload"
-	$(MAKE) restart-vllm
-	$(MAKE) restart-infpro
+	-$(MAKE) restart-vllm
+	-$(MAKE) restart-infpro
 
 restart-vllm: 
 	@echo "-> Starting vllm on server"
@@ -117,6 +119,9 @@ ssh-server: ## SSH into server node
 
 ssh-client: ## SSH into client node
 	$(SSH) ubuntu@$(shell tofu output -raw client_ip)
+
+start_bench: ## Start benchmark on client node
+	$(SSH) ubuntu@$(shell tofu output -raw client_ip) "start_bench"
 
 pull-snapshot: ## Pull latest snapshot from server to local machine
 	curl $(shell tofu output -raw server_ip):$(INFPRO_PORT)/snapshot | jq 'walk(if type == "object" and has("V") and has("T") then "V: \(.V) | T: \(.T)" else . end)' | less

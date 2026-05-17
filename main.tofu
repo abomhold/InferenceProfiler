@@ -3,9 +3,13 @@ variable "PROJECT" { type = string }
 variable "SERVER_INSTANCE_TYPE" { type = string }
 variable "CLIENT_INSTANCE_TYPE" { type = string }
 variable "AVAILABILITY_ZONE" { type = number }
-variable "PROFILE" {
-  type = string
-  default = "default"
+variable "SERVER_AMI" {
+  type    = string
+  default = ""
+}
+variable "CLIENT_AMI" {
+  type    = string
+  default = ""
 }
 
 terraform {
@@ -24,14 +28,13 @@ terraform {
 
 provider "aws" {
   region  = var.REGION
-  profile = var.PROFILE
 }
 
 locals {
   server_is_arm = can(regex("^[a-z][0-9]g", var.SERVER_INSTANCE_TYPE))
   client_is_arm = can(regex("^[a-z][0-9]g", var.CLIENT_INSTANCE_TYPE))
-  server_ami_id = local.server_is_arm ? data.aws_ami.ubuntu_arm.id : data.aws_ami.ubuntu_x86.id
-  client_ami_id = local.client_is_arm ? data.aws_ami.ubuntu_arm.id : data.aws_ami.ubuntu_x86.id
+  server_ami_id = var.SERVER_AMI != "" ? var.SERVER_AMI : (local.server_is_arm ? data.aws_ami.ubuntu_arm.id : data.aws_ami.ubuntu_amd.id)
+  client_ami_id = var.CLIENT_AMI != "" ? var.CLIENT_AMI : (local.client_is_arm ? data.aws_ami.ubuntu_arm.id : data.aws_ami.ubuntu_amd.id)
 }
 
 # --- SSH ---
@@ -49,20 +52,12 @@ resource "local_file" "ssh_key" {
 
 # --- AMIs ---
 
-data "aws_ami" "ubuntu_x86" {
+data "aws_ami" "ubuntu_amd" {
   most_recent = true
   owners = ["099720109477"]
   filter {
     name = "name"
     values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"]
-  }
-  filter {
-    name = "virtualization-type"
-    values = ["hvm"]
-  }
-  filter {
-    name = "architecture"
-    values = ["x86_64"]
   }
 }
 
@@ -72,14 +67,6 @@ data "aws_ami" "ubuntu_arm" {
   filter {
     name = "name"
     values = ["ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-arm64-server-*"]
-  }
-  filter {
-    name = "virtualization-type"
-    values = ["hvm"]
-  }
-  filter {
-    name = "architecture"
-    values = ["arm64"]
   }
 }
 
@@ -165,18 +152,16 @@ resource "aws_instance" "server" {
   instance_market_options {
     market_type = "spot"
     spot_options {
-      spot_instance_type             = "one-time"
-      instance_interruption_behavior = "terminate"
+      spot_instance_type             = "persistent"
+      instance_interruption_behavior = "stop"
     }
   }
 
-  user_data = file("${path.root}/configs/cloud-init/server.yaml")
+  user_data = var.SERVER_AMI != "" ? null : file("${path.root}/configs/cloud-init/server.yaml")
 
   root_block_device {
-    volume_size = 150
+    volume_size = 100
     volume_type = "gp3"
-    iops        = 3000
-    throughput  = 125
     encrypted   = true
   }
 }
@@ -199,7 +184,7 @@ resource "aws_instance" "client" {
     }
   }
 
-  user_data = file("${path.root}/configs/cloud-init/client.yaml")
+  user_data = var.CLIENT_AMI != "" ? null : file("${path.root}/configs/cloud-init/client.yaml")
 
   root_block_device {
     volume_size = 100

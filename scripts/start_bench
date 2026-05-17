@@ -1,4 +1,5 @@
 #!/bin/sh
 sudo mkdir -p /opt/infpro/results && sudo chown ubuntu /opt/infpro/results
-OUTPUT_DIR="/opt/infpro/results/" ENV_FILE="/opt/infpro/experiment.env" PYTHONUNBUFFERED=1 nohup /opt/infpro/scripts/bench.py >>/opt/infpro/results/bench.log 2>&1 &
-tail -f /opt/infpro/results/bench.log
+OUTPUT_DIR="/opt/infpro/results/" ENV_FILE="/opt/infpro/experiment.env" PYTHONUNBUFFERED=1 \
+  nohup /opt/infpro/scripts/bench.py >>/opt/infpro/results/bench.log 2>&1 &
+tail --pid=$! -f /opt/infpro/results/bench.log

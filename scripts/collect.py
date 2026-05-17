@@ -74,6 +74,10 @@ def parse_jsonl(path, uuid):
     if len(lines) < 2:
         return None, None, {}
 
+    static = flatten(lines[0])
+    metrics, procs = [], []
+
+    for sample in lines[1:]:
         os_procs = sample.pop("Process", None) or []
         nv = sample.get("Nvidia") or []
         gp = gpu_procs(nv) if nv else {}
@@ -100,8 +104,8 @@ def parse_jsonl(path, uuid):
                 if k.endswith("T") and isinstance(v, (int, float)) and v > 0
             ]
             fp["timestamp"] = min(t_vals) if t_vals else ts
-            if has_gpu:
-                fp.update(gp[pid])
+            if gpu_data:
+                fp.update(gpu_data)
             procs.append(fp)
 
     mdf = strip_v(pd.DataFrame(metrics))
@@ -146,8 +150,8 @@ def json_hist_to_arrays(df):
         c
         for c in df.columns
         if c.endswith("Hist")
-        and not c.endswith("HistT")
-        and (df[c].dtype == object or pd.api.types.is_string_dtype(df[c]))
+           and not c.endswith("HistT")
+           and (df[c].dtype == object or pd.api.types.is_string_dtype(df[c]))
     ]
     if not hist_cols:
         return df
@@ -300,4 +304,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
