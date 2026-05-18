@@ -26,7 +26,8 @@ ExecStart=/bin/bash -c '/opt/vllm/bin/python -m vllm.entrypoints.openai.api_serv
     $DISABLE_REQUEST_LOGS'
 Restart=on-failure
 RestartSec=5
-TimeoutStopSec=10
+#TimeoutStopSec=5
+#KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target

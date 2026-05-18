@@ -204,16 +204,11 @@ of input/output lengths and concurrency levels, telling the profiler
 server when to start and stop each run via the HTTP API above.
 
 For repeated deployments, it may be helpful to make a snapshot of the nodes and use a custom AMI.
-To do so, bring up the nodes and wait for both to be completely up.
-Then, clear some caches on the server by running:
-```bash
-sudo cloud-init clean --logs --seed
-sudo rm -rf /root/.triton
-```
+To do so, bring up the nodes and wait for both to be completely up, don't run deployments.
 Create both snapshots without the reboot flag.
 Once the snapshot is created, bring down the nodes.
 Finally, set the `TF_VAR_CLIENT_AMI` and `TF_VAR_SERVER_AMI` variables to the new AMI IDs in `default.env` and re-run `make infra-up`.
-You will still need to run `make deploy`, but this will skip the heavier build steps.
+You will still need to run `make deploy`, but this will skip the heavier build steps saving around 5 minutes.
 
 ## Metric reference
 
