@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-ENV_FILE=configs/default.env
+ENV_FILE=${1:-configs/default.env}
 for l in {1..100}; do
   echo "Starting Loop: ${l}"
   for az in {0..2}; do

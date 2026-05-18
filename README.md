@@ -200,15 +200,19 @@ local$ make infra-down
 
 The `start_bench` script on the client (installed by `make deploy-client`)
 runs `scripts/bench.py`, which drives `vllm bench serve` through a matrix
-of input/output lengths and concurrency levels, telling the profiler
+jof input/output lengths and concurrency levels, telling the profiler
 server when to start and stop each run via the HTTP API above.
 
 For repeated deployments, it may be helpful to make a snapshot of the nodes and use a custom AMI.
 To do so, bring up the nodes and wait for both to be completely up, don't run deployments.
 Create both snapshots without the reboot flag.
 Once the snapshot is created, bring down the nodes.
-Finally, set the `TF_VAR_CLIENT_AMI` and `TF_VAR_SERVER_AMI` variables to the new AMI IDs in `default.env` and re-run `make infra-up`.
+Finally, set the `TF_VAR_CLIENT_AMI` and `TF_VAR_SERVER_AMI` enviroment variables to the new AMI IDs in `default.env` and re-run `make infra-up`.
 You will still need to run `make deploy`, but this will skip the heavier build steps saving around 5 minutes.
+
+Additionally, there is a top level `exp_loop.sh` script that can be used to itterate through multiple deployments.
+Right now it just loops through AWS AZs, but it could be extended to include other variables.
+It allows capturing more cloud variability in the results by rebuilding/deploying the environment, not just a single instance.
 
 ## Metric reference
 
